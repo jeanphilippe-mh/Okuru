@@ -302,8 +302,9 @@ func DeleteFile(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
+		return context.NoContent(status)
 	} else {
-		status = http.StatusOK
+		DataContext["type"] = "File"
+		return context.Render(http.StatusOK, "removed.html", DataContext)
 	}
-	return context.NoContent(status)
 }

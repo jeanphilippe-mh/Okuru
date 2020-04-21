@@ -271,6 +271,12 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
+	p.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+storageKey))
+	if err != nil {
+		log.Error("GetPassword() Redis err GET views count TTL : %+v\n", err)
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+
 	return nil
 }
 

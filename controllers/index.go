@@ -155,6 +155,7 @@ func AddIndex(context echo.Context) error {
 }
 
 func DeleteIndex(context echo.Context) error {
+	delete(DataContext, "errors")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {
@@ -165,8 +166,9 @@ func DeleteIndex(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
+		return context.NoContent(status)
 	} else {
-		status = http.StatusOK
+		DataContext["type"] = "Password"
+		return context.Render(http.StatusOK, "removed.html", DataContext)
 	}
-	return context.NoContent(status)
 }
