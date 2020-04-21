@@ -9,16 +9,17 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 ## Requirements
 
 * Redis
-* Golang (Not sure about the minimal version, I've used 1.12)
+* Golang (Not sure about the minimal version, i've used 1.14 form arm64/linux)
+* https://golang.org/doc/install?download=go1.14.2.linux-arm64.tar.gz
 
 ## Installation/How to use it
 
-* Clone the repository
-* go get in the directory
+* Git clone the repository
+* "go get" in the directory
 
 To test :
 * Copy the .env.dist file to .env file or edit it with your configuration. Source it (``set -a && source .env && set +a`` for example on linux).
-* Build and run
+* "go build" and run ./Okuru
 
 ## Configuration
 
@@ -50,15 +51,12 @@ You can configure the following via environment variables.
 
 **OKURU_FILE_FOLDER**: The folder that will be used to store the uploaded files. It can be a relative or an absolute path. It defaults to **data/**
 
-## Code quality
-
-Just a little note, I'm not really familiar with Go yet (I'm learning on the job for fun) so this code may contains many Golang "good way to do" or anti-pattern errors. I will try to improve it as soon as I learn more about it.
-
 ## Credits
 
-* [Pinterest's snappass](https://github.com/pinterest/snappass) for the original software and idea
-* [Labstack's Echo framework](https://github.com/labstack/echo) for the web framework
-* [flosch/pongo2](https://github.com/flosch/pongo2) for the template renderer
+* [Pinterest's snappass](https://github.com/pinterest/snappass) for the original software and idea.
+* [Labstack's Echo framework](https://github.com/labstack/echo) for the web framework.
+* [flosch/pongo2](https://github.com/flosch/pongo2) for the template renderer.
+* [eraffaelli](https://github.com/eraffaelli/Okuru) for the goland fork/reimplementation.
 
 ## LICENCE
 
