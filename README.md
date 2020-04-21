@@ -18,8 +18,9 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 * **go get** in the directory
 
 To test :
-* Copy the .env.dist file to .env file or edit it with your configuration. Source it (``set -a && source .env && set +a`` for example on linux).
-* **go build** and run ./Okuru
+* Copy the .env.dist file to .env file or edit it with your configuration. 
+* Source it (``set -a && source .env && set +a`` for example on linux).
+* **go build** and run ./Okuru .
 
 ## Configuration
 
