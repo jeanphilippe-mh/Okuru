@@ -11,7 +11,7 @@ import (
 /**
  * Print help for API usage in a readable way for bash/curl call
  */
-func HelpPassword(context echo.Context) error  {
+func HelpPassword(context echo.Context) error {
 	help := `Generate a password share link with the following parameters:
 password : (required), the password
 ttl: (optional) number seconds, min: 300, max: 604800, default: 3600 (one hour)
@@ -32,7 +32,7 @@ func ReadPassword(context echo.Context) error {
 		return context.NoContent(http.StatusNotFound)
 	}
 
-	p, err := GetPassword(p)
+	err := GetPassword(p)
 	if err != nil {
 		return context.NoContent(http.StatusNotFound)
 	}
@@ -89,7 +89,7 @@ func CreatePassword(context echo.Context) (err error) {
 /**
  * From a given token, remove password from Redis.
  */
-func DeletePassword(context echo.Context) error  {
+func DeletePassword(context echo.Context) error {
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {

@@ -9,7 +9,7 @@ func Password(g *echo.Group) {
 	g.GET("", controllers.HelpPassword)
 	g.HEAD("", controllers.HelpPassword)
 	g.OPTIONS("", controllers.HelpPassword)
-	g.GET( "/", controllers.HelpPassword)
+	g.GET("/", controllers.HelpPassword)
 	g.HEAD("/", controllers.HelpPassword)
 	g.OPTIONS("/", controllers.HelpPassword)
 	g.GET("/:password_key", controllers.ReadPassword)

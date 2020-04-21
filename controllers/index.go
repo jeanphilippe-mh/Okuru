@@ -23,17 +23,17 @@ func ReadIndex(context echo.Context) error {
 	if p.PasswordKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
-	if strings.Contains(p.PasswordKey,"favicon.ico") {
+	if strings.Contains(p.PasswordKey, "favicon.ico") {
 		return nil
 	}
-	if strings.Contains(p.PasswordKey,"robots.txt") {
+	if strings.Contains(p.PasswordKey, "robots.txt") {
 		return nil
 	}
 
-	p, err := GetPassword(p)
+	err := GetPassword(p)
 	if err != nil {
 		log.Error("Error while retrieving password : %s\n", err)
-		return context.NoContent(http.StatusNotFound)
+		return context.Render(http.StatusNotFound, "404.html", DataContext)
 	}
 
 	var (
@@ -54,6 +54,29 @@ func ReadIndex(context echo.Context) error {
 	DataContext["deletableURL"] = deletableURL
 
 	return context.Render(http.StatusOK, "password.html", DataContext)
+}
+
+func RevealPassword(context echo.Context) error {
+	println("Revealpassword")
+	p := new(Password)
+	p.PasswordKey = context.Param("password_key")
+	if p.PasswordKey == "" {
+		return context.NoContent(http.StatusNotFound)
+	}
+	if strings.Contains(p.PasswordKey, "favicon.ico") {
+		return nil
+	}
+	if strings.Contains(p.PasswordKey, "robots.txt") {
+		return nil
+	}
+
+	err := RetrievePassword(p)
+	if err != nil {
+		log.Error("%+v\n", err)
+		return context.NoContent(http.StatusNotFound)
+	}
+
+	return context.String(200, p.Password)
 }
 
 func AddIndex(context echo.Context) error {

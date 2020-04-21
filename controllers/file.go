@@ -31,16 +31,16 @@ func ReadFile(context echo.Context) error {
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
-	if strings.Contains(f.FileKey,"favicon.ico") {
+	if strings.Contains(f.FileKey, "favicon.ico") {
 		return nil
 	}
-	if strings.Contains(f.FileKey,"robots.txt") {
+	if strings.Contains(f.FileKey, "robots.txt") {
 		return nil
 	}
 
 	err := GetFile(f)
 	if err != nil {
-		return context.NoContent(http.StatusNotFound)
+		return context.Render(http.StatusNotFound, "404.html", DataContext)
 	}
 
 	var (
@@ -79,10 +79,10 @@ func DownloadFile(context echo.Context) error {
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
-	if strings.Contains(f.FileKey,"favicon.ico") {
+	if strings.Contains(f.FileKey, "favicon.ico") {
 		return nil
 	}
-	if strings.Contains(f.FileKey,"robots.txt") {
+	if strings.Contains(f.FileKey, "robots.txt") {
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func DownloadFile(context echo.Context) error {
 
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
-	return context.Attachment(filePathName, fileName + ".zip")
+	return context.Attachment(filePathName, fileName+".zip")
 }
 
 func AddFile(context echo.Context) error {
@@ -163,7 +163,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		f.PasswordProvidedKey = strings.Split(token, TOKEN_SEPARATOR)[0]
-		passwordLink = GetBaseUrl(context)+"/" + token
+		passwordLink = GetBaseUrl(context) + "/" + token
 	}
 
 	token, err := SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey)
@@ -205,7 +205,7 @@ func AddFile(context echo.Context) error {
 		defer src.Close()
 
 		if file.Size > MaxFileSize {
-			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size * 1024 * 1024, MaxFileSize)
+			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			log.Error(errorMessage)
 			DataContext["errors"] = errorMessage
 			err := os.RemoveAll(folderPathName)
@@ -232,7 +232,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileList = append(fileList, folderPathName + file.Filename)
+		fileList = append(fileList, folderPathName+file.Filename)
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
@@ -246,11 +246,10 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-
 	z := archiver.Zip{
-		CompressionLevel:flate.NoCompression,
+		CompressionLevel: flate.NoCompression,
 	}
-	err = z.Archive(fileList, FILEFOLDER + "/" + folderName + ".zip")
+	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
 	if err != nil {
 		log.Error("Error while archive : %+v\n", err)
 		DataContext["errors"] = err.Error()

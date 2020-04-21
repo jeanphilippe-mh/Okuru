@@ -32,6 +32,15 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, c echo.Cont
 	var t *pongo2.Template
 	var err error
 
+	ex, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = pongo2.DefaultLoader.SetBaseDir(filepath.Dir(ex) + "/views")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if data != nil {
 		var ok bool
 		ctx, ok = data.(pongo2.Context)
@@ -61,20 +70,9 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, c echo.Cont
 }
 
 func New() *echo.Echo {
-	renderer := Renderer {
+	renderer := Renderer{
 		Debug: true,
 	}
-
-	ex, err := os.Executable()
-	if err != nil {
-		log.Fatal(err)
-	}
-	rootPath := filepath.Dir(ex)
-	err = pongo2.DefaultLoader.SetBaseDir(rootPath + "/views")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	e := echo.New()
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Renderer = renderer
@@ -82,9 +80,10 @@ func New() *echo.Echo {
 	// Middleware
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
-		`"method":"${method}","uri":"${uri}","status":${status},"error":"${error}",` +
-		`"latency_human":"${latency_human}","bytes_in":${bytes_in},` +
-		`"bytes_out":${bytes_out}}` + "\n",
+			`"method":"${method}","uri":"${uri}","status":${status},"error":"${error}",` +
+			`"latency_human":"${latency_human}","bytes_in":${bytes_in},` +
+			`"bytes_out":${bytes_out}` +
+			`"user_agent":${user_agent}}` + "\n",
 	}))
 	//CORS
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -97,7 +96,11 @@ func New() *echo.Echo {
 	fileGroup := e.Group("/file")
 
 	//Route => handler
-	e.Static("/", rootPath + "/public")//this need to be before routing
+	ex, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	e.Static("/", filepath.Dir(ex)+"/public") //this need to be before routing
 	routes.Index(e)
 	routes.Password(apiGroup)
 	routes.File(fileGroup)
