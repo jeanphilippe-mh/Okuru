@@ -1,6 +1,11 @@
 html {
     position: relative;
     min-height: 100%;
+    font-size: clamp(12px, 4vw, 18px);
+}
+
+p {
+  font-size: 2vmin;
 }
 
 .break-word {
@@ -19,6 +24,37 @@ input[readonly].readonly-text {
 .container {
     margin-bottom: 10px;
 }
+
 footer {
     text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  .site-title, body {
+    color: #fff;
+  }
+  .site-content, body {
+    color: #000;
+    background: #f9f9f9;
+  }
+  .site-header {
+    background: #fff;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .site-title, body {
+    color: #fff;
+  }
+  .site-content, body {
+    color: #fff;
+    background: #141414;
+  }
+  .site-header {
+    color: #fff;
+    background: #141414;
+  }
+  hr {
+    border-top: 1px solid white;
+  }
 }
