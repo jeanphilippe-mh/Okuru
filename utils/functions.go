@@ -332,7 +332,8 @@ func CleanFileWatch() {
 	c := pool.Get()
 	defer c.Close()
 	if Ping(c) == false {
-		log.Fatal("Can't open redis pool")
+		log.Printf("Can't open redis pool")
+		return
 	}
 
 	psc := redis.PubSubConn{c}
