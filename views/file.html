@@ -9,6 +9,7 @@
         <div class="row">
             {% if passwordNeeded %}
             <div class="col">
+              <br>
                 <div class="form-group">
                     <label for="password">A password is needed for that file:</label>
                     <input type="password" id="password" name="password" minlength="5" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password of the archive that will be created. If none is provided, one will be generated" title="Password of the archive that will be created. If none is provided, one will be generated" aria-describedby="basic-addon1" autocomplete="off" />
@@ -16,22 +17,23 @@
             </div>
             {% endif %}
             <div class="col">
-                <label for="file-text">Get your file.</label>
+              <br>
+                <label for="file-text">Get your file:</label>
             <div id="revealarea" class="row">
                 <input type="hidden" value="{{ f.FileKey }}" />
                 <button id="revealbutton" class="btn btn-primary" style="margin-left: auto; margin-right: auto;">Download</button>
+            </div>
+            <br>
+            <div>
+                <p><span style="color:red;">{% if (errors) %}&#9940{{ errors }}{% endif %}</span> </p>
             </div>
             </div>
         </div>
     </form>
     <br>
     <p>
-        The file is up for {{ ttl }} / restricted to {{ f.Views }} view(s) and is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a> {% else %} {{ deletableText }} {% endif %} by viewer.
-        <br>After that it will be permanently deleted from the system, and the URL will no longer work.
+        &#9989The file is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a> {% else %} {{ deletableText }} {% endif %} and up for <b>{{ ttl }}</b> / <b>{{ f.Views }} view(s) left</b>.
+        <br>After that it will be <u>permanently deleted</u> from the server and the URL will no longer work.
     </p>
-
-    {% if (f.Deletable) %}
-        <a href="{{ deletableURL }}">Delete it</a>
-    {% endif %}
 </section>
 {% endblock %}

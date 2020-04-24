@@ -5,9 +5,10 @@
     <div class="pb-2 mt-4 mb-2 border-bottom">
         <h1>Share Secret Link</h1>
     </div>
+    <br>
     <div class="row">
         <div class="col-sm-11">
-            <label for="file-link">The file has been temporarily stored ({{ ttl }} / {{ f.Views }} view(s)) and is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a> {% else %} {{ deletableText }} {% endif %}. Send the following URL to your intended recipient.</label>
+            <label for="file-link">The file has been temporarily stored <b>({{ ttl }}</b> / <b>{{ f.Views }} view(s))</b> and is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a>{% else %}{{ deletableText }}{% endif %}. Send the following URL to your intended recipient.</label>
             <input type="text" class="form-control" id="file-link" value="{{ f.Link }}" readonly="readonly">
         </div>
 
