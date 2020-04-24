@@ -111,7 +111,7 @@ func AddIndex(context echo.Context) error {
 	}
 
 	if p.Password == "" {
-		DataContext["errors"] = "No password provided"
+		DataContext["errors"] = "No input was provided. Please fill the following field to generate a link"
 		return context.Render(http.StatusOK, "set_password.html", DataContext)
 	}
 

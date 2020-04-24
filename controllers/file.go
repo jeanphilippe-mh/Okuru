@@ -101,7 +101,8 @@ func DownloadFile(context echo.Context) error {
 
 	if passwordOk == false {
 		// Todo: this will cause a views counted if the person comme again on the link instead of back button
-		return context.String(http.StatusUnauthorized, "You don't have the permission to open that file")
+		DataContext["errors"] = "Forbidden. No password provided"
+		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
 	}
 
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
@@ -177,7 +178,7 @@ func AddFile(context echo.Context) error {
 	files := form.File["files"]
 
 	if len(files) == 0 {
-		errorMessage := "No file was selected"
+		errorMessage := "No file was selected. Please provide a file to generate a link"
 		log.Error(errorMessage)
 		DataContext["errors"] = errorMessage
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
