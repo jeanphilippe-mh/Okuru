@@ -15,6 +15,11 @@ func Index(context echo.Context) error {
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
 }
 
+func PrivacyIndex(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusOK, "privacy.html", DataContext)
+}
+
 func ReadIndex(context echo.Context) error {
 	delete(DataContext, "errors")
 	p := new(Password)
