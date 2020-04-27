@@ -345,7 +345,8 @@ func CleanFileWatch() {
 
 	psc := redis.PubSubConn{c}
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-		log.Fatal("Error from sub redis : %s", err)
+		log.Printf("Error from sub redis : %s", err)
+		return
 	}
 
 	for {
