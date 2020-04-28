@@ -1,8 +1,8 @@
 package controllers
 
 import (
-	. "github.com/eraffaelli/Okuru/models"
-	. "github.com/eraffaelli/Okuru/utils"
+	. "github.com/jeanphilippe-mh/Okuru/models"
+	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo"
 	"net/http"
 	"strings"
