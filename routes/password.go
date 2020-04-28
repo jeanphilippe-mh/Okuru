@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"github.com/eraffaelli/Okuru/controllers"
+	"github.com/jeanphilippe-mh/Okuru/controllers"
 	"github.com/labstack/echo"
 )
 
