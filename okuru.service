@@ -3,8 +3,8 @@ Description=Okuru
 
 [Service]
 Type=simple
-EnvironmentFile=/opt/go/bin/Okuru/.env
-ExecStart=/opt/go/bin/Okuru/okuru
+EnvironmentFile=/home/freebox/Okuru/.env
+ExecStart=/home/freebox/Okuru/Okuru
 Restart=always
 RestartSec=5s
 StandardOutput=syslog
