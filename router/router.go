@@ -2,7 +2,7 @@ package router
 
 import (
 	"errors"
-	"github.com/eraffaelli/Okuru/routes"
+	"github.com/jeanphilippe-mh/Okuru/routes"
 	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
