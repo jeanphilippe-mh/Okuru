@@ -2,7 +2,7 @@ package utils
 
 import (
 	"errors"
-	"github.com/eraffaelli/Okuru/models"
+	"github.com/jeanphilippe-mh/Okuru/models"
 	"github.com/fernet/fernet-go"
 	"github.com/garyburd/redigo/redis"
 	"github.com/google/uuid"
