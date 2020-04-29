@@ -19,7 +19,7 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 * git clone the repository
 * cd Okuru
-* go mod init github.com/jeanphilippe-mh/Okuru
+* **go mod init** github.com/jeanphilippe-mh/Okuru
 * **go get** in the directory
 
 To test :
