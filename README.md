@@ -17,8 +17,8 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 * tar -xvf go1.14.2.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-* Git clone the repository
-* mkdir Okuru/ then cd Okuru
+* git clone the repository
+* cd Okuru
 * go mod init github.com/jeanphilippe-mh/Okuru
 * **go get** in the directory
 
