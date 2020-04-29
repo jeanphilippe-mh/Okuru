@@ -5,7 +5,7 @@ import (
 	"fmt"
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo"
+	"github.com/labstack/echo/v4"
 	"github.com/mholt/archiver"
 	log "github.com/sirupsen/logrus"
 	"io"
