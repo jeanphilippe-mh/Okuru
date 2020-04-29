@@ -4,7 +4,7 @@ import (
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	"github.com/fernet/fernet-go"
-	"github.com/garyburd/redigo/redis"
+	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
