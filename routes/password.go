@@ -2,7 +2,7 @@ package routes
 
 import (
 	"github.com/jeanphilippe-mh/Okuru/controllers"
-	"github.com/labstack/echo/"
+	"github.com/labstack/echo"
 )
 
 func Password(g *echo.Group) {
