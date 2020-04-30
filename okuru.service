@@ -3,6 +3,7 @@ Description=Okuru
 
 [Service]
 Type=simple
+WorkingDirectory=/home/freebox/Okuru
 EnvironmentFile=/home/freebox/Okuru/.env
 ExecStart=/home/freebox/Okuru/Okuru
 Restart=always
