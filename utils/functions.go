@@ -363,7 +363,9 @@ func CleanFileWatch() {
 		case redis.PMessage:
 			log.Debug("PMessage from redis %s\n", string(v.Data))
 			keyName := string(v.Data)
-			if !strings.Contains(keyName, "file") { return }
+			if !strings.Contains(keyName, "file") { 
+				return
+			}
 			CleanFile(keyName)
 
 		case redis.Subscription:
