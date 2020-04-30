@@ -5,11 +5,13 @@
     <div class="pb-2 mt-4 mb-2 border-bottom">
         <h1>Get Your Secret</h1>
     </div>
+    <div>
+        <p><span style="color:red;">{% if (errors) %}&#9940{{ errors }}{% endif %}</span> </p>
+    </div>
     <form role="form" id="file_create" method="post" class="form-horizontal" enctype="multipart/form-data">
         <div class="row">
             {% if passwordNeeded %}
             <div class="col">
-              <br>
                 <div class="form-group">
                     <label for="password">A password is needed for that file:</label>
                     <input type="password" id="password" name="password" minlength="5" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password of the archive that will be created. If none is provided, one will be generated" title="Password of the archive that will be created. If none is provided, one will be generated" aria-describedby="basic-addon1" autocomplete="off" />
@@ -17,17 +19,12 @@
             </div>
             {% endif %}
             <div class="col">
-              <br>
                 <label for="file-text">Get your file:</label>
             <div id="revealarea" class="row">
                 <input type="hidden" value="{{ f.FileKey }}" />
                 <button id="revealbutton" class="btn btn-primary" style="margin-left: auto; margin-right: auto;">Download</button>
             </div>
-            <br>
-            <div>
-                <p><span style="color:red;">{% if (errors) %}&#9940{{ errors }}{% endif %}</span> </p>
-            </div>
-            </div>
+          </div>
         </div>
     </form>
     <br>
