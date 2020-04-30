@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"github.com/gomodule/redigo/redis"
+	"github.com/garyburd/redigo/redis"
 	log "github.com/sirupsen/logrus"
 )
 
