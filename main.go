@@ -4,7 +4,7 @@ package main
 //https://github.com/verybluebot/echo-server-tutorial/
 
 import (
-	"github.com/jeanphilippe-mh/Okuru/router/"
+	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
