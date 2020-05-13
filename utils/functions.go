@@ -128,7 +128,7 @@ func Decrypt(password []byte, decryptionKey string, ttl int) (string, error) {
  * @param {boolean} deletable
  * @return {string, error} token, error
  */
-func SetPassword(password string, ttl int, views int, deletable bool) (string, *echo.HTTPError) {
+func SetPassword(password string, ttl, views int, deletable bool) (string, *echo.HTTPError) {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
@@ -402,7 +402,7 @@ func RandomSequence(n int) string {
  * @param {boolean} deletable
  * @return {string} token
  */
-func SetFile(password string, ttl int, views int, deletable, provided bool, providedKey string) (string, *echo.HTTPError) { //done
+func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string) (string, *echo.HTTPError) { //done
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
