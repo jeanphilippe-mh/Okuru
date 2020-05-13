@@ -13,12 +13,12 @@
             <div class="col">
                 <div class="form-group">
                     <label for="files">File(s) to upload (total upload max size <b>{{ maxFileSizeText }}</b>)</label>
-                    <input type="file" id="files" name="files" class="form-control-file" aria-describedby="basic-addon1" autocomplete="off" multiple />
+                    <input type="file" id="files" name="files" class="form-control-file" aria-placeholder="file" aria-labelledby="fileboxLabel" aria-label="file" aria-describedby="basic-addon1" aria-required="true" aria-autocomplete="none" autocomplete="off" autocomplete="off" multiple />
                 </div>
 
                 <div class="form-group">
                     <label for="password">Password (optional):</label>
-                    <input type="password" id="password" name="password" minlength="5" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." title="Password for the archive that will be created." aria-describedby="basic-addon1" autocomplete="off" />
+                    <input type="password" id="password" name="password" minlength="5" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." title="Password for the archive that will be created." aria-placeholder="password" aria-labelledby="txtboxLabel" aria-label="password" aria-describedby="basic-addon2" aria-required="false" aria-autocomplete="none" autocomplete="off" />
                 </div>
 
                 <div class="form-group">
