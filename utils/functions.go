@@ -4,7 +4,7 @@ import (
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	"github.com/fernet/fernet-go"
-	"github.com/garyburd/redigo/redis"
+	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
 	"github.com/labstack/echo"
 	log "github.com/sirupsen/logrus"
@@ -351,6 +351,7 @@ func CleanFileWatch() {
 
 	for {
 		switch v := psc.Receive().(type) {
+
 		case redis.Message:
 			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
 			keyName := string(v.Data)
@@ -359,11 +360,8 @@ func CleanFileWatch() {
 				return
 			}
 			CleanFile(keyName)
-			
-		case redis.PMessage:
-			log.Debug("PMessage from redis %s\n", string(v.Data))
-			keyName := string(v.Data)
-			if !strings.Contains(keyName, "file") { 
+
+			if !strings.Contains(keyName, "file") {
 				return
 			}
 			CleanFile(keyName)
