@@ -42,7 +42,7 @@ footer {
   }
 }
 
-@media (prefers-color-scheme: dark) {
+@edia (prefers-color-scheme: dark) {
   .site-title, body {
     color: #fff;
   }
