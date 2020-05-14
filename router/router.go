@@ -9,7 +9,7 @@ import (
 
 	"github.com/flosch/pongo2"
 	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
+	"github.com/labstack/echo/v4/middleware"
 	"gopkg.in/go-playground/validator.v9"
 	"io"
 )
