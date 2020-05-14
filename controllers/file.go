@@ -152,7 +152,7 @@ func AddFile(context echo.Context) error {
 	var provided = false
 	var passwordLink string
 
-	if len(f.Password) == 0 {
+	if f.Password == "" {
 		f.Password = RandomSequence(50)
 	} else {
 		provided = true
