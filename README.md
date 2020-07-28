@@ -23,7 +23,7 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 * **go get** in the directory
 
 To test :
-* Drop the **cert.pem** and **key.pm** files in /Okuru directory. This a mandatory to start HTTPS server.
+* Drop the **cert.pem** and **key.pem** files in /Okuru directory. This is a mandatory to start HTTPS server.
 * Copy the .env.dist file to .env file or edit it with your configuration. 
 * Source it (``set -a && source .env && set +a`` for example on linux).
 * **go build** and run ./Okuru .
