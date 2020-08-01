@@ -1,6 +1,6 @@
 # Okuru
 送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation" in Golang** with the echo web framework adding API (for password only at the moment) and File upload.  
-You can use it to temporary store password(s) and file(s).
+You can use it to temporary store safely password(s) and file(s).
 
 ## Security
 
@@ -9,15 +9,15 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 ## Requirements
 
 * Redis
-* Golang (i've used 1.14 form arm64/linux with Go Modules)
-* https://golang.org/doc/install?download=go1.14.2.linux-arm64.tar.gz
+* Golang (i've used latest 1.14 from arm64/linux with Go Modules)
+* https://golang.org/dl/go1.14.6.linux-arm64.tar.gz
 
 ## Installation/How to use it
 
-* tar -xvf go1.14.2.linux-arm64.tar.gz
+* tar -xvf go1.14.6.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-* git clone the repository
+* **git clone** the repository
 * cd Okuru
 * **go mod init** github.com/jeanphilippe-mh/Okuru
 * **go get** in the directory
@@ -34,29 +34,29 @@ You can configure the following via environment variables.
 
 **NO_SSL**: if you are not using SSL/HTTPS. This will affect the URL that are generated.
 
-**REDIS_HOST**: this should be set by Redis, but you can override it if you want. Defaults to "localhost"
+**REDIS_HOST**: this should be set by Redis, but you can override it if you want. Defaults to "localhost".
 
-**REDIS_PORT**: is the port redis is serving on, defaults to 6379
+**REDIS_PORT**: is the port redis is serving on, defaults to 6379.
 
-**REDIS_DB**: is the database that you want to use on this redis server. Defaults to db 0
+**REDIS_DB**: is the database that you want to use on this redis server. Defaults to db 0.
 
-**REDIS_PREFIX**: (optional, defaults to "okuru_") prefix used on redis keys to prevent collisions with other potential clients
+**REDIS_PREFIX**: (optional, defaults to "okuru_") prefix used on redis keys to prevent collisions with other potential clients.
 
 **REDIS_URL**: (optional) will be used instead of REDIS_HOST, REDIS_PORT, and SNAPPASS_REDIS_DB to configure the Redis client object. For example: redis://username:password@localhost:6379/0
 
-**OKURU_APP_PORT**: (optional) the port on which the app will run
+**OKURU_APP_PORT**: (optional) the port on which the app will run.
 
-**OKURU_TOKEN_SEPARATOR**: The token that will separate the keys in the URL. You might not need to change this. It defaults to "~"
+**OKURU_TOKEN_SEPARATOR**: The token that will separate the keys in the URL. You might not need to change this. It defaults to "~".
 
-**OKURU_DISCLAIMER**: If you want/need to display a disclaimer at the bottom of the page, add this. This can be html but need to be inline in this file. If you want only text, use \n to add breakline
+**OKURU_DISCLAIMER**: If you want/need to display a disclaimer at the bottom of the page, add this. This can be html but need to be inline in this file. If you want only text, use \n to add breakline.
 
 **OKURU_COPYRIGHT**: If you want/need to display a copyright at the bottom of the page, add this. This can be html but need to be inline in this file.
 
-**OKURU_LOGO**: If you want to use a logo, put it in public/images/ and provide the relative path of the logo to this point. The height is arbitrary set to 45px height
+**OKURU_LOGO**: If you want to use a logo, put it in public/images/ and provide the relative path of the logo to this point. The height is arbitrary set to 45px height.
 
 **OKURU_APP_NAME**: The name of the application.
 
-**OKURU_FILE_FOLDER**: The folder that will be used to store the uploaded files. It can be a relative or an absolute path. It defaults to **data/**
+**OKURU_FILE_FOLDER**: The folder that will be used to store the uploaded files. It can be a relative or an absolute path. It defaults to **data/**.
 
 ## Credits
 
@@ -66,6 +66,8 @@ You can configure the following via environment variables.
 * [eraffaelli](https://github.com/eraffaelli/Okuru) for the goland fork/reimplementation.
 
 ## LICENCE
+
+[![License](http://img.shields.io/badge/license-mit-blue.svg?style=flat-square)](https://raw.githubusercontent.com/labstack/echo/master/LICENSE)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
