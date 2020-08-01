@@ -132,6 +132,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("PasswordCreated")
 	if Ping(c) == false {
 		println("Ping failed")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
@@ -168,6 +169,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("PasswordRetrieved")
 	if Ping(c) == false {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -242,6 +244,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("GotPassword")
 	if Ping(c) == false {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -294,6 +297,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("PasswordRemoved")
 	if Ping(c) == false {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -338,6 +342,7 @@ func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("FileExpired")
 	if Ping(c) == false {
 		log.Printf("Can't open redis pool")
 		return
@@ -401,6 +406,7 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("FileCreated")
 	if Ping(c) == false {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -437,6 +443,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("FileRetrieved")
 	if Ping(c) == false {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -491,6 +498,10 @@ func GetFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
+	println("GotFile")
+	if Ping(c) == false {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
 
 	storageKey, decryptionKey, err := ParseToken(f.FileKey)
 	if err != nil {
@@ -575,7 +586,10 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("RemoveFile")
+	println("RemovedFile")
+	if Ping(c) == false {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
 
 	storageKey, _, err := ParseToken(f.FileKey)
 	if err != nil {
