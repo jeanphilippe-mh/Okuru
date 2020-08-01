@@ -89,7 +89,7 @@ func DownloadFile(context echo.Context) error {
 	err := RetrieveFilePassword(f)
 	if err != nil {
 		log.Error("%+v\n", err)
-		return context.NoContent(http.StatusNotFound)
+		return context.Render(http.StatusNotFound, "404.html", DataContext)
 	}
 
 	if f.PasswordProvided == true {
@@ -101,7 +101,7 @@ func DownloadFile(context echo.Context) error {
 
 	if passwordOk == false {
 		// Todo: this will cause a views counted if the person comme again on the link instead of back button
-		DataContext["errors"] = "Forbidden. No password provided"
+		DataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
 	}
 
