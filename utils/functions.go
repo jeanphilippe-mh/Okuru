@@ -486,9 +486,9 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 			log.Error("SetFile() Redis err DEL main key : %+v\n", err)
 			return echo.NewHTTPError(http.StatusNotFound)
 		}
-		
-	CleanFile(storageKey)	
-	
+
+	CleanFile(storageKey)
+
 	}
 
 	return nil
@@ -552,9 +552,9 @@ func GetFile(f *models.File) *echo.HTTPError {
 				log.Error("GetFile() Redis err DEL password provided key : %+v\n", err)
 				return echo.NewHTTPError(http.StatusNotFound)
 			}
-			
+
 	CleanFile(storageKey)
-			
+
 	}
 	} else {
 		_, err := c.Do("HSET", REDIS_PREFIX+"file_"+storageKey, "views_count", vc)
