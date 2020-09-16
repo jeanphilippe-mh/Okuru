@@ -77,7 +77,8 @@ func New() *echo.Echo {
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Renderer = renderer
 	e.Validator = &CustomValidator{validator: validator.New()}
-	// Middleware
+	
+	// Middleware Logger
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
 			`"method":"${method}","uri":"${uri}","status":${status},"error":"${error}",` +
@@ -85,22 +86,29 @@ func New() *echo.Echo {
 			`"bytes_out":${bytes_out}` +
 			`"user_agent":${user_agent}}` + "\n",
 	}))
-	//CORS
+	
+	// Middleware CORS
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{echo.GET, echo.HEAD, echo.OPTIONS, echo.POST, echo.DELETE},
 	}))
-
+	
+	// Middleware Static
+	publicfolder := filepath.Dir(ex)+"/public"
+	e.Use(middleware.StaticWithConfig(middleware.StaticConfig{
+				Root:   publicfolder,
+				HTML5:  true,
+				Browse: false,
+	}))
 	// Creating groups
 	apiGroup := e.Group("/api/v1")
 	fileGroup := e.Group("/file")
 
-	//Route => handler
+	// Route => handler
 	ex, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)
 	}
-	e.Static("/", filepath.Dir(ex)+"/public") //this need to be before routing
 	routes.Index(e)
 	routes.Password(apiGroup)
 	routes.File(fileGroup)
