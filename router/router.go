@@ -96,15 +96,16 @@ func New() *echo.Echo {
 	// Middleware Static
 	publicfolder := filepath.Dir(ex)+"/public"
 	e.Use(middleware.StaticWithConfig(middleware.StaticConfig{
-				Root:   publicfolder,
-				HTML5:  true,
-				Browse: false,
+		Root:   publicfolder,
+		HTML5:  true,
+		Browse: false,
 	}))
+	
 	// Creating groups
 	apiGroup := e.Group("/api/v1")
 	fileGroup := e.Group("/file")
 
-	// Route => handler
+	// Route => Handler
 	ex, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)
