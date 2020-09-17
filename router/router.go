@@ -78,6 +78,12 @@ func New() *echo.Echo {
 	e.Renderer = renderer
 	e.Validator = &CustomValidator{validator: validator.New()}
 	
+	// Route => Handler
+	ex, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	
 	// Middleware Logger
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
@@ -105,11 +111,6 @@ func New() *echo.Echo {
 	apiGroup := e.Group("/api/v1")
 	fileGroup := e.Group("/file")
 
-	// Route => Handler
-	ex, err := os.Executable()
-	if err != nil {
-		log.Fatal(err)
-	}
 	routes.Index(e)
 	routes.Password(apiGroup)
 	routes.File(fileGroup)
