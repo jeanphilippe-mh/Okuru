@@ -134,7 +134,7 @@ func AddIndex(context echo.Context) error {
 
 	p.TTL = GetTtlSeconds(p.TTL)
 
-	// Need to use err2 since it's not an error but an httperror and it don't return nil otherwise
+	// Need to use err2 since it's not an error but an http error and it don't return nil otherwise.
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
 	if err2 != nil {
 		DataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
