@@ -4,13 +4,14 @@ package main
 //https://github.com/verybluebot/echo-server-tutorial/
 
 import (
+	"math/rand"
+	"os"
+	"time"
+
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
-	"math/rand"
-	"os"
-	"time"
 )
 
 var DebugLevel bool
@@ -27,7 +28,7 @@ func init() {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	if Ping(c) == false {
+	if !Ping(c) {
 		log.Panic("Redis problem")
 	}
 
@@ -38,8 +39,7 @@ func init() {
 	// Can be any io.Writer, see below for File example
 	log.SetOutput(os.Stdout)
 
-
-	if DebugLevel == true {
+	if DebugLevel {
 		log.SetLevel(log.DebugLevel)
 	} else {
 		log.SetLevel(log.WarnLevel)
@@ -51,7 +51,7 @@ func init() {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	e:= router.New()
+	e := router.New()
 
-	e.Logger.Fatal(e.StartTLS(":" + APP_PORT, "cert.pem", "key.pem"))
+	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, "cert.pem", "key.pem"))
 }
