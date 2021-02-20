@@ -38,6 +38,9 @@ func ReadFile(context echo.Context) error {
 	if strings.Contains(f.FileKey, "robots.txt") {
 		return nil
 	}
+	if strings.Contains(f.FileKey, "sitemap.xml") {
+		return nil
+	}
 
 	err := GetFile(f)
 	if err != nil {
