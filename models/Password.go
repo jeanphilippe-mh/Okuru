@@ -1,5 +1,5 @@
 package models
-
+// Security toounter bots and scrappers.
 type Password struct {
 	Password string `json:"password,omitempty" xml:"password,omitempty" form:"password,omitempty" query:"password,omitempty" redis:"password,omitempty"`
 	Token []byte `json:"token,omitempty" xml:"token,omitempty" form:"token,omitempty" query:"token,omitempty" redis:"token,omitempty"`
