@@ -161,7 +161,7 @@ func AddFile(context echo.Context) error {
 	} else {
 		provided = true
 
-		token, err := SetPassword(f.Password, f.TTL, f.Views, false) // Don't give the possibility to delete the password, it will be auto deleted if the file is deleted
+		token, err := SetPassword(f.Password, f.TTL, f.Views, false) // Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
 		if err != nil {
 			log.Error("%+v\n", err)
 			DataContext["errors"] = err.Message
