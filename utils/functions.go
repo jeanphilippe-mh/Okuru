@@ -2,18 +2,19 @@ package utils
 
 import (
 	"errors"
-	"github.com/jeanphilippe-mh/Okuru/models"
-	"github.com/fernet/fernet-go"
-	"github.com/gomodule/redigo/redis"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fernet/fernet-go"
+	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
+	"github.com/jeanphilippe-mh/Okuru/models"
+	"github.com/labstack/echo/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 /**
@@ -487,7 +488,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 			return echo.NewHTTPError(http.StatusNotFound)
 		}
 
-	CleanFile(storageKey)
+		CleanFile(storageKey)
 
 	}
 
@@ -511,8 +512,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
-	var err2 *echo.HTTPError
-	err2 = RetrieveFilePassword(f)
+	var err2 *echo.HTTPError = RetrieveFilePassword(f)
 	if err2 != nil {
 		return err2
 	}
@@ -553,9 +553,9 @@ func GetFile(f *models.File) *echo.HTTPError {
 				return echo.NewHTTPError(http.StatusNotFound)
 			}
 
-	CleanFile(storageKey)
+			CleanFile(storageKey)
 
-	}
+		}
 	} else {
 		_, err := c.Do("HSET", REDIS_PREFIX+"file_"+storageKey, "views_count", vc)
 		if err != nil {
