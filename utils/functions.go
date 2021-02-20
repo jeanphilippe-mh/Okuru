@@ -25,7 +25,7 @@ func GetBaseUrl(context echo.Context) string {
 	currentURL := context.Scheme() + "://" + r.Host
 	var url string
 	if !NO_SSL && context.Scheme() == "http" {
-		url = strings.Replace(currentURL, "http", "https")
+		url = strings.Replace(currentURL, "http", "https", -1)
 	} else {
 		url = currentURL
 	}
