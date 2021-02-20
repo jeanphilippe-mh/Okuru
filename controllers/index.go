@@ -78,6 +78,9 @@ func RevealPassword(context echo.Context) error {
 	if strings.Contains(p.PasswordKey, "robots.txt") {
 		return nil
 	}
+	if strings.Contains(p.PasswordKey, "sitemap.xml") {
+		return nil
+	}
 
 	err := RetrievePassword(p)
 	if err != nil {
