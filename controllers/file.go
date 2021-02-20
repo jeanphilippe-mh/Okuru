@@ -107,7 +107,7 @@ func DownloadFile(context echo.Context) error {
 	}
 
 	if !passwordOk {
-		// Todo: this will cause a views counted if the person comme again on the link instead of back button
+		// TODO: this will cause a views counted if the person comme again on the link instead of back button.
 		DataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
 	}
