@@ -3,16 +3,17 @@ package controllers
 import (
 	"compress/flate"
 	"fmt"
-	. "github.com/jeanphilippe-mh/Okuru/models"
-	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
-	"github.com/mholt/archiver/v3"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+
+	. "github.com/jeanphilippe-mh/Okuru/models"
+	. "github.com/jeanphilippe-mh/Okuru/utils"
+	"github.com/labstack/echo/v4"
+	"github.com/mholt/archiver/v3"
+	log "github.com/sirupsen/logrus"
 )
 
 func IndexFile(context echo.Context) error {
@@ -48,7 +49,7 @@ func ReadFile(context echo.Context) error {
 		deletableURL string
 	)
 
-	if f.Deletable == false {
+	if !f.Deletable {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"
@@ -61,7 +62,7 @@ func ReadFile(context echo.Context) error {
 	DataContext["deletableText"] = deletableText
 	DataContext["deletableURL"] = deletableURL
 
-	if f.PasswordProvided == true {
+	if f.PasswordProvided {
 		DataContext["passwordNeeded"] = true
 	} else {
 		DataContext["passwordNeeded"] = false
@@ -92,14 +93,14 @@ func DownloadFile(context echo.Context) error {
 		return context.Render(http.StatusNotFound, "404.html", DataContext)
 	}
 
-	if f.PasswordProvided == true {
+	if f.PasswordProvided {
 		password := context.FormValue("password")
 		if password != f.Password {
 			passwordOk = false
 		}
 	}
 
-	if passwordOk == false {
+	if !passwordOk {
 		// Todo: this will cause a views counted if the person comme again on the link instead of back button
 		DataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
@@ -271,7 +272,7 @@ func AddFile(context echo.Context) error {
 	)
 
 	baseUrl := GetBaseUrl(context) + "/file/"
-	if f.Deletable == false {
+	if !f.Deletable {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"

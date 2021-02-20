@@ -1,13 +1,14 @@
 package controllers
 
 import (
+	"net/http"
+	"strconv"
+	"strings"
+
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
-	"net/http"
-	"strconv"
-	"strings"
 )
 
 func Index(context echo.Context) error {
@@ -46,7 +47,7 @@ func ReadIndex(context echo.Context) error {
 		deletableURL string
 	)
 
-	if p.Deletable == false {
+	if !p.Deletable {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"
@@ -140,7 +141,7 @@ func AddIndex(context echo.Context) error {
 	)
 
 	baseUrl := GetBaseUrl(context) + "/"
-	if p.Deletable == false {
+	if !p.Deletable {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"

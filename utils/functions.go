@@ -134,7 +134,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 	c := pool.Get()
 	defer c.Close()
 	println("PasswordCreated")
-	if Ping(c) == false {
+	if !Ping(c) {
 		println("Ping failed")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -171,7 +171,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("PasswordRetrieved")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -246,7 +246,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("GotPassword")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -299,7 +299,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("PasswordRemoved")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -323,7 +323,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	if p.Deletable == false {
+	if !p.Deletable {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
 
@@ -344,7 +344,7 @@ func CleanFileWatch() {
 	c := pool.Get()
 	defer c.Close()
 	println("FileExpired")
-	if Ping(c) == false {
+	if !Ping(c) {
 		log.Printf("Can't open redis pool")
 		return
 	}
@@ -408,7 +408,7 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	c := pool.Get()
 	defer c.Close()
 	println("FileCreated")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -445,7 +445,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("FileRetrieved")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -500,7 +500,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("GotFile")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -587,7 +587,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("RemovedFile")
-	if Ping(c) == false {
+	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -611,7 +611,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	if f.Deletable == false {
+	if !f.Deletable {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
 
@@ -621,7 +621,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
-	if f.PasswordProvided == true {
+	if f.PasswordProvided {
 		_, err = c.Do("DEL", REDIS_PREFIX+f.PasswordProvidedKey)
 		if err != nil {
 			log.Error("DeletePassword() Redis err : %+v\n", err)
