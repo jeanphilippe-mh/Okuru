@@ -19,7 +19,6 @@ var DebugLevel bool
 func Flags() {
 	pflag.BoolVar(&DebugLevel, "debug", false, "--debug")
 	defer pflag.Parse()
-	return
 }
 
 func init() {
