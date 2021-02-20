@@ -110,7 +110,7 @@ func init() {
 	DataContext = pongo2.Context{
 		"logo": LOGO,
 		"APP_NAME": APP_NAME,
-		"disclaimer": "<p>" + strings.ReplaceAll(DISCLAIMER, "\\n", "<br>", -1) + "<p>",
+		"disclaimer": "<p>" + strings.Replace(DISCLAIMER, "\\n", "<br>", -1) + "<p>",
 		"copyright": "<p>" + COPYRIGHT + "<p>",
 	}
 }
