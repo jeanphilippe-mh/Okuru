@@ -361,7 +361,7 @@ func CleanFileWatch() {
 		case redis.Message:
 			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
 			keyName := string(v.Data)
-			keyName = strings.Replace(keyName, REDIS_PREFIX+"file_", "", -1)
+			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "", -1)
 			if strings.Contains(keyName, "_") {
 				return
 			}
