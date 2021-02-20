@@ -1,5 +1,5 @@
 # Okuru
-送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation" in Golang** with the echo web framework adding API (for password only at the moment) and File upload.  
+送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation" in Golang** with the echo web framework adding API (for Password only at the moment) and File upload.  
 You can use it to temporary store safely password(s) and file(s).
 
 ## Security
@@ -9,12 +9,12 @@ Passwords are encrypted using Fernet symmetric encryption, from the cryptography
 ## Requirements
 
 * Redis
-* Golang (i've used latest 1.14 from arm64/linux with Go Modules)
-* https://golang.org/dl/go1.14.6.linux-arm64.tar.gz
+* Golang (i've used latest 1.16 from arm64/linux with Go Modules)
+* https://golang.org/dl/go1.16.linux-arm64.tar.gz
 
 ## Installation/How to use it
 
-* tar -xvf go1.14.6.linux-arm64.tar.gz
+* tar -xvf go1.16.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 * **git clone** the repository
