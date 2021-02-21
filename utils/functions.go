@@ -133,7 +133,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Password was created by a user while a key associated has been stored in Redis /\n")
+	println("\n/ Password was created by a user while an associated key has been stored in Redis /\n")
 	if !Ping(c) {
 		println("Ping failed")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
@@ -343,7 +343,7 @@ func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key has expired in Redis and associated file has been deleted from Okuru/data folder /\n")
+	println("\n/ File key has expired in Redis and associated file has been deleted from data folder /\n")
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
 		return
@@ -408,7 +408,7 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File was uploaded by a user while a key associated has been stored in Redis /\n")
+	println("\n/ File was uploaded by a user while an associated key has been stored in Redis /\n")
 	if !Ping(c) {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -587,7 +587,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key was removed from Redis and associated file has been deleted from Okuru/data folder /\n")
+	println("\n/ File key was removed from Redis and associated file has been deleted from data folder /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
