@@ -1,10 +1,14 @@
 # Okuru
-送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation" in Golang** with the echo web framework adding API (for Password only at the moment) and File upload.  
+送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation" in Golang** with the echo web framework adding API (for Password only at the moment) and File upload.
+
 You can use it to temporary store safely password(s) and file(s).
 
 ## Security
 
-Passwords are encrypted using Fernet symmetric encryption, from the cryptography library. A random unique key is generated for each password, and is never stored; it is rather sent as part of the password link. This means that even if someone has access to the Redis store, the passwords are still safe.
+Passwords are encrypted using Fernet symmetric encryption, from the cryptography library. A random unique key is generated for each password and is never stored.
+It is rather sent as part of the password link. 
+
+This means that even if someone has access to the Redis store, the passwords are still safe.
 
 ## Requirements
 
