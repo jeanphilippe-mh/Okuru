@@ -5,7 +5,7 @@ You can use it to temporary store safely password(s) and file(s).
 
 ## Security
 
-Passwords are encrypted using Fernet symmetric encryption, from the cryptography library. A random unique key is generated for each password and is never stored.
+Passwords are encrypted using **Fernet symmetric encryption** from the cryptography library. A random unique key is generated for each password and is never stored.
 It is rather sent as part of the password link. 
 
 This means that even if someone has access to the Redis store, the passwords are still safe.
