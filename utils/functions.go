@@ -25,7 +25,7 @@ func GetBaseUrl(context echo.Context) string {
 	currentURL := context.Scheme() + "://" + r.Host
 	var url string
 	if !NO_SSL && context.Scheme() == "http" {
-		url = strings.Replace(currentURL, "http", "https", -1)
+		url = strings.ReplaceAll(currentURL, "http", "https")
 	} else {
 		url = currentURL
 	}
@@ -133,7 +133,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("PasswordCreated")
+	println("\n/ Password was created by a user while a key associated has been stored in Redis /\n")
 	if !Ping(c) {
 		println("Ping failed")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
@@ -170,7 +170,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("PasswordRetrieved")
+	println("\n/ Password has been retrieved by a viewver /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -245,7 +245,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("GotPassword")
+	println("\n/ Password key was called from Redis and Secret page has been redirected to a viewver /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -298,7 +298,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("PasswordRemoved")
+	println("\n/ Password key has been removed from Redis /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -343,7 +343,7 @@ func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("FileExpired")
+	println("\n/ File key has expired in Redis and associated file has been deleted from Okuru/data folder /\n")
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
 		return
@@ -361,10 +361,11 @@ func CleanFileWatch() {
 		case redis.Message:
 			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
 			keyName := string(v.Data)
-			keyName = strings.Replace(keyName, REDIS_PREFIX+"file_", "", -1)
+			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
 			if strings.Contains(keyName, "_") {
 				return
 			}
+			
 			CleanFile(keyName)
 
 		case redis.Subscription:
@@ -407,7 +408,7 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("FileCreated")
+	println("\n/ File was uploaded by a user while a key associated has been stored in Redis /\n")
 	if !Ping(c) {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -444,7 +445,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("FileRetrieved")
+	println("\n/ File has been downloaded by a viewver/\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -499,7 +500,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("GotFile")
+	println("\n/ File key was called from Redis and Secret File page has been redirected to a viewver /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -586,7 +587,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("RemovedFile")
+	println("\n/ File key was removed from Redis and associated file has been deleted from Okuru/data folder /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
