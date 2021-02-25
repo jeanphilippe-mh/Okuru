@@ -43,8 +43,6 @@ func init() {
 	} else {
 		log.SetLevel(log.WarnLevel)
 	}
-	
-	go CleanFileWatch()
 }
 
 func main() {
