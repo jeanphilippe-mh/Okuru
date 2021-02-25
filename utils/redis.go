@@ -83,19 +83,20 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 		redis.DialWriteTimeout(10*time.Second))
 	if err != nil {
 		return err
+		}
 	}
 	
 	pool := NewPool()
-	p := pool.Get()
-	defer p.Close()
+	c := pool.Get()
+	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	
-	if !Ping(p) {
+	if !Ping(c) {
 		log.Printf("Can't open redis pool")
 		return err
 	}
 
-	psc := redis.PubSubConn{Conn: p}
+	psc := redis.PubSubConn{Conn: c}
 
 	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
 		return err
