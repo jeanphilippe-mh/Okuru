@@ -69,10 +69,10 @@ func Ping(c redis.Conn) bool {
 * onMessage function is called for each message.
 **/
 func CleanFileWatch() {
-	redisServerAddr string,
-	onStart func() error,
-	onMessage func(channel string, data []byte) error,
-	channels ...string error,
+	var redisServerAddr string,
+	var onStart func() error,
+	var onMessage func(channel string, data []byte) error,
+	var channels ...string error,
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
