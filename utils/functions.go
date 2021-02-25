@@ -373,28 +373,34 @@ func CleanFileWatch(ctx context.Context,
 		return
 	}
 	
+	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
+		return err
+	}
+	
+	done := make(chan error, 1)
+	
 	// Start a goroutine to receive notifications from the server.
-	for {
-		switch v := psc.Receive().(type) {
+	go func() {
+		for {
+			switch v := psc.Receive().(type) {
 		
-		case error:
-			done <- v
-			return
-			
-		case redis.Message:
-			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-			keyName := string(v.Data)
-			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-			if strings.Contains(keyName, "_") {
+			case error:
+				done <- v
 				return
-			}
 			
-			CleanFile(keyName)
-			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+			case redis.Message:
+				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+				keyName := string(v.Data)
+				keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+				if strings.Contains(keyName, "_") {
+					return
+				}
+			
+				CleanFile(keyName)
+				println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
 
-		case redis.Subscription:
-			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
-			switch v.Count {
+			case redis.Subscription:
+				switch v.Count {
 				case len(channels):
 					// Notify application when all channels are subscribed.
 					if err := onStart(); err != nil {
@@ -405,12 +411,14 @@ func CleanFileWatch(ctx context.Context,
 					// Return from the goroutine when all channels are unsubscribed.
 					done <- nil
 					return
+				}
+			}
 		}
-	}
+	}()
 
 	ticker := time.NewTicker(healthCheckPeriod)
 	defer ticker.Stop()
-	loop:
+loop:
 	for {
 		select {
 		case <-ticker.C:
@@ -435,8 +443,6 @@ func CleanFileWatch(ctx context.Context,
 
 	// Wait for goroutine to complete.
 	return <-done
-	}
-
 }
 		 
 func CleanFile(fileName string) {
