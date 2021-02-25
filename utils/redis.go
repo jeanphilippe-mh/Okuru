@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"time"
+	"strings"
 	
 	"github.com/gomodule/redigo/redis"
 	log "github.com/sirupsen/logrus"
@@ -90,7 +91,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
-		return
+		return err
 	}
 	
 	defer c.Close()
