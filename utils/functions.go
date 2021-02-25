@@ -344,6 +344,7 @@ func CleanFileWatch() {
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
+	
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
 		return
@@ -355,76 +356,25 @@ func CleanFileWatch() {
 		return
 	}
 	
-	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		return
-	}
-	
-	done := make(chan error, 1)
-	
 	// Start a goroutine to receive notifications from the server.
-	go func() {
-		for {
-			switch v := psc.Receive().(type) {
-		
-			case error:
-				done <- v
-				return
-			
-			case redis.Message:
-				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-				keyName := string(v.Data)
-				keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-				if strings.Contains(keyName, "_") {
-					return
-				}
-			
-				CleanFile(keyName)
-				println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
-
-			case redis.Subscription:
-				switch v.Count {
-				case len(channels):
-					// Notify application when all channels are subscribed.
-					if err := onStart(); err != nil {
-						done <- err
-						return
-					}
-				case 0:
-					// Return from the goroutine when all channels are unsubscribed.
-					done <- nil
-					return
-				}
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(healthCheckPeriod)
-	defer ticker.Stop()
-loop:
 	for {
-		select {
-		case <-ticker.C:
-			// Send ping to test health of connection and server. If
-			// corresponding pong is not received, then receive on the
-			// connection will timeout and the receive goroutine will exit.
-			if err = psc.Ping(""); err != nil {
-				break loop
+		switch v := psc.Receive().(type) {
+			
+		case redis.Message:
+			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+			keyName := string(v.Data)
+			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+			if strings.Contains(keyName, "_") {
+				return
 			}
-		case <-ctx.Done():
-			break loop
-		case err := <-done:
-			// Return error from the receive goroutine.
-			return err
+			
+			CleanFile(keyName)
+			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+
+		case redis.Subscription:
+			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind)
 		}
 	}
-
-	// Signal the receiving goroutine to exit by unsubscribing from all channels.
-	if err := psc.Unsubscribe(); err != nil {
-		return err
-	}
-
-	// Wait for goroutine to complete.
-	return <-done
 }
 		 
 func CleanFile(fileName string) {
