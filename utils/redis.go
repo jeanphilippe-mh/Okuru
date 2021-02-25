@@ -83,11 +83,10 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 		redis.DialWriteTimeout(10*time.Second))
 	if err != nil {
 		return err
-		}
 	}
 	
 	pool := NewPool()
-	c := pool.Get()
+	p := pool.Get()
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	
@@ -96,7 +95,7 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 		return err
 	}
 
-	psc := redis.PubSubConn{Conn: c}
+	psc := redis.PubSubConn{Conn: p}
 
 	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
 		return err
