@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"time"
 	
 	"github.com/gomodule/redigo/redis"
 	log "github.com/sirupsen/logrus"
@@ -94,17 +95,19 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	// Start a goroutine to receive notifications from the server.
 	go func() {
 		for {
-			switch n := psc.Receive().(type) {
+			switch v := psc.Receive().(type) {
 			case error:
-				done <- n
+				done <- v
 				return
 			case redis.Message:
+				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
 				if err := onMessage(n.Channel, n.Data); err != nil {
 					done <- err
 					return
 				}
 			case redis.Subscription:
-				switch n.Count {
+				log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+				switch v.Count {
 				case len(channels):
 					// Notify application when all channels are subscribed.
 					if err := onStart(); err != nil {
