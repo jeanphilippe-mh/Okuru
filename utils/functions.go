@@ -342,6 +342,21 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
+	onStart func() error,
+	onMessage func(channel string, data []byte) error,
+	channels ...string) error {
+	// A ping is set to the server with this period to test for the health of
+	// the connection and server.
+	const healthCheckPeriod = time.Minute
+
+	c, err := redis.Dial("tcp", redisServerAddr,
+		// Read timeout on server should be greater than ping period.
+		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
+		redis.DialWriteTimeout(10*time.Second))
+	if err != nil {
+		return err
+	}
+		
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	if !Ping(c) {
@@ -386,9 +401,38 @@ func CleanFileWatch() {
 					// Return from the goroutine when all channels are unsubscribed.
 					done <- nil
 					return
+				}
 			}
-		}	
+		}
+	}()
+
+	ticker := time.NewTicker(healthCheckPeriod)
+	defer ticker.Stop()
+loop:
+	for {
+		select {
+		case <-ticker.C:
+			// Send ping to test health of connection and server. If
+			// corresponding pong is not received, then receive on the
+			// connection will timeout and the receive goroutine will exit.
+			if err = psc.Ping(""); err != nil {
+				break loop
+			}
+		case <-ctx.Done():
+			break loop
+		case err := <-done:
+			// Return error from the receive goroutine.
+			return err
+		}
 	}
+
+	// Signal the receiving goroutine to exit by unsubscribing from all channels.
+	if err := psc.Unsubscribe(); err != nil {
+		return err
+	}
+
+	// Wait for goroutine to complete.
+	return <-done
 }
 
 func CleanFile(fileName string) {
