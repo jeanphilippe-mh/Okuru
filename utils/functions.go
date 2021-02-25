@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"context"
 
 	"github.com/fernet/fernet-go"
 	"github.com/gomodule/redigo/redis"
@@ -340,25 +339,9 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 /**
  * Subscribe to redis and check when a key expire then clean the associated file
  */
-func CleanFileWatch(ctx context.Context, redisServerAddr string,
-	onStart func() error,
-	onMessage func(channel string, data []byte) error,
-	channels ...string) error {
-	
+func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
-	// A ping is set to the server with this period to test for the health of
-	// the connection and server.
-	const healthCheckPeriod = time.Minute
-
-	c, err := redis.Dial("tcp", redisServerAddr,
-		// Read timeout on server should be greater than ping period.
-		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
-		redis.DialWriteTimeout(10*time.Second))
-	if err != nil {
-		return err
-	}
-
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	if !Ping(c) {
