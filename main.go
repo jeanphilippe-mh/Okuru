@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"time"
+	"context"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -44,7 +45,10 @@ func init() {
 		log.SetLevel(log.WarnLevel)
 	}
 
-	go CleanFileWatch(ctx context.Context, redisServerAddr)
+	go CleanFileWatch(ctx context.Context, redisServerAddr string,
+	onStart func() error,
+	onMessage func(channel string, data []byte) error,
+	channels ...string)
 }
 
 func main() {
