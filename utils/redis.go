@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"context"
 	"time"
 	"strings"
 	
@@ -70,7 +69,6 @@ func Ping(c redis.Conn) bool {
 * onMessage function is called for each message.
 **/
 func CleanFileWatch() {
-	ctx context.Context,
 	redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
