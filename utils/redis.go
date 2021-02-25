@@ -182,7 +182,7 @@ loop:
 	return <-done
 }
 
-func CLeanWatchFile() {
+func CleanWatchFile() {
 	func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 		onStart func() error,
 		onMessage func(channel string, data []byte) error,
