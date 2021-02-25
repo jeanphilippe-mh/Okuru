@@ -83,6 +83,17 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	if err != nil {
 		return err
 	}
+	
+	pool := NewPool()
+	c := pool.Get()
+	
+	defer c.Close()
+	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
+	if !Ping(c) {
+		log.Printf("Can't open redis pool")
+		return
+	}
+	
 	defer c.Close()
 
 	psc := redis.PubSubConn{Conn: c}
@@ -90,10 +101,17 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
 		return err
 	}
+	
+	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
+	log.Printf("Error from sub redis : %s", err)
+		return err
+	}
 
 	done := make(chan error, 1)
 
-	// Start a goroutine to receive notifications from Redis.	
+/**
+ * Subscribe to redis and check when a key expire then clean the associated file
+**/	
 	for {
 		switch v := psc.Receive().(type) {
 			
@@ -103,10 +121,20 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 		
 		case redis.Message:
 			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+			keyName := string(v.Data)
+			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+			if strings.Contains(keyName, "_") {
+				return
+			}
+			
+			CleanFile(keyName)
+			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+			
 			if err := onMessage(v.Channel, v.Data); err != nil {
 				done <- err
 				return
 			}
+			
 		case redis.Subscription:
 			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
 			switch v.Count {
@@ -122,10 +150,6 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 				return
 			}
 		}
-	}
-	// Start a goroutine for CleanFileWatch.
-	go func CleanFileWatch()
-	
 	}()
 
 	ticker := time.NewTicker(healthCheckPeriod)
@@ -155,43 +179,4 @@ loop:
 
 	// Wait for goroutine to complete.
 	return <-done
-}
-
-/**
- * Subscribe to redis and check when a key expire then clean the associated file
-**/
-func CleanFileWatch() {
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
-	if !Ping(c) {
-		log.Printf("Can't open redis pool")
-		return
-	}
-
-	psc := redis.PubSubConn{Conn: c}
-	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-		log.Printf("Error from sub redis : %s", err)
-		return
-	}
-	
-	for {
-		switch v := psc.Receive().(type) {
-			
-		case redis.Message:
-			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-			keyName := string(v.Data)
-			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-			if strings.Contains(keyName, "_") {
-				return
-			}
-			
-			CleanFile(keyName)
-			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
-
-		case redis.Subscription:
-			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind)
-		}
-	}
 }
