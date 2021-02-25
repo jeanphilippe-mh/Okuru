@@ -82,7 +82,7 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
-		return err
+		return
 	}
 	
 	const healthCheckPeriod = time.Minute
