@@ -43,7 +43,8 @@ func init() {
 	} else {
 		log.SetLevel(log.WarnLevel)
 	}
-
+	
+	go listenPubSubChannels()
 	go CleanFileWatch()
 }
 
