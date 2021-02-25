@@ -101,7 +101,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 				return
 			case redis.Message:
 				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-				if err := onMessage(n.Channel, n.Data); err != nil {
+				if err := onMessage(v.Channel, v.Data); err != nil {
 					done <- err
 					return
 				}
