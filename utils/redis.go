@@ -93,7 +93,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 /**
  * Create a goroutine : Check when a key expire then clean the associated file.
 **/	
-	func CleanFileWatch() {
+	go func CleanFileWatch() {
 		pool := NewPool()
 		c := pool.Get()
 		defer c.Close()
