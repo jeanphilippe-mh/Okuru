@@ -69,7 +69,7 @@ func Ping(c redis.Conn) bool {
 * onStart function is called after the channels are subscribed.
 * onMessage function is called for each message.
 **/
-func CleanFileWatch(ctx context.Context, redisServerAddr string,
+func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
@@ -181,3 +181,11 @@ loop:
 	// Wait for goroutine to complete.
 	return <-done
 }
+
+func CLeanWatchFile() {
+	func listenPubSubChannels(ctx context.Context, redisServerAddr string,
+		onStart func() error,
+		onMessage func(channel string, data []byte) error,
+		channels ...string)
+}
+	
