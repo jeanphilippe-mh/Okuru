@@ -344,7 +344,7 @@ func CleanFileWatch(ctx context.Context,
 	redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
-	channels ...string error,) {
+	channels ...string error) {
 	
 	pool := NewPool()
 	c := pool.Get()
