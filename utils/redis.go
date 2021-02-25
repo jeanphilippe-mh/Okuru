@@ -43,7 +43,7 @@ func NewPool() *redis.Pool {
 	}
 }
 
-// ping tests connectivity for redis (PONG should be returned)
+// Ping tests connectivity for redis (PONG should be returned)
 func Ping(c redis.Conn) bool {
 	// Send PING command to Redis
 	pong, err := redis.String(c.Do("PING"))
@@ -59,4 +59,23 @@ func Ping(c redis.Conn) bool {
 	} else {
 		return false
 	}
+}
+
+// listenPubSubChannels listens for messages on Redis pubsub channels. The
+// onStart function is called after the channels are subscribed.
+// onMessage function is called for each message.
+func listenPubSubChannels(ctx context.Context, redisServerAddr string,
+	onStart func() error,
+	onMessage func(channel string, data []byte) error,
+	channels ...string) error {
+	// A ping is set to the server with this period to test for the health of
+	// the connection and server.
+	const healthCheckPeriod = time.Minute
+
+	c, err := redis.Dial("tcp", redisServerAddr,
+		// Read timeout on server should be greater than ping period.
+		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
+		redis.DialWriteTimeout(10*time.Second))
+	if err != nil {
+		return err
 }
