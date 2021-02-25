@@ -8,7 +8,7 @@
     <br>
     <div class="row">
         <div class="col-sm-11">
-            <label for="password-link">The secret has been temporarily saved <b>({{ ttl }}</b> / <b>{{ p.Views }} view(s))</b> and is {% if p.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a>{% else %}{{ deletableText }}{% endif %}. Send the following URL to your intended recipient.</label>
+            <label for="password-link">The secret has been temporarily saved (<b>{{ ttl }}</b> / <b>{{ p.Views }} view(s)</b>) and is {% if p.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a>{% else %}{{ deletableText }}{% endif %}. Send the following URL to your intended recipient.</label>
             <input type="text" class="form-control" id="password-link" value="{{ p.Link }}" readonly="readonly">
         </div>
 
