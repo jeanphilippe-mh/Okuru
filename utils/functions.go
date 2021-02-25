@@ -354,10 +354,15 @@ func CleanFileWatch() {
 		log.Printf("Error from sub redis : %s", err)
 		return
 	}
-
+	
+	// Start a goroutine to receive notifications from the server.
 	for {
 		switch v := psc.Receive().(type) {
-
+		
+		case error:
+			done <- v
+			return
+			
 		case redis.Message:
 			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
 			keyName := string(v.Data)
@@ -365,13 +370,23 @@ func CleanFileWatch() {
 			if strings.Contains(keyName, "_") {
 				return
 			}
+			
+			CleanFile(keyName)
 
 		case redis.Subscription:
-			log.Debug("Message from redis subscription ok : %s %s\n", v.Kind, v.Channel)
-		}
-		
-		CleanFile(keyName)
-		
+			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+			switch v.Count {
+				case len(channels):
+					// Notify application when all channels are subscribed.
+					if err := onStart(); err != nil {
+						done <- err
+						return
+					}
+				case 0:
+					// Return from the goroutine when all channels are unsubscribed.
+					done <- nil
+					return
+		}	
 	}
 }
 
