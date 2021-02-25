@@ -340,14 +340,16 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 /**
  * Subscribe to redis and check when a key expire then clean the associated file
  */
-func CleanFileWatch(ctx context.Context, 
+func CleanFileWatch() {
+	pool := NewPool()
+	c := pool.Get()
+	
+	ctx context.Context, 
 	redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
-	channels ...string) error {
+	channels ...string error,
 	
-	pool := NewPool()
-	c := pool.Get()
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
@@ -356,6 +358,7 @@ func CleanFileWatch(ctx context.Context,
 		// Read timeout on server should be greater than ping period.
 		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
 		redis.DialWriteTimeout(10*time.Second))
+	
 	if err != nil {
 		return err
 	}
