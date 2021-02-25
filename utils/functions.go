@@ -340,7 +340,8 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 /**
  * Subscribe to redis and check when a key expire then clean the associated file
  */
-func CleanFileWatch(ctx context.Context, redisServerAddr string
+func CleanFileWatch(ctx context.Context, 
+	redisServerAddr string
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
@@ -358,6 +359,7 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string
 	
 	pool := NewPool()
 	c := pool.Get()
+	
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	if !Ping(c) {
@@ -407,11 +409,10 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string
 			}
 		}
 	}
-}()
 
 	ticker := time.NewTicker(healthCheckPeriod)
 	defer ticker.Stop()
-loop:
+	loop:
 	for {
 		select {
 		case <-ticker.C:
