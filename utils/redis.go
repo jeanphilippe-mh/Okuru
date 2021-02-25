@@ -69,10 +69,10 @@ func Ping(c redis.Conn) bool {
 * onMessage function is called for each message.
 **/
 func CleanFileWatch() {
-	var redisServerAddr string,
-	var onStart func() error,
-	var onMessage func(channel string, data []byte) error,
-	var channels ...string error,
+	var redisServerAddr string
+	var onStart func() error
+	var onMessage func(channel string, data []byte) error
+	var channels string error
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
@@ -96,10 +96,6 @@ func CleanFileWatch() {
 	}
 
 	psc := redis.PubSubConn{Conn: p}
-
-	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		return err
-	}
 	
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
 	log.Printf("Error from sub redis : %s", err)
