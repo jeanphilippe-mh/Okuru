@@ -44,7 +44,6 @@ func init() {
 		log.SetLevel(log.WarnLevel)
 	}
 	
-	go listenPubSubChannels()
 	go CleanFileWatch()
 }
 
