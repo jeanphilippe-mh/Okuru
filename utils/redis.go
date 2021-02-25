@@ -93,9 +93,8 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	done := make(chan error, 1)
 
 	// Start a goroutine to receive notifications from the server.
-	go func() {
+	go func () {
 		for {
-			switch v := psc.Receive().(type) {
 			case error:
 				done <- v
 				return
@@ -121,6 +120,9 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 				}
 			}
 		}
+	// Start a goroutine for CleanFileWatch for Redis.
+	go func CleanFileWatch()
+	
 	}()
 
 	ticker := time.NewTicker(healthCheckPeriod)
@@ -150,4 +152,78 @@ loop:
 
 	// Wait for goroutine to complete.
 	return <-done
+}
+
+/**
+ * Subscribe to redis and check when a key expire then clean the associated file
+ */
+func CleanFileWatch() {
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
+	if !Ping(c) {
+		log.Printf("Can't open redis pool")
+		return
+	}
+
+	psc := redis.PubSubConn{Conn: c}
+	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
+		log.Printf("Error from sub redis : %s", err)
+		return
+	}
+	
+	for {
+		switch v := psc.Receive().(type) {
+			
+		case redis.Message:
+			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+			keyName := string(v.Data)
+			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+			if strings.Contains(keyName, "_") {
+				return
+			}
+			
+			CleanFile(keyName)
+			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+
+		case redis.Subscription:
+			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind)
+		}
+	}
+}
+
+func CleanFile(fileName string) {
+	log.Debug("CleanFile fileName : %s\n", fileName)
+	filePathName := FILEFOLDER + "/" + fileName + ".zip"
+
+	err := os.Remove(filePathName)
+	if err != nil {
+		log.Error("Delete file remove error : %+v\n", err)
+	}
+}
+
+func CleanPubSubConn() {
+	redisServerAddr, err := serverAddr()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err = listenPubSubChannels(ctx,
+		redisServerAddr,
+		func() error {
+			// The start callback is a good place to backfill missed
+			// notifications. For the purpose of this example, a goroutine is
+			// started to send notifications.
+			go CleanFileWatch()
+			return nil
+		},
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }
