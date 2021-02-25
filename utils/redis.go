@@ -111,7 +111,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 /**
  * Create a goroutine : Subscribe to redis and check when a key expire then clean the associated file
 **/	
-	go func() {
+	go func CleanFileWatch() {
 		for {
 			switch v := psc.Receive().(type) {
 			
@@ -180,8 +180,4 @@ loop:
 
 	// Wait for goroutine to complete.
 	return <-done
-}
-
-func CleanWatchFile() {
-	func listenPubSubChannels()
 }	
