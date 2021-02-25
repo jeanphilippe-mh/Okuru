@@ -386,6 +386,7 @@ func CleanFileWatch() {
 					// Return from the goroutine when all channels are unsubscribed.
 					done <- nil
 					return
+			}
 		}	
 	}
 }
