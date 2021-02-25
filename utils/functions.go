@@ -344,7 +344,10 @@ func CleanFileWatch(ctx context.Context,
 	redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
-	channels ...string) error {
+	channels ...string error,) {
+	
+	pool := NewPool()
+	c := pool.Get()
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
@@ -356,9 +359,6 @@ func CleanFileWatch(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	
-	pool := NewPool()
-	c := pool.Get()
 	
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
