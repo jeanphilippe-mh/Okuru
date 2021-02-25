@@ -75,23 +75,22 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	channels ...string) error {
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
+	const healthCheckPeriod = time.Minute
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
-	
-	if !Ping(c) {
-		log.Printf("Can't open redis pool")
-		return
-	}
-	
-	const healthCheckPeriod = time.Minute
 
-	c, err := redis.Dial("tcp", redisServerAddr,
+	err := redis.Dial("tcp", redisServerAddr,
 		// Read timeout on server should be greater than ping period.
 		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
 		redis.DialWriteTimeout(10*time.Second))
 	if err != nil {
+		return err
+	}
+	
+	if !Ping(c) {
+		log.Printf("Can't open redis pool")
 		return err
 	}
 	
