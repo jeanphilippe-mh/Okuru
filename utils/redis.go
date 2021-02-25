@@ -69,10 +69,12 @@ func Ping(c redis.Conn) bool {
 * onStart function is called after the channels are subscribed.
 * onMessage function is called for each message.
 **/
-func listenPubSubChannels(ctx context.Context, redisServerAddr string,
-	onStart func() error,
-	onMessage func(channel string, data []byte) error,
-	channels ...string) error {
+func CleanFileWatch() {
+	ctx context.Context
+	redisServerAddr string
+	onStart func() error
+	onMessage func(channel string, data []byte) error
+	channels ...string error
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
@@ -111,7 +113,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 /**
  * Create a goroutine : Subscribe to redis and check when a key expire then clean the associated file
 **/	
-	go func CleanFileWatch() {
+	go func () {
 		for {
 			switch v := psc.Receive().(type) {
 			
