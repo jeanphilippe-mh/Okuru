@@ -80,4 +80,5 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 		redis.DialWriteTimeout(10*time.Second))
 	if err != nil {
 		return err
+	}
 }
