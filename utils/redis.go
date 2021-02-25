@@ -84,100 +84,99 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	if err != nil {
 		return err
 	}
-	
-	pool := NewPool()
-	p := pool.Get()
-	defer c.Close()
-	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
-	
+
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
 		return err
 	}
 
-	psc := redis.PubSubConn{Conn: p}
-	
-	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		return err
-	}
-	
-	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-	log.Printf("Error from sub redis : %s", err)
-		return err
-	}
-
-	done := make(chan error, 1)
-
 /**
- * Create a goroutine : Subscribe to redis and check when a key expire then clean the associated file
+ * Create a goroutine : Check when a key expire then clean the associated file.
 **/	
-	go func () {
-		for {
-			switch v := psc.Receive().(type) {
-			
-			case error:
-				done <- v
-				return
+	func CleanFileWatch() {
+		pool := NewPool()
+		c := pool.Get()
+		defer c.Close()
+		println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 		
-			case redis.Message:
-				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-				keyName := string(v.Data)
-				keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-				if strings.Contains(keyName, "_") {
+		psc := redis.PubSubConn{Conn: c}
+		done := make(chan error, 1)
+		
+		if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
+		log.Printf("Error from subscribe redis channels : %s", err)
+			return err
+		}
+	
+		if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
+		log.Printf("Error from subscribe redis expired keys : %s", err)
+			return err
+		}
+			for {
+				switch v := psc.Receive().(type) {
+			
+				case error:
+					done <- v
 					return
-				}
+		
+				case redis.Message:
+					log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+					keyName := string(v.Data)
+					keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+					if strings.Contains(keyName, "_") {
+						return
+					}
 			
-				CleanFile(keyName)
-				println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+					CleanFile(keyName)
+					println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
 			
-				if err := onMessage(v.Channel, v.Data); err != nil {
-					done <- err
-					return
-				}
-			
-			case redis.Subscription:
-				log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
-				switch v.Count {
-				case len(channels):
-					// Notify application when all channels are subscribed.
-					if err := onStart(); err != nil {
+					if err := onMessage(v.Channel, v.Data); err != nil {
 						done <- err
 						return
 					}
-				case 0:
-					// Return from the goroutine when all channels are unsubscribed.
-					done <- nil
-					return
+			
+				case redis.Subscription:
+					log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+					switch v.Count {
+					case len(channels):
+						// Notify application when all channels are subscribed.
+						if err := onStart(); err != nil {
+							done <- err
+							return
+						}
+					case 0:
+						// Return from the goroutine when all channels are unsubscribed.
+						done <- nil
+						return
+					}
 				}
 			}
-		}
-	}()
+		}()
 
-	ticker := time.NewTicker(healthCheckPeriod)
-	defer ticker.Stop()
-loop:
-	for {
-		select {
-		case <-ticker.C:
-			// Send ping to test health of connection and server. If
-			// corresponding pong is not received, then receive on the
-			// connection will timeout and the receive goroutine will exit.
-			if err = psc.Ping(""); err != nil {
+		ticker := time.NewTicker(healthCheckPeriod)
+		defer ticker.Stop()
+	loop:
+		for {
+			select {
+			case <-ticker.C:
+				// Send ping to test health of connection and server. If
+				// corresponding pong is not received, then receive on the
+				// connection will timeout and the receive goroutine will exit.
+				if err = psc.Ping(""); err != nil {
+					break loop
+				}
+			case <-ctx.Done():
 				break loop
+			case err := <-done:
+				// Return error from the receive goroutine.
+				return err
 			}
-		case <-ctx.Done():
-			break loop
-		case err := <-done:
-			// Return error from the receive goroutine.
+		}
+
+		// Signal the receiving goroutine to exit by unsubscribing from all channels.
+		if err := psc.Unsubscribe(); err != nil {
 			return err
 		}
-	}
 
-	// Signal the receiving goroutine to exit by unsubscribing from all channels.
-	if err := psc.Unsubscribe(); err != nil {
-		return err
-	}
-
-	// Wait for goroutine to complete.
-	return <-done
+		// Wait for goroutine to complete.
+		return <-done
 }	
