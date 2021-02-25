@@ -390,6 +390,7 @@ func CleanFileWatch() {
 			}
 			
 			CleanFile(keyName)
+			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
 
 		case redis.Subscription:
 			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
