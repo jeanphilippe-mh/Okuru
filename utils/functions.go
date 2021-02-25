@@ -341,7 +341,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
  * Subscribe to redis and check when a key expire then clean the associated file
  */
 func CleanFileWatch(ctx context.Context, 
-	redisServerAddr string
+	redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
@@ -405,8 +405,6 @@ func CleanFileWatch(ctx context.Context,
 					// Return from the goroutine when all channels are unsubscribed.
 					done <- nil
 					return
-				}
-			}
 		}
 	}
 
