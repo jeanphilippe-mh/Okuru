@@ -64,9 +64,10 @@ func Ping(c redis.Conn) bool {
 	}
 }
 
-// listenPubSubChannels listens for messages on Redis pubsub channels. The
-// onStart function is called after the channels are subscribed.
-// onMessage function is called for each message.
+/** listenPubSubChannels listens for messages on Redis pubsub channels.
+* onStart function is called after the channels are subscribed.
+* onMessage function is called for each message.
+**/
 func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
@@ -92,35 +93,37 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 
 	done := make(chan error, 1)
 
-	// Start a goroutine to receive notifications from the server.
-	go func () {
-		for {
-			case error:
-				done <- v
+	// Start a goroutine to receive notifications from Redis.	
+	for {
+		switch v := psc.Receive().(type) {
+			
+		case error:
+			done <- v
+			return
+		
+		case redis.Message:
+			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+			if err := onMessage(v.Channel, v.Data); err != nil {
+				done <- err
 				return
-			case redis.Message:
-				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-				if err := onMessage(v.Channel, v.Data); err != nil {
+			}
+		case redis.Subscription:
+			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+			switch v.Count {
+			case len(channels):
+				// Notify application when all channels are subscribed.
+				if err := onStart(); err != nil {
 					done <- err
 					return
 				}
-			case redis.Subscription:
-				log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
-				switch v.Count {
-				case len(channels):
-					// Notify application when all channels are subscribed.
-					if err := onStart(); err != nil {
-						done <- err
-						return
-					}
-				case 0:
-					// Return from the goroutine when all channels are unsubscribed.
-					done <- nil
-					return
-				}
+			case 0:
+				// Return from the goroutine when all channels are unsubscribed.
+				done <- nil
+				return
 			}
 		}
-	// Start a goroutine for CleanFileWatch for Redis.
+	}
+	// Start a goroutine for CleanFileWatch.
 	go func CleanFileWatch()
 	
 	}()
@@ -156,7 +159,7 @@ loop:
 
 /**
  * Subscribe to redis and check when a key expire then clean the associated file
- */
+**/
 func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
@@ -190,40 +193,5 @@ func CleanFileWatch() {
 		case redis.Subscription:
 			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind)
 		}
-	}
-}
-
-func CleanFile(fileName string) {
-	log.Debug("CleanFile fileName : %s\n", fileName)
-	filePathName := FILEFOLDER + "/" + fileName + ".zip"
-
-	err := os.Remove(filePathName)
-	if err != nil {
-		log.Error("Delete file remove error : %+v\n", err)
-	}
-}
-
-func CleanPubSubConn() {
-	redisServerAddr, err := serverAddr()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	err = listenPubSubChannels(ctx,
-		redisServerAddr,
-		func() error {
-			// The start callback is a good place to backfill missed
-			// notifications. For the purpose of this example, a goroutine is
-			// started to send notifications.
-			go CleanFileWatch()
-			return nil
-		},
-
-	if err != nil {
-		fmt.Println(err)
-		return
 	}
 }
