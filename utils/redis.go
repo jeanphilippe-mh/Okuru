@@ -109,44 +109,46 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	done := make(chan error, 1)
 
 /**
- * Subscribe to redis and check when a key expire then clean the associated file
+ * Create a goroutine : Subscribe to redis and check when a key expire then clean the associated file
 **/	
-	for {
-		switch v := psc.Receive().(type) {
+	go func() {
+		for {
+			switch v := psc.Receive().(type) {
 			
-		case error:
-			done <- v
-			return
+			case error:
+				done <- v
+				return
 		
-		case redis.Message:
-			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-			keyName := string(v.Data)
-			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-			if strings.Contains(keyName, "_") {
-				return
-			}
+			case redis.Message:
+				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+				keyName := string(v.Data)
+				keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+				if strings.Contains(keyName, "_") {
+					return
+				}
 			
-			CleanFile(keyName)
-			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+				CleanFile(keyName)
+				println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
 			
-			if err := onMessage(v.Channel, v.Data); err != nil {
-				done <- err
-				return
-			}
-			
-		case redis.Subscription:
-			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
-			switch v.Count {
-			case len(channels):
-				// Notify application when all channels are subscribed.
-				if err := onStart(); err != nil {
+				if err := onMessage(v.Channel, v.Data); err != nil {
 					done <- err
 					return
 				}
-			case 0:
-				// Return from the goroutine when all channels are unsubscribed.
-				done <- nil
-				return
+			
+			case redis.Subscription:
+				log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+				switch v.Count {
+				case len(channels):
+					// Notify application when all channels are subscribed.
+					if err := onStart(); err != nil {
+						done <- err
+						return
+					}
+				case 0:
+					// Return from the goroutine when all channels are unsubscribed.
+					done <- nil
+					return
+				}
 			}
 		}
 	}()
