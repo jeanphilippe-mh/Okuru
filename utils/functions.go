@@ -13,6 +13,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
 	"github.com/jeanphilippe-mh/Okuru/models"
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 )
@@ -346,17 +347,17 @@ func CleanFileWatch() {
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 	if !Ping(c) {
 		log.Printf("Can't open redis pool")
-		return err
+		return
 	}
 
 	psc := redis.PubSubConn{c}
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
 		log.Printf("Error from sub redis : %s", err)
-		return err
+		return
 	}
 	
 	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		return err
+		return
 	}
 	
 	done := make(chan error, 1)
