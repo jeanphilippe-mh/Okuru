@@ -28,7 +28,7 @@ func init() {
 	c := pool.Get()
 	defer c.Close()
 	if !Ping(c) {
-		log.Panic("Redis problem")
+		log.Panic("Redis issue is detected")
 	}
 
 	// Log as JSON instead of the default ASCII formatter.
@@ -43,6 +43,8 @@ func init() {
 	} else {
 		log.SetLevel(log.WarnLevel)
 	}
+	
+	go CleanFileWatch()
 }
 
 func main() {
