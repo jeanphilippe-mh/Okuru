@@ -23,12 +23,11 @@ func Flags() {
 
 func init() {
 	Flags()
-	ctx context.Context, 
-	redisServerAddr string,
-	onStart func() error,
-	onMessage func(channel string,
-	data []byte) error,
-	channels ...string
+	ctx := context.Context
+	redisServerAddr := string
+	onStart := func() error
+	onMessage := func(channel string, data []byte)
+	channels := ...string
 	
 	pool := NewPool()
 	c := pool.Get()
@@ -50,7 +49,7 @@ func init() {
 		log.SetLevel(log.WarnLevel)
 	}
 	
-	go CleanFileWatch(ctx, redisServerAddr, onStart, onMessage, data , channels)
+	go CleanFileWatch(ctx, redisServerAddr, onStart, onMessage, channels)
 }
 
 func main() {
