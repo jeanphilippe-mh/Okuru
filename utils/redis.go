@@ -36,7 +36,6 @@ func NewPool() *redis.Pool {
 				println("Error Redis DO SELECT")
 				panic(err3)
 			}
-
 			_, err4 := c.Do("CONFIG", "SET", "notify-keyspace-events", "KEA")
 			if err4 != nil {
 				println("Error Redis CONFIG")
@@ -69,7 +68,7 @@ func Ping(c redis.Conn) bool {
 * onStart function is called after the channels are subscribed.
 * onMessage function is called for each message.
 **/
-func CleanFileWatch(ctx context.Context, redisServerAddr string,
+func CleanFileWatch(ctx context.Context,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
@@ -79,9 +78,6 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
-	// Read timeout on server should be greater than ping period.
-	redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
-	redis.DialWriteTimeout(10*time.Second))
 	
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
