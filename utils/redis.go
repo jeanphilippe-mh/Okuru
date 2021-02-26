@@ -68,30 +68,32 @@ func Ping(c redis.Conn) bool {
 * onStart function is called after the channels are subscribed.
 * onMessage function is called for each message.
 **/
-func CleanFileWatch(ctx context.Context,
+func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
 	
-	pool := NewPool()
-	c := pool.Get()
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
+	err := redis.Dial("tcp", redisServerAddr,
+		// Read timeout on server should be greater than ping period.
+		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
+		redis.DialWriteTimeout(10*time.Second))	
+	
+	if err != nil {
+		return err
+	}
 	
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
 		
 	psc := redis.PubSubConn{Conn: c}
 	done := make(chan error, 1)
-	
-	if err != nil {
-		return
-	}
 
 	if !Ping(c) {
 		log.Printf("Can't open Redis pool")
-		return
+		return err
 	}
 
 /**
