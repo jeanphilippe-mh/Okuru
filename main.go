@@ -45,10 +45,10 @@ func init() {
 	}
 	
 	ctx := context.Context
-	redisServerAddr string,
+	var redisServerAddr string
 	onStart := func()
 	onMessage := func(channel string, data []byte)
-	channels ...string
+	var channels ...string
 	
 	go CleanFileWatch(ctx, redisServerAddr, onStart, onMessage, channels)
 }
