@@ -73,34 +73,35 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
+	
+	pool := NewPool()
+	c := pool.Get()
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
-
-	c, err := redis.Dial("tcp", redisServerAddr,
-		// Read timeout on server should be greater than ping period.
-		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
-		redis.DialWriteTimeout(10*time.Second))
+	// Read timeout on server should be greater than ping period.
+	redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
+	redis.DialWriteTimeout(10*time.Second))
+	
+	defer c.Close()
+	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
+		
+	psc := redis.PubSubConn{Conn: c}
+	done := make(chan error, 1)
+	
 	if err != nil {
-		return err
+		return
 	}
 
 	if !Ping(c) {
 		log.Printf("Can't open Redis pool")
-		return err
+		return
 	}
 
 /**
  * Create a goroutine : Check when a key expire then clean the associated file.
 **/	
 	go func () {
-		pool := NewPool()
-		c := pool.Get()
-		defer c.Close()
-		println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
-		
-		psc := redis.PubSubConn{Conn: c}
-		done := make(chan error, 1)
 		
 		if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
 		log.Printf("Error from subscribe redis channels : %s", err)
