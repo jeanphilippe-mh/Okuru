@@ -11,7 +11,7 @@ import (
 
 //https://medium.com/@gilcrest_65433/basic-redis-examples-with-go-a3348a12878e
 func NewPool() *redis.Pool {
-	return &redis.Pool{
+	return &redis.Pool {
 		// Maximum number of idle connections in the pool.
 		MaxIdle: 80,
 		// max number of connections
@@ -64,13 +64,13 @@ func Ping(c redis.Conn) bool {
 	}
 }
 
-/** Listens for messages on Redis pubsub channels.
+/** listenPubSubChannels listens for messages on Redis pubsub channels.
 * onStart function is called after the channels are subscribed.
 * onMessage function is called for each message.
 **/
-func CleanFileWatch(ctx context.Context, redisServerAddr string,
-	onStart func() error,
-	onMessage func(channel string, data []byte) error,
+func listenPubSubChannels(ctx context.Context, redisServerAddr string,
+	onStart func CleanFileWatch() error,
+	onMessage func CleanFileWatch(channel string, data []byte) error,
 	channels ...string) error {
 	
 	// A ping is set to the server with this period to test for the health of
@@ -99,7 +99,7 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 /**
  * Create a goroutine : Check when a key expire then clean the associated file.
 **/	
-	go func () {
+	go func CleanFileWatch() {
 		
 		if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
 		log.Printf("Error from subscribe redis channels : %s", err)
