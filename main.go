@@ -44,13 +44,7 @@ func init() {
 		log.SetLevel(log.WarnLevel)
 	}
 	
-	ctx := context.Context
-	var redisServerAddr string
-	onStart := func()
-	onMessage := func(channel string, data []byte)
-	var channels string
-	
-	go CleanFileWatch(ctx, redisServerAddr, onStart, onMessage, channels)
+	go CleanFileWatch()
 }
 
 func main() {
