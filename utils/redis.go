@@ -65,11 +65,11 @@ func Ping(c redis.Conn) bool {
 	}
 }
 
-/** listenPubSubChannels listens for messages on Redis pubsub channels.
+/** Listens for messages on Redis pubsub channels.
 * onStart function is called after the channels are subscribed.
 * onMessage function is called for each message.
 **/
-func listenPubSubChannels(ctx context.Context, redisServerAddr string,
+func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
 	channels ...string) error {
@@ -86,14 +86,14 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	}
 
 	if !Ping(c) {
-		log.Printf("Can't open redis pool")
+		log.Printf("Can't open Redis pool")
 		return err
 	}
 
 /**
  * Create a goroutine : Check when a key expire then clean the associated file.
 **/	
-	go func CleanFileWatch() {
+	go func () {
 		pool := NewPool()
 		c := pool.Get()
 		defer c.Close()
