@@ -44,7 +44,7 @@ func init() {
 		log.SetLevel(log.WarnLevel)
 	}
 	
-	go func CleanFileWatch()
+	go CleanFileWatch()
 }
 
 func main() {
