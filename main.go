@@ -23,11 +23,6 @@ func Flags() {
 
 func init() {
 	Flags()
-	var ctx context.Context
-	var redisServerAddr string
-	var onStart func() error
-	var onMessage := func(channel string, data []byte)
-	var channels := ...string
 	
 	pool := NewPool()
 	c := pool.Get()
