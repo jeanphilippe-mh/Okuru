@@ -76,7 +76,7 @@ func CleanFileWatch(ctx context.Context, redisServerAddr string,
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
-	err := redis.Dial("tcp", redisServerAddr,
+	c, err := redis.Dial("tcp", redisServerAddr,
 		// Read timeout on server should be greater than ping period.
 		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
 		redis.DialWriteTimeout(10*time.Second))	
