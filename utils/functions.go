@@ -337,10 +337,10 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 }
 
 func CleanFileWatch() {
-	listenPubSubChannels(ctx, redisServerAddr, onStart, onMessage, channels)
 	ctx := context.Context 
 	onStart := func()
 	onMessage := func(channel string, data []byte)
+	listenPubSubChannels(ctx, redisServerAddr, onStart, onMessage, channels)
 	
 	pool := NewPool()
 	c := pool.Get()
