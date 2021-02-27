@@ -343,7 +343,7 @@ func CleanFileWatch() {
 		redisServerAddr = string
 		onStart func()
 		onMessage = func(channel string, data []byte)
-		channels ...string
+		channels string
 	)
 	
 	pool := NewPool()
