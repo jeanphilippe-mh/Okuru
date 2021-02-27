@@ -346,7 +346,7 @@ func CleanFileWatch() {
 	log.Printf("Can't open Redis pool")
 	}
 	
-	psc := redis.PubSubConn{c}
+	psc := redis.PubSubConn{Conn: c}
 	
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
 	log.Printf("Error from subscribe redis expired keys : %s", err)
