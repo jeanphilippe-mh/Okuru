@@ -337,10 +337,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 }
 
 func CleanFileWatch() {
-	listenPubSubChannels(ctx context.Context, redisServerAddr string,
-	onStart func () error,
-	onMessage func (channel string, data []byte) error,
-	channels ...string)
+	listenPubSubChannels()
 	
 	pool := NewPool()
 	c := pool.Get()
@@ -351,7 +348,7 @@ func CleanFileWatch() {
 	log.Printf("Can't open Redis pool")
 	}
 	
-	psc := redis.PubSubConn{Conn: c}
+	psc := redis.PubSubConn{c}
 	
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
 	log.Printf("Error from subscribe redis expired keys : %s", err)
