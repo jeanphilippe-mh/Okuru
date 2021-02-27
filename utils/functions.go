@@ -335,7 +335,55 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 	return nil
 }
-		 
+
+func CleanFileWatch() {
+	listenPubSubChannels(ctx context.Context, redisServerAddr string,
+	onStart func () error,
+	onMessage func (channel string, data []byte) error,
+	channels ...string)
+		
+	if !Ping(c) {
+	log.Printf("Can't open Redis pool")
+	return err
+	}
+	
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
+		
+	psc := redis.PubSubConn{Conn: c}
+	done := make(chan error, 1)
+	
+	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
+	log.Printf("Error from subscribe redis expired keys : %s", err)
+		return
+	}
+	
+	for {
+		switch v := psc.Receive().(type) {
+			
+		case error:
+			done <- v
+			return
+		
+		case redis.Message:
+			log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+			keyName := string(v.Data)
+			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
+			if strings.Contains(keyName, "_") {
+				return
+			}
+			
+			CleanFile(keyName)
+			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+			
+		case redis.Subscription:
+			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+		}
+	}
+}
+
 func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", fileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
