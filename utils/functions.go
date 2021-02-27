@@ -245,7 +245,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Password key was called from Redis and Secret page has been redirected to a viewver /\n")
+	println("\n/ Password key was called from Redis and Secret page has been returned to a viewver /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -336,20 +336,23 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	return nil
 }
 
+/**
+ * Subscribe to Redis and create a goroutine to check when a key expire then clean the associated file.
+ */
 func CleanFileWatch() {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
+	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File Key expire /\n")
 	
 	if !Ping(c) {
-	log.Printf("Can't open Redis pool")
+	log.Printf("Error: Can't open Redis pool")
 	}
 	
 	psc := redis.PubSubConn{Conn: c}
 	
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-	log.Printf("Error from subscribe redis expired keys : %s", err)
+	log.Printf("Error from subscribe Redis expired keys events : %s", err)
 	}
 	
 	for {
@@ -364,10 +367,10 @@ func CleanFileWatch() {
 			}
 			
 			CleanFile(keyName)
-			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
+			println("\n/ File key expired from Redis and associated file (fileLog) has been deleted from data folder /\n")
 			
 		case redis.Subscription:
-			log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+			log.Debug("Message from redis subscription is OK : %s %s\n", v.Channel, v.Kind, v.Count)
 		}
 	}
 }
@@ -375,7 +378,8 @@ func CleanFileWatch() {
 func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", fileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
-
+	fileLog := fileName + ".zip"
+	
 	err := os.Remove(filePathName)
 	if err != nil {
 		log.Error("Delete file remove error : %+v\n", err)
@@ -498,7 +502,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key was called from Redis and Secret File page has been redirected to a viewver /\n")
+	println("\n/ File key was called from Redis and Secret File page has been returned to a viewver /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -585,7 +589,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key was removed from Redis and associated file has been deleted from data folder /\n")
+	println("\n/ File key was removed from Redis and associated file (fileLog) has been deleted from data folder /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
