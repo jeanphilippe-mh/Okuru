@@ -367,7 +367,7 @@ func CleanFileWatch() {
 			}
 			
 			CleanFile(keyName)
-			println("\n/ File key expired from Redis and associated file (fileLog) has been deleted from data folder /\n")
+			println("\n/ File key expired from Redis and associated file (fileName) has been deleted from data folder /\n")
 			
 		case redis.Subscription:
 			log.Debug("Message from redis subscription is OK : %s %s\n", v.Channel, v.Kind, v.Count)
@@ -378,7 +378,6 @@ func CleanFileWatch() {
 func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", fileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
-	fileLog := fileName + ".zip"
 	
 	err := os.Remove(filePathName)
 	if err != nil {
@@ -589,7 +588,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key was removed from Redis and associated file (fileLog) has been deleted from data folder /\n")
+	println("\n/ File key was removed from Redis and associated file (fileName) has been deleted from data folder /\n")
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
