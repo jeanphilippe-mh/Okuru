@@ -69,8 +69,8 @@ func Ping(c redis.Conn) bool {
 * onMessage function is called for each message.
 **/
 func listenPubSubChannels(ctx context.Context, redisServerAddr string,
-	onStart func CleanFileWatch() error,
-	onMessage func CleanFileWatch(channel string, data []byte) error,
+	onStart func () error,
+	onMessage func (channel string, data []byte) error,
 	channels ...string) error {
 	
 	// A ping is set to the server with this period to test for the health of
@@ -84,75 +84,54 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	if err != nil {
 		return err
 	}
+	defer c.Close()	
 	
-	defer c.Close()
-	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
-		
 	psc := redis.PubSubConn{Conn: c}
-	done := make(chan error, 1)
 
-	if !Ping(c) {
-		log.Printf("Can't open Redis pool")
+	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
+	log.Printf("Error from subscribe redis channels : %s", err)
 		return err
 	}
-
-/**
- * Create a goroutine : Check when a key expire then clean the associated file.
-**/	
-	go func CleanFileWatch() {
-		
-		if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		log.Printf("Error from subscribe redis channels : %s", err)
-			return
-		}
 	
-		if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-		log.Printf("Error from subscribe redis expired keys : %s", err)
-			return
-		}
-			for {
-				switch v := psc.Receive().(type) {
+	done := make(chan error, 1)
+/**
+ * Start a goroutine : to receive notifications from the server.
+**/	
+	go func() {
+		for {
+			switch v := psc.Receive().(type) {
 			
-				case error:
-					done <- v
-					return
+			case error:
+				done <- v
+				return
 		
-				case redis.Message:
-					log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
-					keyName := string(v.Data)
-					keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-					if strings.Contains(keyName, "_") {
-						return
-					}
+			case redis.Message:
+				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+				if err := onMessage(v.Channel, v.Data); err != nil {
+					done <- err
+					return
+				}
 			
-					CleanFile(keyName)
-					println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
-			
-					if err := onMessage(v.Channel, v.Data); err != nil {
+			case redis.Subscription:
+				log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+				switch v.Count {
+				case len(channels):
+					// Notify application when all channels are subscribed.
+					if err := onStart(); err != nil {
 						done <- err
 						return
 					}
-			
-				case redis.Subscription:
-					log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
-					switch v.Count {
-					case len(channels):
-						// Notify application when all channels are subscribed.
-						if err := onStart(); err != nil {
-							done <- err
-							return
-						}
-					case 0:
-						// Return from the goroutine when all channels are unsubscribed.
-						done <- nil
-						return
-					}
+				case 0:
+					// Return from the goroutine when all channels are unsubscribed.
+					done <- nil
+					return
 				}
 			}
-		}()
+		}
+	}()
 
-		ticker := time.NewTicker(healthCheckPeriod)
-		defer ticker.Stop()
+	ticker := time.NewTicker(healthCheckPeriod)
+	defer ticker.Stop()
 	loop:
 		for {
 			select {
