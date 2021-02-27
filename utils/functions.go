@@ -337,7 +337,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 }
 
 func CleanFileWatch() {
-	listenPubSubChannels()
+	listenPubSubChannels(ctx, redisServerAddr, onStart, onMessage, channels)
 	
 	pool := NewPool()
 	c := pool.Get()
