@@ -341,19 +341,18 @@ func CleanFileWatch() {
 	onStart func () error,
 	onMessage func (channel string, data []byte) error,
 	channels ...string)
-		
-	if !Ping(c) {
-	log.Printf("Can't open Redis pool")
-	return err
-	}
 	
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File key expire /\n")
-		
+	
+	if !Ping(c) {
+	log.Printf("Can't open Redis pool")
+	return
+	}
+	
 	psc := redis.PubSubConn{Conn: c}
-	done := make(chan error, 1)
 	
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
 	log.Printf("Error from subscribe redis expired keys : %s", err)
