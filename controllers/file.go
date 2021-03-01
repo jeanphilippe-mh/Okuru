@@ -71,8 +71,6 @@ func ReadFile(context echo.Context) error {
 		DataContext["passwordNeeded"] = false
 	}
 
-	//Todo: change text "is up for" is ttl < 3600
-
 	return context.Render(http.StatusOK, "file.html", DataContext)
 }
 
@@ -107,7 +105,7 @@ func DownloadFile(context echo.Context) error {
 	}
 
 	if !passwordOk {
-		// TODO: this will cause a views counted if the person comme again on the link instead of back button.
+		// TODO: This will cause a views counted if the person comme again on the link instead of back button.
 		DataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
 	}
@@ -310,7 +308,7 @@ func DeleteFile(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
-		return context.NoContent(status)
+		return context.Render(status, "404.html", DataContext)
 	} else {
 		DataContext["type"] = "File"
 		return context.Render(http.StatusOK, "removed.html", DataContext)
