@@ -66,7 +66,7 @@ func ReadIndex(context echo.Context) error {
 }
 
 func RevealPassword(context echo.Context) error {
-	println("Revealpassword")
+	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" {
