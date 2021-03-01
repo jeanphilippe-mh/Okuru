@@ -521,7 +521,6 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 			}
 		}
 	}
-	f.Views = vcLeft
 
 	password, err := Decrypt(f.Token, decryptionKey, f.TTL)
 	if err != nil {
@@ -555,6 +554,12 @@ func GetFile(f *models.File) *echo.HTTPError {
 	var err2 *echo.HTTPError = RetrieveFilePassword(f)
 	if err2 != nil {
 		return err2
+	}
+	
+	vc := f.ViewsCount
+	vcLeft := f.Views - vc
+	if vcLeft <= 0 {
+		vcLeft = 0
 	}
 
 	f.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+"file_"+storageKey))
@@ -604,6 +609,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 			}
 		}
 	}
+	f.Views = vcLeft
 
 	password, err := Decrypt(f.Token, decryptionKey, f.TTL)
 	if err != nil {
