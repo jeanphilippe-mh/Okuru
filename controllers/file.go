@@ -62,7 +62,7 @@ func ReadFile(context echo.Context) error {
 
 	DataContext["f"] = f
 	DataContext["ttl"] = GetTTLText(f.TTL)
-	DataContext["ttlViews"] = GetViewsText(f.Views)
+	DataContext["dlViews"] = GetViewsDownloads(f.Views)
 	DataContext["deletableText"] = deletableText
 	DataContext["deletableURL"] = deletableURL
 
@@ -291,6 +291,7 @@ func AddFile(context echo.Context) error {
 	DataContext["f"] = f
 	DataContext["ttl"] = GetTTLText(f.TTL)
 	DataContext["ttlViews"] = GetViewsText(f.Views)
+	DataContext["dlViews"] = GetViewsDownloads(f.Views)
 	DataContext["deletableText"] = deletableText
 	DataContext["deletableURL"] = deletableURL
 	DataContext["passwordLink"] = passwordLink
