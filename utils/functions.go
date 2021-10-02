@@ -71,7 +71,7 @@ func GetViewsText(ttlViews int) (viewsText string) {
 	} else if ttlViews == 1 {
 		viewsText = "1 view"
 	} else if ttlViews > 1 && ttlViews <= 100 {
-		cttlViews := views / 1
+		cttlViews := ttlViews / 1
 		viewsText = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " views"
 	} 
 	return
