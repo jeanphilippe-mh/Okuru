@@ -60,7 +60,7 @@ func ReadIndex(context echo.Context) error {
 	DataContext["p"] = p
 	DataContext["ttl"] = GetTTLText(p.TTL)
 	DataContext["ttlViews"] = GetViewsText(p.Views)
-	DataContext["dlViews"] = GetViewsDownloads(p.Views)
+	DataContext["dlViews"] = GetDownloadsText(p.Views)
 	DataContext["deletableText"] = deletableText
 	DataContext["deletableURL"] = deletableURL
 
@@ -163,7 +163,7 @@ func AddIndex(context echo.Context) error {
 	DataContext["p"] = p
 	DataContext["ttl"] = GetTTLText(p.TTL)
 	DataContext["ttlViews"] = GetViewsText(p.Views)
-	DataContext["dlViews"] = GetViewsDownloads(p.Views)
+	DataContext["dlViews"] = GetDownloadsText(p.Views)
 	DataContext["deletableText"] = deletableText
 	DataContext["deletableURL"] = deletableURL
 
