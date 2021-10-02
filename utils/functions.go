@@ -65,14 +65,14 @@ func GetTTLText(ttl int) (ttlText string) {
 /*
  * Transform Views to text.
  */
-func GetViewsText(views int) (viewsText string) {
-	if views == 0 {
+func GetViewsText(ttlViews int) (viewsText string) {
+	if ttlViews == 0 {
 		viewsText = "0 view"
-	} else if views == 1 {
+	} else if ttlViews == 1 {
 		viewsText = "1 view"
-	} else if views > 1 && views <= 100 {
-		cviews := views / 1
-		viewsText = strings.Split(strconv.Itoa(cviews), ".")[0] + " views"
+	} else if ttlViews > 1 && ttlViews <= 100 {
+		cttlViews := views / 1
+		viewsText = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " views"
 	} 
 	return
 }
