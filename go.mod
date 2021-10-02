@@ -1,6 +1,6 @@
 module github.com/jeanphilippe-mh/Okuru
 
-go 1.17.1
+go 1.17
 
 require (
         github.com/andybalholm/brotli v1.0.3 // indirect
