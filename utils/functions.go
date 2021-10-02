@@ -83,11 +83,11 @@ func GetViewsText(ttlViews int) (viewsText string) {
 func GetDownloadsText(ttlViews int) (viewsDownload string) {
 	if ttlViews == 0 {
 		viewsDownload = "0 download"
-	} else if viewsDownload == 1 {
+	} else if ttlViews == 1 {
 		viewsDownload = "1 download"
 	} else if ttlViews > 1 && ttlViews <= 100 {
 		cttlViews := ttlViews / 1
-		viewsDownload = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " download"
+		viewsDownload = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " downloads"
 	} 
 	return
 }
