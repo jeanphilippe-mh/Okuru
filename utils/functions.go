@@ -66,9 +66,9 @@ func GetTTLText(ttl int) (ttlText string) {
  * Transform Views to text.
  */
 func GetViewsText(views int) (viewsText string) {
-	if views = 0 {
+	if views == 0 {
 		viewsText = "0 view"
-	} else if views = 1 {
+	} else if views == 1 {
 		viewsText = "1 view"
 	} else if views > 1 && views <= 100 {
 		cviews := views / 1
