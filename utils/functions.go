@@ -77,6 +77,21 @@ func GetViewsText(ttlViews int) (viewsText string) {
 	return
 }
 
+/*
+ * Transform Downloads to text.
+ */
+func GetDownloadsText(ttlViews int) (viewsDownload string) {
+	if ttlViews == 0 {
+		viewsDownload = "0 download"
+	} else if viewsDownload == 1 {
+		viewsDownload = "1 download"
+	} else if ttlViews > 1 && ttlViews <= 100 {
+		cttlViews := ttlViews / 1
+		viewsDownload = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " download"
+	} 
+	return
+}
+
 func GetMaxFileSizeText() string {
 	size := MaxFileSize / 1024 / 1024
 	var text string
