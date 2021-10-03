@@ -8,7 +8,7 @@
     <br>
     <div class="row">
         <div class="col-sm-11">
-            <label for="file-link">The file has been temporarily stored (<b>{{ ttl }}</b> / <b>{{ dlViews }}</b>) and is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a>{% else %}{{ deletableText }}{% endif %}. Copy and send the following URL.</label>
+            <label for="file-link">The file has been temporarily stored (<b>{{ ttl }}</b> / <b>{{ dlViews }}</b>) and is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a>{% else %}{{ deletableText }}{% endif %}. <b>Copy and send</b> the following URL.</label>
             <input type="text" class="form-control" id="file-link" value="{{ f.Link }}" readonly="readonly">
         </div>
 
@@ -23,7 +23,7 @@
     {% if passwordLink != "" %}
     <div class="row">
         <div class="col-sm-11">
-            <label for="password-link">Here is the password link, send it to your recipients so that they can unlock the file.</label>
+            <label for="password-link">Here is the <b>password link</b>, send it to your recipients so that they can unlock the file.</label>
             <input type="text" class="form-control" id="password-link" value="{{ passwordLink }}" readonly="readonly">
         </div>
 
