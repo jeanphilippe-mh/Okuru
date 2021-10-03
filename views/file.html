@@ -6,7 +6,7 @@
         <h1>Get Your Secret</h1>
     </div>
     <div>
-        <p><span>{% if (errors) %}&#9940{{ errors }}{% endif %}</span></p>
+        <p><span>{% if (errors) %}&#9940{{ errors }}{% endif %}</span> </p>
     </div>
     <form role="form" id="file_create" method="post" class="form-horizontal" enctype="multipart/form-data">
         <div class="row">
@@ -22,7 +22,7 @@
                 <label for="file-text">Get your file:</label>
             <div id="revealarea" class="row">
                 <input type="hidden" value="{{ f.FileKey }}" />
-                <button id="revealbutton" class="btn btn-primary">Download</button>
+                <button id="revealbutton" class="btn btn-primary" style="margin-left: auto; margin-right: auto;">Download</button>
             </div>
           </div>
         </div>
