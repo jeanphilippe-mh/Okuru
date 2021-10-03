@@ -26,6 +26,14 @@
 {% block js %}
 <script async src="/scripts/clipboard.min.js"></script>
 <script>
-    new ClipboardJS('.btn');;
+   var clipboard = new Clipboard('.btn');
+clipboard.on('success', function(e) {
+    console.log(e);
+});
+clipboard.on('error', function(e) {
+    console.log(e);
+});
+    new ClipboardJS('.btn');
+
 </script>
 {% endblock %}
