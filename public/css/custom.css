@@ -51,10 +51,6 @@ footer {
 }
 
 @media (prefers-color-scheme: dark) {
-  .navbar-default {
-    background-color: #000000;
-    border-color: #000000;
-  }
   .site-title, body {
     color: #fff;
   }
