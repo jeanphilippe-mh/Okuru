@@ -21,10 +21,6 @@ a {
     margin-right: auto;
 }
 
-#password {
-    text-align: center; 
-}
-
 #passwordarea {
     display: none; 
 }
