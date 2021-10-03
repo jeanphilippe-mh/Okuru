@@ -21,12 +21,9 @@ a {
     margin-right: auto;
 }
 
-.row {
-    display: grid; 
-}
-
 #revealarea {
-    margin: auto; 
+    margin: auto;
+    display: grid; 
 }
 
 #revealbutton {
