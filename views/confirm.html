@@ -24,16 +24,8 @@
 {% endblock %}
 
 {% block js %}
-<script async src="/scripts/clipboard.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/clipboard@2.0.8/dist/clipboard.min.js"></script>
 <script>
-   var clipboard = new Clipboard('.btn');
-clipboard.on('success', function(e) {
-    console.log(e);
-});
-clipboard.on('error', function(e) {
-    console.log(e);
-});
-    new ClipboardJS('.btn');
-
+    new ClipboardJS("#copy-clipboard-btn");
 </script>
 {% endblock %}
