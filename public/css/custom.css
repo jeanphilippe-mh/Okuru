@@ -16,12 +16,6 @@ a {
   text-decoration: none;
 }
 
-.btn btn-primary {
-    text-align: center;
-    margin-left: auto;
-    margin-right: auto;
-}   
-
 .break-word {
     word-wrap: break-word;
 }
