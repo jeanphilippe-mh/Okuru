@@ -8,6 +8,10 @@ p {
   font-size: 2vmin;
 }
 
+a { 
+  text-decoration: none;
+}
+
 .break-word {
     word-wrap: break-word;
 }
