@@ -8,6 +8,10 @@ p {
   font-size: 2vmin;
 }
 
+p span {
+  color: red;
+}
+
 a { 
   text-decoration: none;
 }
