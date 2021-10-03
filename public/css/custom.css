@@ -16,6 +16,11 @@ a {
   text-decoration: none;
 }
 
+#revealarea {
+    margin-left: auto;
+    margin-right: auto;
+}   
+
 .break-word {
     word-wrap: break-word;
 }
