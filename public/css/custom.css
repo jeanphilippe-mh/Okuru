@@ -16,12 +16,12 @@ a {
   text-decoration: none;
 }
 
-#revealbutton {
+.btn btn-primary {
     margin-left: auto; 
     margin-right: auto;
 }
 
-#passwordarea {
+.form-control {
     display: none;
 }
 
