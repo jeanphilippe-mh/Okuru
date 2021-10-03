@@ -16,7 +16,7 @@ a {
   text-decoration: none;
 }
 
-#revealarea {
+.btn btn-primary {
     text-align: center;
     margin-left: auto;
     margin-right: auto;
