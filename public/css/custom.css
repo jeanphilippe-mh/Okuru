@@ -16,6 +16,18 @@ a {
   text-decoration: none;
 }
 
+.col {
+    text-align: center;
+    margin-left: auto; 
+    margin-right: auto;
+}
+
+#revealbutton {
+    text-align: center;
+    margin-left: auto; 
+    margin-right: auto;
+}
+
 .break-word {
     word-wrap: break-word;
 }
