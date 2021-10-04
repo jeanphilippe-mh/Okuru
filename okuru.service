@@ -18,4 +18,4 @@ RuntimeDirectoryMode=0755
 
 [Install]
 WantedBy=multi-user.target
-Alias=okuru.serviceoku
+Alias=okuru.serviceo
