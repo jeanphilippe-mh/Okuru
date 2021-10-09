@@ -164,6 +164,7 @@ func AddFile(context echo.Context) error {
 		log.Error("%+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
 		
 	} else {
 		provided = true
