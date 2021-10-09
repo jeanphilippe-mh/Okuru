@@ -2,7 +2,7 @@ package utils
 
 import (
 	"crypto/rand"
-	"encoding/base64"
+	"math/big"
 	"errors"
 	"net/http"
 	"os"
