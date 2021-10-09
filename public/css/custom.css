@@ -65,6 +65,10 @@ footer {
   .site-header {
     background: #fff;
   }
+  .btn-primary {
+  color: #000000;
+  background-color: #ffffff;
+  border-color: #007bff;
 }
 
 @media (prefers-color-scheme: dark) {
