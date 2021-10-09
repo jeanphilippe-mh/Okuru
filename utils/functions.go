@@ -2,7 +2,7 @@ package utils
 
 import (
 	"errors"
-	"math/rand"
+	"crypto/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -427,7 +427,7 @@ var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 func RandomSequence(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
+		b[i] = letters[rand.Read(len(letters))]
 	}
 	return string(b)
 }
