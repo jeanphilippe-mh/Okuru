@@ -41,7 +41,7 @@ func ReadIndex(context echo.Context) error {
 
 	err := GetPassword(p)
 	if err != nil {
-		log.Error("Error while retrieving password : %s\n", err)
+		log.Error("Error while retrieving password : %s\n")
 		return context.Render(http.StatusNotFound, "404.html", DataContext)
 	}
 
