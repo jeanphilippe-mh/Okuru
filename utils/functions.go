@@ -19,7 +19,7 @@ import (
 )
 
 /**
- * Return url with http or https based on NO_SSL env value.
+ * eturn url with http or https based on NO_SSL env value.
  */
 func GetBaseUrl(context echo.Context) string {
 	r := context.Request()
