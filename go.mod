@@ -4,7 +4,7 @@ go 1.17
 
 require (
         github.com/fernet/fernet-go v0.0.0-20191111064656-eff2850e6001
-        github.com/flosch/pongo2 v4.0.2
+        github.com/flosch/pongo2 v0.0.0-20200913210552-0d938eb266f3
         github.com/gomodule/redigo v1.8.5
         github.com/google/uuid v1.3.0
         github.com/labstack/echo/v4 v4.6.1
