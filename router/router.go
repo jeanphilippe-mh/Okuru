@@ -77,13 +77,13 @@ func New() *echo.Echo {
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Renderer = renderer
 	e.Validator = &CustomValidator{validator: validator.New()}
-	
+
 	// Route => Handler
 	ex, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Middleware Logger
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
@@ -92,21 +92,21 @@ func New() *echo.Echo {
 			`"bytes_out":${bytes_out}` +
 			`"user_agent":${user_agent}}` + "\n",
 	}))
-	
+
 	// Middleware CORS
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{echo.GET, echo.HEAD, echo.OPTIONS, echo.POST, echo.DELETE},
 	}))
-	
+
 	// Middleware Static
-	publicfolder := filepath.Dir(ex)+"/public"
+	publicfolder := filepath.Dir(ex) + "/public"
 	e.Use(middleware.StaticWithConfig(middleware.StaticConfig{
 		Root:   publicfolder,
 		HTML5:  true,
 		Browse: false,
 	}))
-	
+
 	// Creating groups
 	apiGroup := e.Group("/api/v1")
 	fileGroup := e.Group("/file")

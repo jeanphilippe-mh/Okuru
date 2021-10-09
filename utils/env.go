@@ -10,22 +10,22 @@ import (
 )
 
 var (
-	REDIS_HOST string
-	REDIS_PASSWORD string
-	REDIS_PORT string
-	REDIS_DB string
-	REDIS_PREFIX string
+	REDIS_HOST      string
+	REDIS_PASSWORD  string
+	REDIS_PORT      string
+	REDIS_DB        string
+	REDIS_PREFIX    string
 	TOKEN_SEPARATOR string
-	NO_SSL bool = false
-	APP_PORT string
-	LOGO string
-	APP_NAME string
-	DISCLAIMER string
-	COPYRIGHT string
-	FILEFOLDER string
-	MAXFILESIZE string
-	MaxFileSize int64
-	DataContext pongo2.Context
+	NO_SSL          bool = false
+	APP_PORT        string
+	LOGO            string
+	APP_NAME        string
+	DISCLAIMER      string
+	COPYRIGHT       string
+	FILEFOLDER      string
+	MAXFILESIZE     string
+	MaxFileSize     int64
+	DataContext     pongo2.Context
 )
 
 func init() {
@@ -108,9 +108,9 @@ func init() {
 
 	//Init data context that'll be passed to render to avoid creating it every time for those "global" variable
 	DataContext = pongo2.Context{
-		"logo": LOGO,
-		"APP_NAME": APP_NAME,
+		"logo":       LOGO,
+		"APP_NAME":   APP_NAME,
 		"disclaimer": "<p>" + strings.Replace(DISCLAIMER, "\\n", "<br>", -1) + "<p>",
-		"copyright": "<p>" + COPYRIGHT + "<p>",
+		"copyright":  "<p>" + COPYRIGHT + "<p>",
 	}
 }
