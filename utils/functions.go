@@ -2,9 +2,9 @@ package utils
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"math/big"
-	"encoding/base64"
 	"net/http"
 	"os"
 	"strconv"
@@ -424,7 +424,7 @@ func CleanFile(fileName string) {
 }
 
 // Source: https://gist.github.com/dopey/c69559607800d2f2f90b1b1ed4e550fb
-func GenerateRandomString(n int) (string) {
+func GenerateRandomString(n int) string {
 	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
 	b := make([]byte, n)
 	for i := 0; i < n; i++ {
