@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"errors"
 	"crypto/rand"
+	"errors"
 	"net/http"
 	"os"
 	"strconv"
@@ -73,7 +73,7 @@ func GetViewsText(ttlViews int) (viewsText string) {
 	} else if ttlViews > 1 && ttlViews <= 100 {
 		cttlViews := ttlViews / 1
 		viewsText = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " views"
-	} 
+	}
 	return
 }
 
@@ -88,7 +88,7 @@ func GetDownloadsText(ttlViews int) (viewsDownload string) {
 	} else if ttlViews > 1 && ttlViews <= 100 {
 		cttlViews := ttlViews / 1
 		viewsDownload = strings.Split(strconv.Itoa(cttlViews), ".")[0] + " downloads"
-	} 
+	}
 	return
 }
 
@@ -164,7 +164,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Password was created by a user while an associated key has been stored in Redis /\n")
-	
+
 	if !Ping(c) {
 		println("Ping failed")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
@@ -201,7 +201,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Password has been retrieved by a viewver /\n")
-	
+
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -210,7 +210,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-	
+
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -287,7 +287,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-	
+
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -333,7 +333,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Password key has been removed from Redis /\n")
-	
+
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -342,7 +342,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-	
+
 	if storageKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -380,20 +380,20 @@ func CleanFileWatch() {
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File Key expire /\n")
-	
+
 	if !Ping(c) {
-	log.Printf("Error: Can't open Redis pool")
+		log.Printf("Error: Can't open Redis pool")
 	}
-	
+
 	psc := redis.PubSubConn{Conn: c}
-	
+
 	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-	log.Printf("Error from subscribe Redis expired keys events : %s", err)
+		log.Printf("Error from subscribe Redis expired keys events : %s", err)
 	}
-	
+
 	for {
 		switch v := psc.Receive().(type) {
-		
+
 		case redis.Message:
 			log.Debug("Message from Redis %s %s \n", string(v.Data), v.Channel)
 			keyName := string(v.Data)
@@ -401,10 +401,10 @@ func CleanFileWatch() {
 			if strings.Contains(keyName, "_") {
 				return
 			}
-			
+
 			CleanFile(keyName)
 			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
-			
+
 		case redis.Subscription:
 			log.Debug("Message from Redis subscription is OK : %s %s\n", v.Channel, v.Kind, v.Count)
 		}
@@ -414,7 +414,7 @@ func CleanFileWatch() {
 func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", fileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
-	
+
 	err := os.Remove(filePathName)
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
@@ -446,13 +446,13 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ File was uploaded by a user while an associated key has been stored in Redis /\n")
-	
+
 	if !Ping(c) {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	storageKey := uuid.New()
-	
+
 	encryptedPassword, encryptionKey, err := Encrypt(password)
 	if err != nil {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
@@ -494,7 +494,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-	
+
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -544,10 +544,10 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 			return echo.NewHTTPError(http.StatusNotFound)
 		}
 		if f.PasswordProvided {
-		_, err := c.Do("HINCRBY", REDIS_PREFIX+f.PasswordProvidedKey, "views_count", 1)
-		if err != nil {
-			log.Error("GetPassword() Redis err HINCRBY views count password provided error : %+v\n", err)
-			return echo.NewHTTPError(http.StatusNotFound)
+			_, err := c.Do("HINCRBY", REDIS_PREFIX+f.PasswordProvidedKey, "views_count", 1)
+			if err != nil {
+				log.Error("GetPassword() Redis err HINCRBY views count password provided error : %+v\n", err)
+				return echo.NewHTTPError(http.StatusNotFound)
 			}
 		}
 	}
@@ -585,7 +585,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 	if err2 != nil {
 		return err2
 	}
-	
+
 	vc := f.ViewsCount
 	vcLeft := f.Views - vc
 	if vcLeft <= 0 {
@@ -632,10 +632,10 @@ func GetFile(f *models.File) *echo.HTTPError {
 			return echo.NewHTTPError(http.StatusNotFound)
 		}
 		if f.PasswordProvided {
-		_, err := c.Do("HINCRBY", REDIS_PREFIX+f.PasswordProvidedKey, "views_count", -1)
-		if err != nil {
-			log.Error("GetPassword() Redis err SET views count password provided error : %+v\n", err)
-			return echo.NewHTTPError(http.StatusNotFound)
+			_, err := c.Do("HINCRBY", REDIS_PREFIX+f.PasswordProvidedKey, "views_count", -1)
+			if err != nil {
+				log.Error("GetPassword() Redis err SET views count password provided error : %+v\n", err)
+				return echo.NewHTTPError(http.StatusNotFound)
 			}
 		}
 	}
@@ -656,7 +656,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	c := pool.Get()
 	defer c.Close()
 	println("\n/ File key was removed from Redis and associated file has been deleted from data folder /\n")
-	
+
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
@@ -665,7 +665,7 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-	
+
 	if storageKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
