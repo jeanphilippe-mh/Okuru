@@ -2,6 +2,7 @@ package utils
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"os"
@@ -421,15 +422,19 @@ func CleanFile(fileName string) {
 	}
 }
 
-// Source: https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-go.
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func RandomSequence(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Read(len(letters))]
+// Source: https://gist.github.com/dopey/c69559607800d2f2f90b1b1ed4e550fb
+func GenerateRandomString(n int) (string, error) {
+	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
+	b := make([]byte, n)
+	for i := 0; i < n; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		ret[i] = letters[num.Int64()]
 	}
-	return string(b)
+
+	return string(b), nil
 }
 
 /**
