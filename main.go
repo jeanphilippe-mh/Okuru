@@ -23,7 +23,7 @@ func Flags() {
 
 func init() {
 	Flags()
-	
+
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
@@ -43,7 +43,7 @@ func init() {
 	} else {
 		log.SetLevel(log.WarnLevel)
 	}
-	
+
 	go CleanFileWatch()
 }
 
