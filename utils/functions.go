@@ -2,8 +2,8 @@ package utils
 
 import (
 	"crypto/rand"
-	"math/big"
 	"errors"
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
