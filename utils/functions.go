@@ -434,7 +434,7 @@ func GenerateRandomString(n int) (string, error) {
 		b[i] = letters[num.Int64()]
 	}
 
-	return string(b), nil
+	return string(b)
 }
 
 /**
