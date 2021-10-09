@@ -5,4 +5,8 @@ name = "go"
 enabled = true
 
   [analyzers.meta]
-  import_paths = ["github.com/jeanphilippe-mh/Okuru"]
+  import_root = "github.com/jeanphilippe-mh/Okuru"
+
+[[transformers]]
+name = "gofmt"
+enabled = true
