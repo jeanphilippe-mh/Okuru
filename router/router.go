@@ -2,16 +2,18 @@ package router
 
 import (
 	"errors"
-	"github.com/jeanphilippe-mh/Okuru/routes"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
+
+	"github.com/jeanphilippe-mh/Okuru/routes"
+	log "github.com/sirupsen/logrus"
+
+	"io"
 
 	"github.com/flosch/pongo2"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"gopkg.in/go-playground/validator.v9"
-	"io"
 )
 
 type (
@@ -27,7 +29,7 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 	return cv.validator.Struct(i)
 }
 
-func (r Renderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
 	var ctx pongo2.Context
 	var t *pongo2.Template
 	var err error
