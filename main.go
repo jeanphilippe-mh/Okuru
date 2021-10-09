@@ -1,7 +1,7 @@
 package main
 
-//https://echo.labstack.com/guide
-//https://github.com/verybluebot/echo-server-tutorial/
+//Source: https://echo.labstack.com/guide
+//Source: https://github.com/verybluebot/echo-server-tutorial/
 
 import (
 	"math/rand"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
-	. "github.com/jeanphilippe-mh/Okuru/utils"
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 )
