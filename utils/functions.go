@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"math/big"
+	"encoding/base64"
 	"net/http"
 	"os"
 	"strconv"
