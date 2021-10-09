@@ -4,7 +4,7 @@ package main
 //https://github.com/verybluebot/echo-server-tutorial/
 
 import (
-	"crypto/rand"
+	"math/rand"
 	"os"
 	"time"
 
