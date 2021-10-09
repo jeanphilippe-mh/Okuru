@@ -428,7 +428,6 @@ func GenerateRandomString(n int) (string) {
 	b := make([]byte, n)
 	for i := 0; i < n; i++ {
 		num := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
-		}
 		b[i] = letters[num.Int64()]
 	}
 
