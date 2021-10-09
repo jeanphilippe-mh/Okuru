@@ -159,7 +159,12 @@ func AddFile(context echo.Context) error {
 	var passwordLink string
 
 	if f.Password == "" {
-		f.Password = GenerateRandomString(50)
+		f.Password, err = GenerateRandomString(50)
+		if err != nil {
+		log.Error("%+v\n", err)
+		DataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		
 	} else {
 		provided = true
 
