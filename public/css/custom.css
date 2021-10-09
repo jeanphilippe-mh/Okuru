@@ -66,9 +66,10 @@ footer {
     background: #fff;
   }
   .btn-primary {
-  color: #000000;
+  color: #000;
   background-color: #ffffff;
   border-color: #007bff;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -82,6 +83,11 @@ footer {
   .site-header {
     color: #fff;
     background: #141414;
+  }
+  .btn-primary {
+    color: #000;
+    background-color: #007bff;
+    border-color: #007bff;
   }
   hr {
     border-top: 1px solid white;
