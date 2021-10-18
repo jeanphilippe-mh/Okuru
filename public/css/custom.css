@@ -62,9 +62,6 @@ footer {
     color: #000;
     background: #f9f9f9;
   }
-  .site-header {
-    background: #fff;
-  }
   .btn-primary {
   color: #000;
   background-color: #ffffff;
@@ -77,10 +74,6 @@ footer {
     color: #fff;
   }
   .site-content, body {
-    color: #fff;
-    background: #141414;
-  }
-  .site-header {
     color: #fff;
     background: #141414;
   }
