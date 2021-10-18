@@ -13,4 +13,4 @@ Versions of **Snappass 🔐** project that are currently being supported with se
 
 ## Reporting a Vulnerability
 
-Please report a security issue directly to jean.philippe.mh@protonmail.com or create a **Pull request** that I'll take care of. 😊
+Please report a security issue directly to jean.philippe.mh@protonmail.com or create a new **Pull request** that I'll take care of. 😊
