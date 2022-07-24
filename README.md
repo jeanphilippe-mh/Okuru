@@ -13,12 +13,12 @@ This means that even if someone has access to the Redis store, the passwords are
 ## Requirements
 
 * Redis with **notify-keyspace-events KEA** set on redis.conf.
-* Golang (i've used latest 1.17 from arm64/linux with Go Modules)
-* https://golang.org/dl/go1.17.1.linux-arm64.tar.gz
+* Golang (i've used latest 1.18 from arm64/linux with Go Modules)
+* https://golang.org/dl/go1.18.4.linux-arm64.tar.gz
 
 ## Installation/How to use it
 
-* tar -xvf go1.17.1.linux-arm64.tar.gz
+* tar -xvf go1.18.4.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 * **git clone** the repository
