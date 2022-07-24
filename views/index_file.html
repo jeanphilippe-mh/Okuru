@@ -3,7 +3,7 @@
 {% block content %}
 <section>
     <div class="pb-2 mt-4 mb-2 border-bottom">
-        <h1>Set Secret</h1>
+        <h2>Set Secret</h2>
     </div>
     <div>
         <p><span>{% if (errors) %}&#128683{{ errors }}{% endif %}</span> </p>
@@ -20,7 +20,7 @@
                     <label for="password"><b>Password</b> (optional):</label>
                     <input type="password" id="password" name="password" minlength="5" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." title="Password for the archive that will be created." aria-label="Set Password" aria-placeholder="password" aria-describedby="password" aria-required="false" aria-autocomplete="none" autocomplete="off" />
                 </div>
-
+                <br>
                 <div class="form-group">
                     <button type="submit" class="btn btn-primary" id="submit">Generate URL</button>
                 </div>
@@ -30,11 +30,12 @@
                     <label for="ttl"><b>Duration</b></label><br>
                     <input type="range" id="ttl" name="ttl" min="1" max="30" step="1" value="1"><br> <span id="ttl-value">1 hour</span>
                 </div>
+                <br>
                 <div class="form-group">
                     <label for="ttlViews"><b>Views</b></label><br>
                     <input type="range" id="ttlViews" name="ttlViews" min="1" max="100" step="1" value="1"><br> <span id="ttlViews-value">1 view</span>
                 </div>
-
+                <br>
                 <div class="form-group">
                     <input type="checkbox" id="deletable" name="deletable">
                     <label for="deletable">Secret can be deleted before expiration</label>
