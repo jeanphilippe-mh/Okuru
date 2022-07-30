@@ -16,6 +16,18 @@ a {
   text-decoration: none;
 }
 
+a.footer:link {
+   color:#007bff;
+}
+
+a.footer:visited {
+   color:#007bff;
+}
+
+a.footer:hover {
+   color: #0b5ed7;
+}
+
 .col {
     margin-left: auto; 
     margin-right: auto;
