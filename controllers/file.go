@@ -163,14 +163,14 @@ func AddFile(context echo.Context) error {
 	if f.Password == "" {
 		f.Password, err = GenerateRandomString(50)
 		if err != nil {
-		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+			log.Error("%+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
-		
+
 	} else {
 		provided = true
-		
+
 		// Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
 		token, err := SetPassword(f.Password, f.TTL, f.Views, false)
 		if err != nil {
