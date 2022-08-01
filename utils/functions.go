@@ -271,6 +271,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 }
 
 /*
+Redis.
 Source: https://gist.github.com/pohzipohzi/a202f8fb7cc30e33176dd97a9def5aac.
 Source: https://www.alexedwards.net/blog/working-with-redis.
 */
@@ -413,6 +414,8 @@ func CleanFileWatch() {
 }
 
 func CleanFile(fileName string) {
+	escapedfileName := strings.Replace(fileName, "\n", "", -1)
+        escapedfileName = strings.Replace(escapedfileName, "\r", "", -1)
 	log.Debug("CleanFile fileName : %s\n", fileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
 
@@ -422,7 +425,9 @@ func CleanFile(fileName string) {
 	}
 }
 
-// Source: https://gist.github.com/dopey/c69559607800d2f2f90b1b1ed4e550fb
+/**
+ * GenerateRandomString. Source: https://gist.github.com/dopey/c69559607800d2f2f90b1b1ed4e550fb
+ */
 func GenerateRandomString(n int) (string, error) {
 	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
 	b := make([]byte, n)
