@@ -171,7 +171,7 @@ func AddFile(context echo.Context) error {
 	} else {
 		provided = true
 
-		// Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
+		// Security: Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
 		token, err := SetPassword(f.Password, f.TTL, f.Views, false)
 		if err != nil {
 			log.Error("%+v\n", err)
