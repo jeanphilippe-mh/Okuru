@@ -150,8 +150,8 @@ func AddFile(context echo.Context) error {
 	if f.TTL > 30 {
 		errorMessage := "TTL is too high"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapedfileName, "\r", "")
-		log.Error(errorMessage)
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
@@ -196,7 +196,7 @@ func AddFile(context echo.Context) error {
 		errorMessage := "No file was selected. Please provide a file to generate a link"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(errorMessage)
+		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
@@ -226,7 +226,7 @@ func AddFile(context echo.Context) error {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-			log.Error(errorMessage)
+			log.Error(escapederrorMessage)
 			DataContext["errors"] = errorMessage
 			err := os.RemoveAll(folderPathName)
 			if err != nil {
@@ -259,7 +259,7 @@ func AddFile(context echo.Context) error {
 		errorMessage := fmt.Sprintf("Total upload size (%d) is greater than %d mb (max authorized)", totalUploadedFileSize, MaxFileSize)
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(erroMessage)
+		log.Error(escapederrorMessage)
 		DataContext["errors"] = erroMessage
 		err := os.RemoveAll(folderPathName)
 		if err != nil {
