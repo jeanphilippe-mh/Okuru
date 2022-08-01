@@ -260,7 +260,7 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
-		DataContext["errors"] = erroMessage
+		DataContext["errors"] = errorMessage
 		err := os.RemoveAll(folderPathName)
 		if err != nil {
 			log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
