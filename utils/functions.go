@@ -271,7 +271,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 }
 
 /*
-Redis.
+* Get a password from the Redis store.
 Source: https://gist.github.com/pohzipohzi/a202f8fb7cc30e33176dd97a9def5aac.
 Source: https://www.alexedwards.net/blog/working-with-redis.
 */
