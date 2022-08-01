@@ -106,7 +106,7 @@ func DownloadFile(context echo.Context) error {
 	}
 
 	if !passwordOk {
-		// TODO: This will cause a views counted if the person comme again on the link instead of back button.
+		// Security: This will cause a view counted if the user try to download the file with a wrong password.
 		DataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
 	}
@@ -149,6 +149,8 @@ func AddFile(context echo.Context) error {
 
 	if f.TTL > 30 {
 		errorMessage := "TTL is too high"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapedfileName, "\r", "")
 		log.Error(errorMessage)
 		DataContext["errors"] = errorMessage
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
@@ -168,8 +170,9 @@ func AddFile(context echo.Context) error {
 		
 	} else {
 		provided = true
-
-		token, err := SetPassword(f.Password, f.TTL, f.Views, false) // Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
+		
+		// Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
+		token, err := SetPassword(f.Password, f.TTL, f.Views, false)
 		if err != nil {
 			log.Error("%+v\n", err)
 			DataContext["errors"] = err.Message
@@ -191,6 +194,8 @@ func AddFile(context echo.Context) error {
 
 	if len(files) == 0 {
 		errorMessage := "No file was selected. Please provide a file to generate a link"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(errorMessage)
 		DataContext["errors"] = errorMessage
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
@@ -219,6 +224,8 @@ func AddFile(context echo.Context) error {
 
 		if file.Size > MaxFileSize {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 			log.Error(errorMessage)
 			DataContext["errors"] = errorMessage
 			err := os.RemoveAll(folderPathName)
@@ -249,7 +256,9 @@ func AddFile(context echo.Context) error {
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
-		erroMessage := fmt.Sprintf("Total upload size (%d) is greater than %d mb (max authorized)", totalUploadedFileSize, MaxFileSize)
+		errorMessage := fmt.Sprintf("Total upload size (%d) is greater than %d mb (max authorized)", totalUploadedFileSize, MaxFileSize)
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(erroMessage)
 		DataContext["errors"] = erroMessage
 		err := os.RemoveAll(folderPathName)
