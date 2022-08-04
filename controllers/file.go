@@ -112,7 +112,7 @@ func DownloadFile(context echo.Context) error {
 	}
 
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
-	filePathName := FILEFOLDER + (fileName + ".zip")
+	filePathName := FILEFOLDER + "/" + fileName + ".zip"
 	return context.Attachment(filePathName, fileName+".zip")
 }
 
@@ -202,7 +202,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-	folderPathName := FILEFOLDER + folderName
+	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	err = os.Mkdir(folderPathName, os.ModePerm)
 	if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
@@ -271,7 +271,7 @@ func AddFile(context echo.Context) error {
 	z := archiver.Zip{
 		CompressionLevel: flate.NoCompression,
 	}
-	err = z.Archive(fileList, FILEFOLDER+folderName+".zip")
+	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
 	if err != nil {
 		log.Error("Error while archive : %+v\n", err)
 		DataContext["errors"] = err.Error()
