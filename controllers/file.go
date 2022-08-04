@@ -113,7 +113,7 @@ func DownloadFile(context echo.Context) error {
 
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
 	filePathName := FILEFOLDER + fileName + ".zip"
-	return context.Attachment(filePathName, fileName +".zip")
+	return context.Attachment(filePathName, fileName+".zip")
 }
 
 func AddFile(context echo.Context) error {
