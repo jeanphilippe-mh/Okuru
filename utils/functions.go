@@ -417,7 +417,7 @@ func CleanFile(fileName string) {
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
-	filePathName := FILEFOLDER + fileName + ".zip"
+	filePathName := FILEFOLDER + (fileName+".zip")
 
 	err := os.Remove(filePathName)
 	if err != nil {
