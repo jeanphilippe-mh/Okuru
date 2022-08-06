@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"path/filepath"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -22,6 +23,29 @@ func IndexFile(context echo.Context) error {
 	DataContext["maxFileSizeText"] = GetMaxFileSizeText()
 
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
+}
+
+func verifyPath(path string) (string, error) {
+
+	// Read from FILEFOLDER
+	trustedRoot := "FILEFOLDER"
+
+	c := filepath.Clean(path)
+	fmt.Println("Cleaned path: " + c)
+
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		return c, errors.New("Unsafe or invalid path specified")
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		return r, errors.New("Unsafe or invalid path specified")
+	} else {
+		return r, nil
+	}
 }
 
 func ReadFile(context echo.Context) error {
