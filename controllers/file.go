@@ -237,7 +237,7 @@ func AddFile(context echo.Context) error {
 		totalUploadedFileSize += file.Size
 
 		// Destination
-		dst, err := os.Create(folderPathName + file.Filename)
+		dst, err := verifyPath(os.Create(folderPathName + file.Filename))
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
