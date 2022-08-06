@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	. "github.com/jeanphilippe-mh/Okuru/models"
-	. "github.com/jeanphilippe-mh/Okuru/utils"
+	"github.com/jeanphilippe-mh/Okuru/models"
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
 	"github.com/mholt/archiver/v3"
 	log "github.com/sirupsen/logrus"
