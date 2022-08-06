@@ -3,9 +3,9 @@ package utils
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -110,13 +110,13 @@ func GetMaxFileSizeText() string {
  * Establish a Trusted Root.
  */
 func inTrustedRoot(path string, trustedRoot string) error {
- 	for path != "/" {
- 		path = filepath.Dir(path)
- 		if path == trustedRoot {
- 			return nil
- 		}
- 	}
- 	return errors.New("path is outside of trusted root")
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == trustedRoot {
+			return nil
+		}
+	}
+	return errors.New("path is outside of trusted root")
 
 }
 
@@ -139,7 +139,7 @@ func verifyPath(path string) (string, error) {
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		return c, errors.New("unsafe or invalid path specified")
-		
+
 	} else {
 		return r, nil
 	}
