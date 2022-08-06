@@ -109,7 +109,7 @@ func GetMaxFileSizeText() string {
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string) error {
+func inTrustedRoot(path string, trustedRoot string) (string, *echo.HTTPError) {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -121,7 +121,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
 
 }
 
-func verifyPath(path string) (string, error) {
+func verifyPath(path string) (string, *echo.HTTPError) {
 
 	// Read from FILEFOLDER
 	trustedRoot := "FILEFOLDER"
@@ -133,7 +133,7 @@ func verifyPath(path string) (string, error) {
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		log.Error("Unsafe or invalid path specified")
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return c, echo.NewHTTPError(http.StatusInternalServerError)
 
 	}
 
@@ -141,7 +141,7 @@ func verifyPath(path string) (string, error) {
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		log.Error("Unsafe or invalid path specified")
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return r, echo.NewHTTPError(http.StatusInternalServerError)
 
 	} else {
 		return r, nil
