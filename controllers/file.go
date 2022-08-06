@@ -26,18 +26,18 @@ func IndexFile(context echo.Context) error {
 }
 
 func inTrustedRoot(path string, trustedRoot string) error {
- 	for path != "/" {
- 		path = filepath.Dir(path)
- 		if path == trustedRoot {
- 			return nil
- 		}
- 	}
- 	errorMessage := "Path is outside of trusted root"
- 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
- 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
- 	log.Error(escapederrorMessage)
- 	DataContext["errors"] = errorMessage
- 	return context.Render(http.StatusOK, "index_file.html", DataContext)
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == trustedRoot {
+			return nil
+		}
+	}
+	errorMessage := "Path is outside of trusted root"
+	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+	log.Error(escapederrorMessage)
+	DataContext["errors"] = errorMessage
+	return context.Render(http.StatusOK, "index_file.html", DataContext)
 
 }
 
