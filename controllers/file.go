@@ -3,14 +3,14 @@ package controllers
 import (
 	"compress/flate"
 	"errors"
-	"path/filepath"
+	"filepath"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"filepath"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
