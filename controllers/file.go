@@ -27,7 +27,7 @@ func IndexFile(context echo.Context) error {
 func ReadFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = context.Param("file_key")
+	f.FileKey = verifyPath(context.Param("file_key"))
 
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
@@ -78,7 +78,7 @@ func ReadFile(context echo.Context) error {
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
 	f := new(File)
-	f.FileKey = context.Param("file_key")
+	f.FileKey = verifyPath(context.Param("file_key"))
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
@@ -317,7 +317,7 @@ func AddFile(context echo.Context) error {
 func DeleteFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = context.Param("file_key")
+	f.FileKey = verifyPath(context.Param("file_key"))
 	if f.FileKey == "" || strings.Contains(f.FileKey, "*") {
 		return context.NoContent(http.StatusNotFound)
 	}
