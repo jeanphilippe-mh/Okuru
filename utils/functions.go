@@ -419,7 +419,7 @@ func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
 
-	err := verifyPath(os.Remove(filePathName))
+	err := (os.Remove(filePathName))
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
 	}
