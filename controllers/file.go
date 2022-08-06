@@ -2,20 +2,65 @@ package controllers
 
 import (
 	"compress/flate"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"filepath"
 
-	"github.com/jeanphilippe-mh/Okuru/models"
-	"github.com/jeanphilippe-mh/Okuru/utils"
+	. "github.com/jeanphilippe-mh/Okuru/models"
+	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
 	"github.com/mholt/archiver/v3"
 	log "github.com/sirupsen/logrus"
 )
 
+/**
+ * Establish a Trusted Root for /File.
+ */
+func inTrustedRoot(path string, trustedRoot string) error {
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == trustedRoot {
+			return nil
+		}
+	}
+	return errors.New("path is outside of trusted root")
+
+}
+
+func verifyPath(path string) (string, error) {
+
+	// Read from FILEFOLDER
+	trustedRoot := "FILEFOLDER"
+
+	c := filepath.Clean(path)
+	fmt.Println("Cleaned path: " + c)
+
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		return c, errors.New("unsafe or invalid path specified")
+
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		return c, errors.New("unsafe or invalid path specified")
+
+	} else {
+		return r, nil
+	}
+}
+
+/**
+ * Establish a Trusted Root.
+ */
 func IndexFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	DataContext["maxFileSize"] = MaxFileSize
