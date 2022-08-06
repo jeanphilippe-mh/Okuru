@@ -25,7 +25,6 @@ func IndexFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
 }
 
-
 func inTrustedRoot(path string, trustedRoot string) error {
  	for path != "/" {
  		path = filepath.Dir(path)
