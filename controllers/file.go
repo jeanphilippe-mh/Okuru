@@ -27,14 +27,14 @@ func IndexFile(context echo.Context) error {
 
 
 func inTrustedRoot(path string, trustedRoot string) error {
-	for path != "/" {
-	path = filepath.Dir(path)
-	if path == trustedRoot {
-	return nil
-	}
-	}
-	return errors.New("path is outside of trusted root")
-}
+ 	for path != "/" {
+ 		path = filepath.Dir(path)
+ 		if path == trustedRoot {
+ 			return nil
+ 		}
+ 	}
+ 	return errors.New("path is outside of trusted root")
+ }
 
 func verifyPath(path string) (string, error) {
 
