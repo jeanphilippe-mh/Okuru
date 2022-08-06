@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -23,42 +22,6 @@ func IndexFile(context echo.Context) error {
 	DataContext["maxFileSizeText"] = GetMaxFileSizeText()
 
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
-}
-
-func inTrustedRoot(path string, trustedRoot string) error {
- 	for path != "/" {
- 		path = filepath.Dir(path)
- 		if path == trustedRoot {
- 			return nil
- 		}
- 	}
- 	return errors.New("Path is outside of trusted root")
-
-}
-
-func verifyPath(path string) (string, error) {
-
-	// Read from FILEFOLDER
-	trustedRoot := "FILEFOLDER"
-
-	c := filepath.Clean(path)
-	fmt.Println("Cleaned path: " + c)
-
-	r, err := filepath.EvalSymlinks(c)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		return c, errors.New("Unsafe or invalid path specified")
-
-	}
-
-	err = inTrustedRoot(r, trustedRoot)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		return c, errors.New("Unsafe or invalid path specified")
-		
-	} else {
-		return r, nil
-	}
 }
 
 func ReadFile(context echo.Context) error {
