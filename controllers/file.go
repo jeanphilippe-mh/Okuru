@@ -32,12 +32,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
  			return nil
  		}
  	}
- 	errorMessage := "Path is outside of trusted root"
- 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
- 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
- 	log.Error(escapederrorMessage)
- 	DataContext["errors"] = errorMessage
- 	return context.Render(http.StatusOK, "index_file.html", DataContext)
+ 	return errors.New("Path is outside of trusted root")
 
 }
 
@@ -52,23 +47,15 @@ func verifyPath(path string) (string, error) {
 	r, err := filepath.EvalSymlinks(c)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		errorMessage := "Unsafe or invalid path specified"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
+		return c, errors.New("Unsafe or invalid path specified")
+
 	}
 
 	err = inTrustedRoot(r, trustedRoot)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		errorMessage := "Unsafe or invalid path specified"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
+		return c, errors.New("Unsafe or invalid path specified")
+		
 	} else {
 		return r, nil
 	}
