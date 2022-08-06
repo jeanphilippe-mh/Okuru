@@ -32,14 +32,14 @@ func inTrustedRoot(path string, trustedRoot string) error {
  			return nil
  		}
  	}
-	errorMessage := "Path is outside of trusted root"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	DataContext["errors"] = errorMessage
-	return context.Render(http.StatusOK, "index_file.html", DataContext)
-	
- }
+ 	errorMessage := "Path is outside of trusted root"
+ 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+ 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+ 	log.Error(escapederrorMessage)
+ 	DataContext["errors"] = errorMessage
+ 	return context.Render(http.StatusOK, "index_file.html", DataContext)
+
+}
 
 func verifyPath(path string) (string, error) {
 
