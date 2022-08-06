@@ -109,19 +109,23 @@ func GetMaxFileSizeText() string {
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string) (string, *echo.HTTPError) {
+func inTrustedRoot(path string, trustedRoot string, context echo.Context) error {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
 			return nil
 		}
 	}
-	log.Error("Path is outside of trusted root")
-	return echo.NewHTTPError(http.StatusInternalServerError)
+	errorMessage := "Path is outside of trusted root"
+	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+	log.Error(escapederrorMessage)
+	DataContext["errors"] = errorMessage
+	return context.Render(http.StatusOK, "index_file.html", DataContext)
 
 }
 
-func verifyPath(path string) (string, *echo.HTTPError) {
+func verifyPath(path string, context echo.Context) (string, error) {
 
 	// Read from FILEFOLDER
 	trustedRoot := "FILEFOLDER"
@@ -132,16 +136,24 @@ func verifyPath(path string) (string, *echo.HTTPError) {
 	r, err := filepath.EvalSymlinks(c)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		log.Error("Unsafe or invalid path specified")
-		return c, echo.NewHTTPError(http.StatusInternalServerError)
+		errorMessage := "Unsafe or invalid path specified"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		DataContext["errors"] = errorMessage
+		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
 
 	}
 
 	err = inTrustedRoot(r, trustedRoot)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		log.Error("Unsafe or invalid path specified")
-		return r, echo.NewHTTPError(http.StatusInternalServerError)
+		errorMessage := "Unsafe or invalid path specified"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		DataContext["errors"] = errorMessage
+		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
 
 	} else {
 		return r, nil
