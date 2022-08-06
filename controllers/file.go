@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"filepath"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
