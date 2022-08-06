@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"compress/flate"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +20,7 @@ import (
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string, context echo.Context) error {
+func inTrustedRoot(context echo.Context) error {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -37,7 +36,7 @@ func inTrustedRoot(path string, trustedRoot string, context echo.Context) error 
 
 }
 
-func verifyPath(path string, context echo.Context) (string, error) {
+func verifyPath(context echo.Context) error {
 
 	// Read from FILEFOLDER
 	trustedRoot := "FILEFOLDER"
@@ -53,7 +52,7 @@ func verifyPath(path string, context echo.Context) (string, error) {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
 
 	}
 
@@ -65,10 +64,10 @@ func verifyPath(path string, context echo.Context) (string, error) {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
 
 	} else {
-		return r, nil
+		return nil
 	}
 }
 
