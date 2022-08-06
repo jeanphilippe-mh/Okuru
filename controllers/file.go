@@ -87,7 +87,7 @@ func IndexFile(context echo.Context) error {
 func ReadFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = context.Param("file_key"))
+	f.FileKey = context.Param("file_key")
 
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
@@ -138,7 +138,7 @@ func ReadFile(context echo.Context) error {
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
 	f := new(File)
-	f.FileKey = context.Param("file_key"))
+	f.FileKey = context.Param("file_key")
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
@@ -244,7 +244,7 @@ func AddFile(context echo.Context) error {
 
 	token, err := SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey)
 
-	form, err := (context.MultipartForm()
+	form, err := context.MultipartForm()
 	if err != nil {
 		log.Error("%+v\n", err)
 		DataContext["errors"] = err.Error()
