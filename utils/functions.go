@@ -3,9 +3,11 @@ package utils
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -102,6 +104,48 @@ func GetMaxFileSizeText() string {
 		text = strconv.FormatInt(size, 10) + " MB"
 	}
 	return text
+}
+
+/**
+ * Establish a Trusted Root for /File.
+ */
+func inTrustedRoot(path string, trustedRoot string) error {
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == trustedRoot {
+			return nil
+		}
+	}
+	log.Error("Path is outside of trusted root")
+	return echo.NewHTTPError(http.StatusInternalServerError)
+
+}
+
+func verifyPath(path string) (string, error) {
+
+	// Read from FILEFOLDER
+	trustedRoot := "FILEFOLDER"
+
+	c := filepath.Clean(path)
+	fmt.Println("Cleaned path: " + c)
+
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		log.Error("Unsafe or invalid path specified")
+		return echo.NewHTTPError(http.StatusInternalServerError)
+
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		log.Error("Unsafe or invalid path specified")
+		return echo.NewHTTPError(http.StatusInternalServerError)
+
+	} else {
+		return r, nil
+	}
 }
 
 /**
@@ -419,7 +463,7 @@ func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
 
-	err := os.Remove(filePathName)
+	err := verifyPath(os.Remove(filePathName))
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
 	}
