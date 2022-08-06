@@ -109,7 +109,7 @@ func GetMaxFileSizeText() string {
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string) (*echo.HTTPError) {
+func inTrustedRoot(path string, trustedRoot string) *echo.HTTPError {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -121,7 +121,7 @@ func inTrustedRoot(path string, trustedRoot string) (*echo.HTTPError) {
 
 }
 
-func verifyPath(path string) (*echo.HTTPError) {
+func verifyPath(path string) *echo.HTTPError {
 
 	// Read from FILEFOLDER
 	trustedRoot := "FILEFOLDER"
