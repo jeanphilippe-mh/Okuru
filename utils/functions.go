@@ -3,11 +3,9 @@ package utils
 import (
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"math/big"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -104,45 +102,6 @@ func GetMaxFileSizeText() string {
 		text = strconv.FormatInt(size, 10) + " MB"
 	}
 	return text
-}
-
-/**
- * Establish a Trusted Root.
- */
-func inTrustedRoot(path string, trustedRoot string) error {
-	for path != "/" {
-		path = filepath.Dir(path)
-		if path == trustedRoot {
-			return nil
-		}
-	}
-	return errors.New("path is outside of trusted root")
-
-}
-
-func verifyPath(path string) (string, error) {
-
-	// Read from FILEFOLDER
-	trustedRoot := "FILEFOLDER"
-
-	c := filepath.Clean(path)
-	fmt.Println("Cleaned path: " + c)
-
-	r, err := filepath.EvalSymlinks(c)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		return c, errors.New("unsafe or invalid path specified")
-
-	}
-
-	err = inTrustedRoot(r, trustedRoot)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		return c, errors.New("unsafe or invalid path specified")
-
-	} else {
-		return r, nil
-	}
 }
 
 /**
