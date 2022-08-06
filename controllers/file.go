@@ -184,7 +184,7 @@ func AddFile(context echo.Context) error {
 
 	token, err := SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey)
 
-	form, err := context.MultipartForm()
+	form, err := verifyPath(context.MultipartForm())
 	if err != nil {
 		log.Error("%+v\n", err)
 		DataContext["errors"] = err.Error()
