@@ -3,11 +3,11 @@ package controllers
 import (
 	"compress/flate"
 	"errors"
+	"path/filepath"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"filepath"
