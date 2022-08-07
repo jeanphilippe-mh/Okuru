@@ -55,7 +55,7 @@ func verifyPath(path string) string {
 
 	path = filepath.EvalSymlinks(path)
 
-	err = inTrustedRoot(path, trustedRoot)
+	err := inTrustedRoot(path, trustedRoot)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		log.Error("unsafe or invalid path specified", err)
