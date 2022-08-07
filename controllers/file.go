@@ -34,7 +34,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
 func verifyPath(path string) string {
 
 	// Read from FILEFOLDER .env configuration
-	trustedRoot := "FILEFOLDER + "/" + folderName + "/""
+	trustedRoot := "FILEFOLDER + "/"
 	
 	c := filepath.Clean(path)
 	
