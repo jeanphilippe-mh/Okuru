@@ -20,7 +20,7 @@ import (
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string, context echo.Context) error {
+func inTrustedRoot(path string, trustedRoot string, context echo.Context) (string, error) {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -36,13 +36,12 @@ func inTrustedRoot(path string, trustedRoot string, context echo.Context) error 
 
 }
 
-func verifyPath(path string, context echo.Context) error {
+func verifyPath(path string, context echo.Context) (string, error) {
 
 	// Read from FILEFOLDER
 	trustedRoot := "FILEFOLDER"
 
 	c := filepath.Clean(path)
-	fmt.Println("Cleaned path: " + c)
 
 	r, err := filepath.EvalSymlinks(c)
 	if err != nil {
@@ -86,7 +85,7 @@ func IndexFile(context echo.Context) error {
 func ReadFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = verifyPath(context.Param("file_key"))
+	f.FileKey = context.Param("file_key")
 
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
@@ -137,7 +136,7 @@ func ReadFile(context echo.Context) error {
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
 	f := new(File)
-	f.FileKey = verifyPath(context.Param("file_key"))
+	f.FileKey = context.Param("file_key")
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
@@ -243,7 +242,7 @@ func AddFile(context echo.Context) error {
 
 	token, err := SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey)
 
-	form, err := verifyPath(context.MultipartForm())
+	form, err := context.MultipartForm()
 	if err != nil {
 		log.Error("%+v\n", err)
 		DataContext["errors"] = err.Error()
@@ -261,7 +260,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-	folderPathName := FILEFOLDER + "/" + folderName + "/"
+	folderPathName := verifyPath(FILEFOLDER + "/" + folderName + "/")
 	err = os.Mkdir(folderPathName, os.ModePerm)
 	if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
@@ -376,7 +375,7 @@ func AddFile(context echo.Context) error {
 func DeleteFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = verifyPath(context.Param("file_key"))
+	f.FileKey = context.Param("file_key")
 	if f.FileKey == "" || strings.Contains(f.FileKey, "*") {
 		return context.NoContent(http.StatusNotFound)
 	}
