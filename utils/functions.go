@@ -53,7 +53,7 @@ func verifyPath(path string) string {
 	// Read from FILEFOLDER .env configuration
 	trustedRoot := "FILEFOLDER"
 
-	r = filepath.EvalSymlinks(path)
+	r, err := filepath.EvalSymlinks(path)
 
 	err = inTrustedRoot(r, trustedRoot)
 	if err != nil {
