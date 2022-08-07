@@ -32,7 +32,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
 
 }
 
-func verifyPath(path string) (string) {
+func verifyPath(path string) string {
 
 	// Read from FILEFOLDER .env configuration
 	trustedRoot := "FILEFOLDER"
