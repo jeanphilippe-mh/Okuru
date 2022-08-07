@@ -59,7 +59,7 @@ func verifyPath(path string) string {
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		log.Error("unsafe or invalid path specified", err)
-		return nil, "", err
+		return r, err
 	} else {
 		return r
 	}
