@@ -51,7 +51,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
 func verifyPath(path string) string {
 
 	// Read from FILEFOLDER .env configuration
-	trustedRoot := FILEFOLDER
+	trustedRoot := "/home/freebox/Okuru/data/"
 	
 	c := filepath.Clean(path)
 	
