@@ -48,7 +48,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
 	return errors.New("path is outside of trusted root")
 }
 
-func verifyPath(path string) (string, error) {
+func verifyPath(path string) error {
 
 	// Read from FILEFOLDER .env configuration
 	trustedRoot := "FILEFOLDER"
