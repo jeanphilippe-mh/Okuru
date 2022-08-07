@@ -58,9 +58,9 @@ func verifyPath(path string) (string, error) {
 	err = inTrustedRoot(r, trustedRoot)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		return errors.New("unsafe or invalid path specified")
+		return r, errors.New("unsafe or invalid path specified")
 	} else {
-		return r, nil
+		return nil
 	}
 }
 
