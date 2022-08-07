@@ -22,7 +22,7 @@ import (
  * Establish a Trusted Root for /File.
  */
 func verifyPath(path string, trustedRoot string) error {
-	
+
 	trustedRoot := "FILEFOLDER"
 	for path != "/" {
 		path = filepath.Dir(path)
