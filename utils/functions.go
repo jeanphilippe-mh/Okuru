@@ -38,7 +38,9 @@ func GetBaseUrl(context echo.Context) string {
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string) error {
+func verifyPath(path string, trustedRoot string) error {
+	
+	trustedRoot := "FILEFOLDER"
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -46,29 +48,6 @@ func inTrustedRoot(path string, trustedRoot string) error {
 		}
 	}
 	return errors.New("path is outside of trusted root")
-}
-
-func verifyPath(path string) string {
-
-	// Read from FILEFOLDER .env configuration
-	trustedRoot := "/home/freebox/Okuru/data/"
-	
-	c := filepath.Clean(path)
-	
-	r, err := filepath.EvalSymlinks(c)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		log.Error("unsafe or invalid path specified", err)
-	}
-
-	err = inTrustedRoot(r, trustedRoot)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		log.Error("unsafe or invalid path specified", err)
-	} else {
-		return r
-	}
-	return r
 }
 
 /**
