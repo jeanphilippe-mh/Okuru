@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"compress/flate"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,25 +21,20 @@ import (
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(path string, trustedRoot string, context echo.Context) (string, error) {
+func inTrustedRoot(path string, trustedRoot string) error {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
 			return nil
 		}
 	}
-	errorMessage := "Path is outside of trusted root"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	DataContext["errors"] = errorMessage
-	return context.Render(http.StatusOK, "index_file.html", DataContext)
+	return errors.New("path is outside of trusted root")
 
 }
 
-func verifyPath(path string, context echo.Context) (string, error) {
+func verifyPath(path string) (string, error) {
 
-	// Read from FILEFOLDER
+	// Read from FILEFOLDER .env configuration
 	trustedRoot := "FILEFOLDER"
 
 	c := filepath.Clean(path)
@@ -46,27 +42,16 @@ func verifyPath(path string, context echo.Context) (string, error) {
 	r, err := filepath.EvalSymlinks(c)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		errorMessage := "Unsafe or invalid path specified"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
+		return c, errors.New("unsafe or invalid path specified")
 
 	}
 
 	err = inTrustedRoot(r, trustedRoot)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
-		errorMessage := "Unsafe or invalid path specified"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return r, context.Render(http.StatusOK, "index_file.html", DataContext)
-
+		return r, errors.New("unsafe or invalid path specified")
 	} else {
-		return nil
+		return r, nil
 	}
 }
 
