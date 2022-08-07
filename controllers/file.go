@@ -51,6 +51,7 @@ func verifyPath(path string) string {
 	} else {
 		return r
 	}
+	return r
 }
 
 /**
