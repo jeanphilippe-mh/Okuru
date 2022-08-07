@@ -46,7 +46,6 @@ func inTrustedRoot(path string, trustedRoot string) error {
 		}
 	}
 	return errors.New("path is outside of trusted root")
-
 }
 
 func verifyPath(path string) (string, error) {
@@ -60,8 +59,6 @@ func verifyPath(path string) (string, error) {
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		return r, errors.New("unsafe or invalid path specified")
-	} else {
-		return r, nil
 	}
 }
 
