@@ -20,7 +20,7 @@ import (
 /**
  * Establish a Trusted Root for /File.
  */
-func inTrustedRoot(context echo.Context) error {
+func inTrustedRoot(path string, trustedRoot string, context echo.Context) error {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -36,7 +36,7 @@ func inTrustedRoot(context echo.Context) error {
 
 }
 
-func verifyPath(context echo.Context) error {
+func verifyPath(path string, context echo.Context) error {
 
 	// Read from FILEFOLDER
 	trustedRoot := "FILEFOLDER"
@@ -52,7 +52,7 @@ func verifyPath(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return c, context.Render(http.StatusOK, "index_file.html", DataContext)
 
 	}
 
@@ -64,7 +64,7 @@ func verifyPath(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return r, context.Render(http.StatusOK, "index_file.html", DataContext)
 
 	} else {
 		return nil
@@ -86,7 +86,7 @@ func IndexFile(context echo.Context) error {
 func ReadFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = context.Param("file_key")
+	f.FileKey = verifyPath(context.Param("file_key"))
 
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
@@ -137,7 +137,7 @@ func ReadFile(context echo.Context) error {
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
 	f := new(File)
-	f.FileKey = context.Param("file_key")
+	f.FileKey = verifyPath(context.Param("file_key"))
 	if f.FileKey == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
@@ -243,7 +243,7 @@ func AddFile(context echo.Context) error {
 
 	token, err := SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey)
 
-	form, err := context.MultipartForm()
+	form, err := verifyPath(context.MultipartForm())
 	if err != nil {
 		log.Error("%+v\n", err)
 		DataContext["errors"] = err.Error()
@@ -296,7 +296,7 @@ func AddFile(context echo.Context) error {
 		totalUploadedFileSize += file.Size
 
 		// Destination
-		dst, err := verifyPath(os.Create(folderPathName + file.Filename))
+		dst, err := os.Create(folderPathName + file.Filename)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
@@ -376,7 +376,7 @@ func AddFile(context echo.Context) error {
 func DeleteFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	f := new(File)
-	f.FileKey = context.Param("file_key")
+	f.FileKey = verifyPath(context.Param("file_key"))
 	if f.FileKey == "" || strings.Contains(f.FileKey, "*") {
 		return context.NoContent(http.StatusNotFound)
 	}
