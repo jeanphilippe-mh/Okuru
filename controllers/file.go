@@ -34,10 +34,10 @@ func inTrustedRoot(path string, trustedRoot string) error {
 func verifyPath(path string) string {
 
 	// Read from FILEFOLDER .env configuration
-	trustedRoot := "FILEFOLDER + "/" + folderName + "/""
-	
+	trustedRoot := "FILEFOLDER + " / " + folderName + " / ""
+
 	c := filepath.Clean(path)
-	
+
 	r, err := filepath.EvalSymlinks(c)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
