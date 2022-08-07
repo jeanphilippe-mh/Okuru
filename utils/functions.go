@@ -51,11 +51,9 @@ func inTrustedRoot(path string, trustedRoot string) error {
 func verifyPath(path string) string {
 
 	// Read from FILEFOLDER .env configuration
-	trustedRoot := FILEFOLDER + "/"
+	trustedRoot := FILEFOLDER
 	
-	c := filepath.Clean(path)
-	
-	r, err := filepath.EvalSymlinks(c)
+	r, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		log.Error("unsafe or invalid path specified", err)
