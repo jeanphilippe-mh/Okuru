@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"os"
@@ -457,7 +458,7 @@ func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
 	filePathName := verifyPath(FILEFOLDER + "/" + fileName + ".zip")
 
-	err := (os.Remove(filePathName))
+	err := os.Remove(filePathName)
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
 	}
