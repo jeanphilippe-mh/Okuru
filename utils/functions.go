@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,43 @@ func GetBaseUrl(context echo.Context) string {
 		url = currentURL
 	}
 	return url
+}
+
+/**
+ * Establish a Trusted Root for /File.
+ */
+func inTrustedRoot(path string, trustedRoot string) error {
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == trustedRoot {
+			return nil
+		}
+	}
+	return errors.New("path is outside of trusted root")
+
+}
+
+func verifyPath(path string) (string, error) {
+
+	// Read from FILEFOLDER .env configuration
+	trustedRoot := "FILEFOLDER"
+
+	c := filepath.Clean(path)
+
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		return c, errors.New("unsafe or invalid path specified")
+
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		return r, errors.New("unsafe or invalid path specified")
+	} else {
+		return r, nil
+	}
 }
 
 /**
@@ -417,7 +455,7 @@ func CleanFile(fileName string) {
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
-	filePathName := FILEFOLDER + "/" + fileName + ".zip"
+	filePathName := verifyPath(FILEFOLDER + "/" + fileName + ".zip")
 
 	err := (os.Remove(filePathName))
 	if err != nil {
