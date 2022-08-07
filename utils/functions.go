@@ -38,9 +38,7 @@ func GetBaseUrl(context echo.Context) string {
 /**
  * Establish a Trusted Root for /File.
  */
-func verifyPath(path string, trustedRoot string) error {
-	
-	trustedRoot := "FILEFOLDER"
+func inTrustedRoot(path string, trustedRoot string) error {
 	for path != "/" {
 		path = filepath.Dir(path)
 		if path == trustedRoot {
@@ -48,6 +46,29 @@ func verifyPath(path string, trustedRoot string) error {
 		}
 	}
 	return errors.New("path is outside of trusted root")
+}
+
+func verifyPath(path string) string {
+
+	// Read from FILEFOLDER .env configuration
+	trustedRoot := (FILEFOLDER + "/" + fileName + ".zip")
+	
+	c := filepath.Clean(path)
+	
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		log.Error("unsafe or invalid path specified", err)
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		fmt.Println("Error " + err.Error())
+		log.Error("unsafe or invalid path specified", err)
+	} else {
+		return r
+	}
+	return r
 }
 
 /**
