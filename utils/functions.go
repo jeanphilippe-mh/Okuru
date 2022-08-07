@@ -48,7 +48,7 @@ func inTrustedRoot(path string, trustedRoot string) error {
 	return errors.New("path is outside of trusted root")
 }
 
-func verifyPath(path string) (string, error) {
+func verifyPath(path string) {
 
 	// Read from FILEFOLDER .env configuration
 	trustedRoot := "FILEFOLDER"
@@ -56,12 +56,12 @@ func verifyPath(path string) (string, error) {
 	c := filepath.Clean(path)
 	r := filepath.EvalSymlinks(c)
 
-	err = inTrustedRoot(r, trustedRoot)
+	r, err = inTrustedRoot(r, trustedRoot)
 	if err != nil {
 		fmt.Println("Error " + err.Error())
 		return errors.New("unsafe or invalid path specified")
 	} else {
-		return err, nil
+		return r, nil
 	}
 }
 
