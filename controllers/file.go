@@ -3,11 +3,9 @@ package controllers
 import (
 	"compress/flate"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -17,44 +15,6 @@ import (
 	"github.com/mholt/archiver/v3"
 	log "github.com/sirupsen/logrus"
 )
-
-/**
- * Establish a Trusted Root for /File.
- */
-func inTrustedRoot(path string, trustedRoot string) error {
-	for path != "/" {
-		path = filepath.Dir(path)
-		if path == trustedRoot {
-			return nil
-		}
-	}
-	return errors.New("path is outside of trusted root")
-}
-
-func verifyPath(path string) string {
-
-	// Read from FILEFOLDER .env configuration
-	trustedRoot := FILEFOLDER
-	
-	r, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		log.Error("unsafe or invalid path specified", err)
-	}
-
-	err = inTrustedRoot(r, trustedRoot)
-	if err != nil {
-		fmt.Println("Error " + err.Error())
-		log.Error("unsafe or invalid path specified", err)
-	} else {
-		return r
-	}
-	return r
-}
-
-/**
- *
- */
 
 func IndexFile(context echo.Context) error {
 	delete(DataContext, "errors")
