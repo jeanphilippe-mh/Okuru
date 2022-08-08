@@ -1,6 +1,6 @@
 module github.com/jeanphilippe-mh/Okuru
 
-go 1.18
+go 1.19
 
 require (
         github.com/fernet/fernet-go v0.0.0-20211208181803-9f70042a33ee
@@ -34,8 +34,8 @@ require (
         github.com/valyala/fasttemplate v1.2.1 // indirect
         github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
         golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect
-        golang.org/x/net v0.0.0-20220722155237-a158d28d115b // indirect
-        golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
+        golang.org/x/net v0.0.0-20220805013720-a33c5aa5df48 // indirect
+        golang.org/x/sys v0.0.0-20220808155132-1c4a2a72c664 // indirect
         golang.org/x/text v0.3.7 // indirect
         golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9 // indirect
         gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
