@@ -3,7 +3,7 @@ package controllers
 import (
 	"compress/flate"
 	"errors"
-	"io"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
