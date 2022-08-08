@@ -202,7 +202,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-	folderPathName := verifyPath(FILEFOLDER + "/" + folderName + "/")
+	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	err = os.Mkdir(folderPathName, os.ModePerm)
 	if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
