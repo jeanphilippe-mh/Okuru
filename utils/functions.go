@@ -421,7 +421,7 @@ func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
 
 	// Construct the file path using the escaped file name
-	filePathName := filepath.Join(FILEFOLDER, escapedfileName + ".zip")
+	filePathName := filepath.Join(FILEFOLDER, escapedfileName+".zip")
 
 	// Delete the file
 	err := os.Remove(filePathName)
