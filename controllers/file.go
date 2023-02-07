@@ -238,7 +238,7 @@ func AddFile(context echo.Context) error {
 		totalUploadedFileSize += file.Size
 
 		// Destination
-		
+
 		path := filepath.Join(folderPathName, file.Filename)
 		dst, err := os.Create(path)
 		if err != nil {
