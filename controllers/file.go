@@ -242,18 +242,18 @@ func AddFile(context echo.Context) error {
 
 		// Replace any invalid characters with an underscore
 		safeFileName = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' {
-		   return r
-		}
-		   return '_'
+			if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' {
+				return r
+			}
+			return '_'
 		}, safeFileName)
 
 		// Destination
 		dst, err := os.Create(filepath.Join(folderPathName, safeFileName))
 		if err != nil {
-		   log.Error("Error while creating file: %+v\n", err)
-		   DataContext["errors"] = err.Error()
-		   return context.Render(http.StatusOK, "index_file.html", DataContext)
+			log.Error("Error while creating file: %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer dst.Close()
 
