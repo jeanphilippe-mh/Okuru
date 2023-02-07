@@ -192,7 +192,16 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 	files := form.File["files"]
-
+	for i, file := range files {
+	// Ensure that the file name contains only allowed characters
+	fileName := filepath.Base(file.Filename)
+	if !validFileName.MatchString(fileName) {
+		err := fmt.Errorf("Invalid file name: %s", fileName)
+		log.Error("%+v\n", err)
+		DataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
+		
 	if len(files) == 0 {
 		errorMessage := "No file was selected. Please provide a file to generate a link"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
