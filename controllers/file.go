@@ -237,14 +237,23 @@ func AddFile(context echo.Context) error {
 		}
 		totalUploadedFileSize += file.Size
 
+		// Sanitize the file name
+		safeFileName := filepath.Base(file.Filename)
+
+		// Replace any invalid characters with an underscore
+		safeFileName = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' {
+		   return r
+		}
+		   return '_'
+		}, safeFileName)
+
 		// Destination
-		
-		path := filepath.Join(folderPathName, file.Filename)
-		dst, err := os.Create(path)
+		dst, err := os.Create(filepath.Join(folderPathName, safeFileName))
 		if err != nil {
-			log.Error("Error while creating file : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		   log.Error("Error while creating file: %+v\n", err)
+		   DataContext["errors"] = err.Error()
+		   return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer dst.Close()
 
