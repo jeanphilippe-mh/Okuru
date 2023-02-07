@@ -414,11 +414,15 @@ func CleanFileWatch() {
 }
 
 func CleanFile(fileName string) {
+	// Replace newline characters to prevent path traversal attack
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
-	filePathName := FILEFOLDER + "/" + fileName + ".zip"
 
+	// Construct the file path using the escaped file name
+	filePathName := filepath.Join(FILEFOLDER, escapedfileName + ".zip")
+
+	// Delete the file
 	err := os.Remove(filePathName)
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
