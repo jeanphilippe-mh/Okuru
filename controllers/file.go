@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -237,7 +238,9 @@ func AddFile(context echo.Context) error {
 		totalUploadedFileSize += file.Size
 
 		// Destination
-		dst, err := os.Create(folderPathName + file.Filename)
+		
+		path := filepath.Join(folderPathName, file.Filename)
+		dst, err := os.Create(path)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
