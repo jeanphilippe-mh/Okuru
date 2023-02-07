@@ -415,7 +415,7 @@ func CleanFileWatch() {
 }
 
 func CleanFile(fileName string) {
-	// Replace newline characters to prevent path traversal attack
+	// Replace newline characters to prevent path traversal attacks
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
