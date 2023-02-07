@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -192,16 +191,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 	files := form.File["files"]
-	for i, file := range files {
-	// Ensure that the file name contains only allowed characters
-	fileName := filepath.Base(file.Filename)
-	if !validFileName.MatchString(fileName) {
-		err := fmt.Errorf("Invalid file name: %s", fileName)
-		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
-	}
-		
+
 	if len(files) == 0 {
 		errorMessage := "No file was selected. Please provide a file to generate a link"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
@@ -231,7 +221,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer src.Close()
-
+		
 		if file.Size > MaxFileSize {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
@@ -246,23 +236,12 @@ func AddFile(context echo.Context) error {
 		}
 		totalUploadedFileSize += file.Size
 
-		// Sanitize the file name
-		safeFileName := filepath.Base(file.Filename)
-
-		// Replace any invalid characters with an underscore
-		safeFileName = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' {
-		   return r
-		}
-		   return '_'
-		}, safeFileName)
-
 		// Destination
-		dst, err := os.Create(filepath.Join(folderPathName, safeFileName))
+		dst, err := os.Create(folderPathName + file.Filename)
 		if err != nil {
-		   log.Error("Error while creating file: %+v\n", err)
-		   DataContext["errors"] = err.Error()
-		   return context.Render(http.StatusOK, "index_file.html", DataContext)
+			log.Error("Error while creating file : %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer dst.Close()
 
