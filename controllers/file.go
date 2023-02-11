@@ -239,8 +239,8 @@ func AddFile(context echo.Context) error {
 		totalUploadedFileSize += file.Size
 
 		// Replace newline characters to prevent path traversal attacks
-		escapedfileName := strings.ReplaceAll(folderName, "\n", "")
-		escapedfileName = strings.ReplaceAll(escapedfolderName, "\r", "")
+		escapedfolderName := strings.ReplaceAll(folderName, "\n", "")
+		escapedfolderName = strings.ReplaceAll(escapedfolderName, "\r", "")
 		log.Debug("CleanFile fileName : %s\n", escapedfolderName)
 		
 		// Validate the file name
