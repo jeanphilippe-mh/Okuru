@@ -424,7 +424,7 @@ func CleanFile(fileName string) {
 	// Validate the file name
 	fileNamePattern := `^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$`
 	re := regexp.MustCompile(fileNamePattern)
-	cleanFileName := filepath.Base(escapedfileName)
+	cleanFileName := filepath.Base(escapedfolderName)
 		
 	if !re.MatchString(cleanFileName) {
 	errorMessage := "File name contains prohibited characters"
@@ -434,7 +434,7 @@ func CleanFile(fileName string) {
 	return	
 	}
 		
-	if filepath.Base(cleanFileName) == "." || filepath.Base(cleanFileName) == ".." {
+	if filepath.Base(cleanFileName) == ".." {
 	errorMessage := "File name contains prohibited characters"
 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
@@ -450,7 +450,7 @@ func CleanFile(fileName string) {
 	return
 	}
 	
-	// Construct the file path using the escaped file name
+	// Construct the file path using the cleanFileName file name
 	filePathName := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
 
 	// Delete the file
