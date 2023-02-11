@@ -241,10 +241,10 @@ func AddFile(context echo.Context) error {
 		// Replace newline characters to prevent path traversal attacks
 		escapedfolderName := strings.ReplaceAll(folderName, "\n", "")
 		escapedfolderName = strings.ReplaceAll(escapedfolderName, "\r", "")
-		log.Debug("CleanFile fileName : %s\n", escapedfolderName)
+		log.Debug("CleanFolderName folderName : %s\n", escapedfolderName)
 		
 		// Validate the file name
-		folderNamePattern := `^[a-zA-Z0-9_-]+/.[a-zA-Z0-9]+$`
+		folderNamePattern := `^[a-zA-Z0-9_-]+[a-zA-Z0-9]+$`
 		re := regexp.MustCompile(folderNamePattern)
 		cleanFolderName := filepath.Base(escapedfolderName)
 		
