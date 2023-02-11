@@ -238,10 +238,15 @@ func AddFile(context echo.Context) error {
 		}
 		totalUploadedFileSize += file.Size
 
+		// Replace newline characters to prevent path traversal attacks
+		escapedfileName := strings.ReplaceAll(fileName, "\n", "")
+		escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
+		log.Debug("CleanFile fileName : %s\n", escapedfileName)
+		
 		// Validate the file name
 		fileNamePattern := `^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$`
 		re := regexp.MustCompile(fileNamePattern)
-		cleanFileName := filepath.Base(file.Filename)
+		cleanFileName := filepath.Base(escapedfileName)
 		
 		if !re.MatchString(cleanFileName) {
 		errorMessage := "File name contains prohibited characters"
@@ -289,7 +294,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileList = append(fileList, folderPathName+file.Filename)
+		fileList = append(fileList, dstPath)
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
