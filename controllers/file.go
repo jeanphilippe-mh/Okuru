@@ -244,7 +244,7 @@ func AddFile(context echo.Context) error {
 		log.Debug("CleanFolderName folderName : %s\n", escapedfolderName)
 		
 		// Validate the file name
-		folderNamePattern := `^[a-zA-Z0-9_-]+[a-zA-Z0-9]+$`
+		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 		re := regexp.MustCompile(folderNamePattern)
 		cleanFolderName := filepath.Base(escapedfolderName)
 		
