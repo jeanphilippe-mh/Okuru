@@ -420,38 +420,38 @@ func CleanFile(fileName string) {
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
-	
+
 	// Validate the file name
 	fileNamePattern := `^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$`
 	re := regexp.MustCompile(fileNamePattern)
 	cleanFileName := filepath.Base(file.escapedfileName)
-		
+
 	if !re.MatchString(cleanFileName) {
-	errorMessage := "File name contains prohibited characters"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	return	
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		return
 	}
-		
+
 	if filepath.Base(cleanFileName) == "." || filepath.Base(cleanFileName) == ".." {
-	errorMessage := "File name contains prohibited characters"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	return
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		return
 	}
-		
+
 	if strings.ContainsAny(cleanFileName, "/\\") {
-	errorMessage := "File name contains prohibited characters"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	return
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		return
 	}
-	
+
 	// Construct the file path using the escaped file name
-	filePathName := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
+	filePathName := filepath.Join(FILEFOLDER, cleanFileName+".zip")
 
 	// Delete the file
 	err := os.Remove(filePathName)
