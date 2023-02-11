@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regex"
+	"regexp"
 	"strconv"
 	"strings"
 
