@@ -257,7 +257,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
-		if filepath.Base(cleanFolderName) == "." || filepath.Base(cleanFolderName) == ".." {
+		if filepath.Base(cleanFolderName) == ".." {
 		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
