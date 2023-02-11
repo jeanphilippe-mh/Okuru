@@ -434,7 +434,7 @@ func CleanFile(fileName string) {
 	return	
 	}
 		
-	if strings.Count(cleanFolderName, ".") > 1 {
+	if strings.Count(cleanFileName, ".") > 1 {
 	errorMessage := "File name contains prohibited characters"
 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
