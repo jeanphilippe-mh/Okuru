@@ -422,7 +422,7 @@ func CleanFile(fileName string) {
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
 	
 	// Validate the file name
-	fileNamePattern := `^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$`
+	fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 	re := regexp.MustCompile(fileNamePattern)
 	cleanFileName := filepath.Base(escapedfileName)
 		
@@ -434,7 +434,7 @@ func CleanFile(fileName string) {
 	return	
 	}
 		
-	if filepath.Base(cleanFileName) == ".." {
+	if strings.Count(cleanFolderName, ".") > 1 {
 	errorMessage := "File name contains prohibited characters"
 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
