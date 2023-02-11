@@ -424,7 +424,7 @@ func CleanFile(fileName string) {
 	// Validate the file name
 	fileNamePattern := `^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$`
 	re := regexp.MustCompile(fileNamePattern)
-	cleanFileName := filepath.Base(file.escapedfileName)
+	cleanFileName := filepath.Base(escapedfileName)
 		
 	if !re.MatchString(cleanFileName) {
 	errorMessage := "File name contains prohibited characters"
