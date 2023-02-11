@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"regex"
 	"strconv"
 	"strings"
 
@@ -259,7 +261,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		
-		if strings.ContainsAny(fileName, "/\\") {
+		if strings.ContainsAny(cleanFileName, "/\\") {
 		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
