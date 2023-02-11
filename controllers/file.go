@@ -239,7 +239,7 @@ func AddFile(context echo.Context) error {
 		totalUploadedFileSize += file.Size
 
 		// Replace newline characters to prevent path traversal attacks
-		escapedfileName := strings.ReplaceAll(file.FileName, "\n", "")
+		escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 		escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 		log.Debug("CleanFile fileName : %s\n", escapedfileName)
 		
@@ -254,7 +254,7 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
 		if filepath.Base(cleanFileName) == "." || filepath.Base(cleanFileName) == ".." {
@@ -263,7 +263,7 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return context.Render(http.StatusUnauthorizedK, "index_file.html", DataContext)
 		}
 		
 		if strings.ContainsAny(cleanFileName, "/\\") {
@@ -272,7 +272,7 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
 		// Secure the file path
