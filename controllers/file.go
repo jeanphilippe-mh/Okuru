@@ -243,12 +243,26 @@ func AddFile(context echo.Context) error {
 		escapedfolderName = strings.ReplaceAll(escapedfolderName, "\r", "")
 		log.Debug("CleanFolderName folderName : %s\n", escapedfolderName)
 		
+		escapedfileName := strings.ReplaceAll(file.Filename, "\n", "")
+		escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
+		log.Debug("CleanFolderName folderName : %s\n", escapedfileName)
+		
 		// Validate the file name
 		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 		re := regexp.MustCompile(folderNamePattern)
-		cleanFolderName := filepath.Base(escapedfolderName + file.Filename)
+		cleanFolderName := filepath.Base(escapedfolderName)
+		cleanFileName := filepath.Base(escapedfileName)
 		
 		if re.MatchString(cleanFolderName) {
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		DataContext["errors"] = errorMessage
+		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+		}
+		
+		if re.MatchString(cleanFileName) {
 		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
@@ -266,7 +280,25 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
+		if strings.Count(cleanFileName, ".") > 1 {
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		DataContext["errors"] = errorMessage
+		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+		}
+		
 		if strings.ContainsAny(cleanFolderName, "/\\") {
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		DataContext["errors"] = errorMessage
+		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+		}
+		
+		if strings.ContainsAny(cleanFileName, "/\\") {
 		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
@@ -277,9 +309,10 @@ func AddFile(context echo.Context) error {
 		
 		// Secure the file path
 		dstPath := filepath.Join(folderPathName, cleanFolderName)
+		dstFile := filepath.Base(cleanFileName)
 		
 		// Destination
-		dst, err := os.Create(dstPath)
+		dst, err := os.Create(dstPath + dstFile)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
@@ -294,7 +327,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileList = append(fileList, dstPath)
+		fileList = append(fileList, dstPath + dstFile)
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
@@ -303,7 +336,7 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		err := os.RemoveAll(folderPathName)
+		err := os.RemoveAll(dstPath)
 		if err != nil {
 			log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
 		}
@@ -313,14 +346,14 @@ func AddFile(context echo.Context) error {
 	z := archiver.Zip{
 		CompressionLevel: flate.NoCompression,
 	}
-	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
+	err = z.Archive(fileList, FILEFOLDER+"/"+cleanFolderName+".zip")
 	if err != nil {
 		log.Error("Error while archive : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	err = os.RemoveAll(folderPathName)
+	err = os.RemoveAll(dstPath)
 	if err != nil {
 		log.Error("Error while removing folder : %+v\n", err)
 		DataContext["errors"] = err.Error()
