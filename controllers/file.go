@@ -336,7 +336,7 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
 		DataContext["errors"] = errorMessage
-		err := os.RemoveAll(dstPath)
+		err := os.RemoveAll(folderPathName)
 		if err != nil {
 			log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
 		}
@@ -346,14 +346,14 @@ func AddFile(context echo.Context) error {
 	z := archiver.Zip{
 		CompressionLevel: flate.NoCompression,
 	}
-	err = z.Archive(fileList, FILEFOLDER+"/"+cleanFolderName+".zip")
+	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
 	if err != nil {
 		log.Error("Error while archive : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	err = os.RemoveAll(dstPath)
+	err = os.RemoveAll(folderPathName)
 	if err != nil {
 		log.Error("Error while removing folder : %+v\n", err)
 		DataContext["errors"] = err.Error()
