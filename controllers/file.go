@@ -223,7 +223,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer src.Close()
-		
+
 		if file.Size > MaxFileSize {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
@@ -238,46 +238,46 @@ func AddFile(context echo.Context) error {
 		}
 		totalUploadedFileSize += file.Size
 
-		// Replace newline characters to prevent path traversal attacks		
+		// Replace newline characters to prevent path traversal attacks
 		escapedfileName := strings.ReplaceAll(file.Filename, "\n", "")
 		escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 		log.Debug("CleanFolderName folderName : %s\n", escapedfileName)
-		
+
 		// Validate the file name
 		fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 		re := regexp.MustCompile(fileNamePattern)
 		cleanFileName := filepath.Base(escapedfileName)
-		
+
 		if re.MatchString(cleanFileName) {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+			errorMessage := "File name contains prohibited characters"
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+			log.Error(escapederrorMessage)
+			DataContext["errors"] = errorMessage
+			return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
-		
+
 		if strings.Count(cleanFileName, ".") > 1 {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+			errorMessage := "File name contains prohibited characters"
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+			log.Error(escapederrorMessage)
+			DataContext["errors"] = errorMessage
+			return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
-		
+
 		if strings.ContainsAny(cleanFileName, "/\\") {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+			errorMessage := "File name contains prohibited characters"
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+			log.Error(escapederrorMessage)
+			DataContext["errors"] = errorMessage
+			return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
-		
+
 		// Secure the file path
 		dstFile := filepath.Base(cleanFileName)
-		
+
 		// Destination
 		dst, err := os.Create(folderPathName + dstFile)
 		if err != nil {
