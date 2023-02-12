@@ -246,7 +246,7 @@ func AddFile(context echo.Context) error {
 		// Validate the file name
 		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 		re := regexp.MustCompile(folderNamePattern)
-		cleanFolderName := filepath.Base(escapedfolderName)
+		cleanFolderName := filepath.Base(escapedfolderName + file.Filename)
 		
 		if re.MatchString(cleanFolderName) {
 		errorMessage := "File name contains prohibited characters"
