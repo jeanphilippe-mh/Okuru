@@ -204,7 +204,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-	folderPathName := FILEFOLDER + "/" + cleanFolderName + "/"
+	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	err = os.Mkdir(folderPathName, os.ModePerm)
 	if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
@@ -238,29 +238,15 @@ func AddFile(context echo.Context) error {
 		}
 		totalUploadedFileSize += file.Size
 
-		// Replace newline characters to prevent path traversal attacks
-		escapedfolderName := strings.ReplaceAll(folderName, "\n", "")
-		escapedfolderName = strings.ReplaceAll(escapedfolderName, "\r", "")
-		log.Debug("CleanFolderName folderName : %s\n", escapedfolderName)
-		
+		// Replace newline characters to prevent path traversal attacks		
 		escapedfileName := strings.ReplaceAll(file.Filename, "\n", "")
 		escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 		log.Debug("CleanFolderName folderName : %s\n", escapedfileName)
 		
 		// Validate the file name
-		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
-		re := regexp.MustCompile(folderNamePattern)
-		cleanFolderName := filepath.Base(escapedfolderName)
+		fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
+		re := regexp.MustCompile(fileNamePattern)
 		cleanFileName := filepath.Base(escapedfileName)
-		
-		if re.MatchString(cleanFolderName) {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
-		}
 		
 		if re.MatchString(cleanFileName) {
 		errorMessage := "File name contains prohibited characters"
@@ -271,25 +257,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
-		if strings.Count(cleanFolderName, ".") > 1 {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
-		}
-		
 		if strings.Count(cleanFileName, ".") > 1 {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
-		}
-		
-		if strings.ContainsAny(cleanFolderName, "/\\") {
 		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
