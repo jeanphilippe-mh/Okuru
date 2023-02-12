@@ -421,7 +421,7 @@ func CleanFile(fileName string) {
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
 	
-	// Validate the file name
+	// Validate the file name to prevent path traversal attacks
 	fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 	re := regexp.MustCompile(fileNamePattern)
 	cleanFileName := filepath.Base(escapedfileName)
@@ -450,11 +450,11 @@ func CleanFile(fileName string) {
 	return
 	}
 	
-	// Construct the file path using the cleanFileName file name
-	removePathName := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
+	// Construct the file path to prevent path traversal attacks
+	filePathName := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
 
 	// Delete the file
-	err := os.Remove(removePathName)
+	err := os.Remove(filePathName)
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
 	}
