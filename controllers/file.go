@@ -244,11 +244,11 @@ func AddFile(context echo.Context) error {
 		log.Debug("CleanFolderName folderName : %s\n", escapedfolderName)
 		
 		// Validate the file name
-		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
+		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\)\/.'])`
 		re := regexp.MustCompile(folderNamePattern)
 		cleanFolderName := filepath.Base(escapedfolderName)
 		
-		if !re.MatchString(cleanFolderName) {
+		if re.MatchString(cleanFolderName) {
 		errorMessage := "File name contains prohibited characters1"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
@@ -266,7 +266,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
-		if strings.ContainsAny(cleanFolderName, "\\") {
+		if strings.ContainsAny(cleanFolderName, "/\\") {
 		errorMessage := "File name contains prohibited characters3"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
