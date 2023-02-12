@@ -243,7 +243,7 @@ func AddFile(context echo.Context) error {
 		escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 		log.Debug("CleanFolderName folderName : %s\n", escapedfileName)
 		
-		// Validate the file name
+		// Validate the file name to prevent path traversal attacks
 		fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 		re := regexp.MustCompile(fileNamePattern)
 		cleanFileName := filepath.Base(escapedfileName)
@@ -275,7 +275,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 		
-		// Secure the file path
+		// Secure the file path to prevent path traversal attacks
 		dstFile := filepath.Base(cleanFileName)
 		
 		// Destination
