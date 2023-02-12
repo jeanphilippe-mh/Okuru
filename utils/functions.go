@@ -426,7 +426,7 @@ func CleanFile(fileName string) {
 	re := regexp.MustCompile(fileNamePattern)
 	cleanFileName := filepath.Base(escapedfileName)
 		
-	if !re.MatchString(cleanFileName) {
+	if re.MatchString(cleanFileName) {
 	errorMessage := "File name contains prohibited characters"
 	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
