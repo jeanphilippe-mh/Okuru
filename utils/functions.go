@@ -451,10 +451,10 @@ func CleanFile(fileName string) {
 	}
 	
 	// Construct the file path using the cleanFileName file name
-	filePathName := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
+	removePath := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
 
 	// Delete the file
-	err := os.Remove(filePathName)
+	err := os.Remove(removePath)
 	if err != nil {
 		log.Error("CleanFile: deleting file error : %+v\n", err)
 	}
