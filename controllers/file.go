@@ -279,7 +279,7 @@ func AddFile(context echo.Context) error {
 		dstPath := filepath.Join(folderPathName, cleanFolderName)
 		
 		// Destination
-		dst, err := os.Create(dstPath + file.Filename)
+		dst, err := os.Create(dstPath)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
@@ -294,7 +294,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileList = append(fileList, dstPath+file.Filename)
+		fileList = append(fileList, dstPath)
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
