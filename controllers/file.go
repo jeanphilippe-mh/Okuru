@@ -244,12 +244,12 @@ func AddFile(context echo.Context) error {
 		log.Debug("CleanFolderName folderName : %s\n", escapedfolderName)
 		
 		// Validate the file name
-		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\)\/.'])`
+		folderNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 		re := regexp.MustCompile(folderNamePattern)
 		cleanFolderName := filepath.Base(escapedfolderName)
 		
 		if re.MatchString(cleanFolderName) {
-		errorMessage := "File name contains prohibited characters1"
+		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
@@ -258,7 +258,7 @@ func AddFile(context echo.Context) error {
 		}
 		
 		if strings.Count(cleanFolderName, ".") > 1 {
-		errorMessage := "File name contains prohibited characters2"
+		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
@@ -267,7 +267,7 @@ func AddFile(context echo.Context) error {
 		}
 		
 		if strings.ContainsAny(cleanFolderName, "/\\") {
-		errorMessage := "File name contains prohibited characters3"
+		errorMessage := "File name contains prohibited characters"
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
@@ -279,7 +279,7 @@ func AddFile(context echo.Context) error {
 		dstPath := filepath.Join(folderPathName, cleanFolderName)
 		
 		// Destination
-		dst, err := os.Create(dstPath)
+		dst, err := os.Create(dstPath + file.Filename)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
@@ -294,7 +294,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileList = append(fileList, dstPath)
+		fileList = append(fileList, dstPath+file.Filename)
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
