@@ -204,7 +204,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-	folderPathName := FILEFOLDER + "/" + folderName + "/"
+	folderPathName := FILEFOLDER + "/" + cleanFolderName + "/"
 	err = os.Mkdir(folderPathName, os.ModePerm)
 	if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
@@ -308,11 +308,10 @@ func AddFile(context echo.Context) error {
 		}
 		
 		// Secure the file path
-		dstPath := filepath.Join(folderPathName, cleanFolderName)
 		dstFile := filepath.Base(cleanFileName)
 		
 		// Destination
-		dst, err := os.Create(dstPath + dstFile)
+		dst, err := os.Create(folderPathName + dstFile)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
 			DataContext["errors"] = err.Error()
@@ -327,7 +326,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileList = append(fileList, dstPath + dstFile)
+		fileList = append(fileList, folderPathName+dstFile)
 	}
 
 	if totalUploadedFileSize > MaxFileSize {
