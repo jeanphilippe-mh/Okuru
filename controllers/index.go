@@ -69,7 +69,7 @@ func ReadIndex(context echo.Context) error {
 	return context.Render(http.StatusOK, "password.html", DataContext)
 }
 
-func generateCSRFToken() (string, error) {
+func indexGenerateCSRFToken() (string, error) {
 	token := make([]byte, 32)
 	_, err := rand.Read(token)
 	if err != nil {
@@ -80,7 +80,7 @@ func generateCSRFToken() (string, error) {
 
 func indexHandler(context echo.Context) error {
 	// Generate CSRF token
-	csrfToken, err := generateCSRFToken()
+	csrfToken, err := indexGenerateCSRFToken()
 	if err != nil {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
