@@ -86,12 +86,12 @@ func indexHandler(context echo.Context) error {
 	}
 
 	// Render HTML template with CSRF token
-	DataContext := struct {
+	data := struct {
 		CSRFToken string
 	}{
 		csrfToken,
 	}
-	return context.Render(http.StatusOK, "set_password.html", DataContext)
+	return context.Render(http.StatusOK, "set_password.html", data)
 }
 
 
