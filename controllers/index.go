@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"crypto/rand"
+	"encoding/base64"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -66,6 +68,32 @@ func ReadIndex(context echo.Context) error {
 
 	return context.Render(http.StatusOK, "password.html", DataContext)
 }
+
+func generateCSRFToken() (string, error) {
+	token := make([]byte, 32)
+	_, err := rand.Read(token)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(token), nil
+}
+
+func indexHandler(context echo.Context) error {
+	// Generate CSRF token
+	csrfToken, err := generateCSRFToken()
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Error generating CSRF token")
+	}
+
+	// Render HTML template with CSRF token
+	data := struct {
+		CSRFToken string
+	}{
+		csrfToken,
+	}
+	return context.Render(http.StatusOK, "set_password.html", DataContext)
+}
+
 
 func RevealPassword(context echo.Context) error {
 	println("\n/ Password has been revealed by a viewver /\n")
