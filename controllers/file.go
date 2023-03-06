@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"crypto/rand"
+	"encoding/base64"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -75,6 +77,31 @@ func ReadFile(context echo.Context) error {
 	}
 
 	return context.Render(http.StatusOK, "file.html", DataContext)
+}
+
+func generateCSRFToken() (string, error) {
+	token := make([]byte, 32)
+	_, err := rand.Read(token)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(token), nil
+}
+
+func fileHandler(context echo.Context) error {
+	// Generate CSRF token
+	csrfToken, err := generateCSRFToken()
+	if err != nil {
+		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
+	}
+
+	// Render HTML template with CSRF token
+	DataContext := struct {
+		CSRFToken string
+	}{
+		csrfToken,
+	}
+	return context.Render(http.StatusOK, "index_file.html", DataContext)
 }
 
 func DownloadFile(context echo.Context) error {
