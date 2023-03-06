@@ -1,11 +1,11 @@
 package controllers
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"strconv"
 	"strings"
-	"crypto/rand"
-	"encoding/base64"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -93,7 +93,6 @@ func indexHandler(context echo.Context) error {
 	}
 	return context.Render(http.StatusOK, "set_password.html", data)
 }
-
 
 func RevealPassword(context echo.Context) error {
 	println("\n/ Password has been revealed by a viewver /\n")
