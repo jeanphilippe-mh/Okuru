@@ -82,11 +82,11 @@ func indexHandler(context echo.Context) error {
 	// Generate CSRF token
 	csrfToken, err := generateCSRFToken()
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Error generating CSRF token")
+		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
 	// Render HTML template with CSRF token
-	data := struct {
+	DataContext := struct {
 		CSRFToken string
 	}{
 		csrfToken,
