@@ -79,7 +79,7 @@ func ReadFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "file.html", DataContext)
 }
 
-func generateCSRFToken() (string, error) {
+func fileGenerateCSRFToken() (string, error) {
 	token := make([]byte, 32)
 	_, err := rand.Read(token)
 	if err != nil {
@@ -90,7 +90,7 @@ func generateCSRFToken() (string, error) {
 
 func fileHandler(context echo.Context) error {
 	// Generate CSRF token
-	csrfToken, err := generateCSRFToken()
+	csrfToken, err := fileGenerateCSRFToken()
 	if err != nil {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
