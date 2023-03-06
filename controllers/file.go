@@ -96,12 +96,12 @@ func fileHandler(context echo.Context) error {
 	}
 
 	// Render HTML template with CSRF token
-	DataContext := struct {
+	data := struct {
 		CSRFToken string
 	}{
 		csrfToken,
 	}
-	return context.Render(http.StatusOK, "index_file.html", DataContext)
+	return context.Render(http.StatusOK, "index_file.html", data)
 }
 
 func DownloadFile(context echo.Context) error {
