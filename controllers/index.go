@@ -100,6 +100,7 @@ func indexSubmitHandler(context echo.Context) error {
 	if csrfToken != session.CSRFToken {
 		return context.String(http.StatusBadRequest, "Invalid CSRF token")
 	}
+}
 
 func RevealPassword(context echo.Context) error {
 	println("\n/ Password has been revealed by a viewver /\n")
