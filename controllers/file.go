@@ -102,6 +102,7 @@ func fileHandler(context echo.Context) error {
 		csrfToken,
 	}
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
+	
 	// Render HTML template with CSRF token for file.html
 	if DataContext := struct {
 		CSRFTokenF string
