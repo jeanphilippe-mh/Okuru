@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 	"crypto/tls"
+	"golang.org/x/net/http2"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -58,9 +59,18 @@ func main() {
 	certFile := "cert.pem"
 	keyFile := "key.pem"
 	tlsConfig := &tls.Config{
-        MinVersion: tls.VersionTLS13,
-        MaxVersion: tls.VersionTLS13,
-	}
+    	}
 
-	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile, tlsConfig))
+    	server := &http.Server{
+        Addr:      "":"+APP_PORT",
+        TLSConfig: tlsConfig,
+        Handler:   e,
+    	}
+
+	http2.ConfigureServer(server, nil)
+
+	e.Server = server
+	
+	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile))
+
 }
