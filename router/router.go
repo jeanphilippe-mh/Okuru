@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net/http"
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/routes"
 	log "github.com/sirupsen/logrus"
@@ -100,10 +101,11 @@ func New() *echo.Echo {
 	
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		TokenLookup: "form:csrf_token",
-		CookieSecure:   true,
-		CookieHTTPOnly: true,
-		CookieSameSite: SameSiteStrictMode,
+		TokenLength:	32,
+		TokenLookup:	"form:csrf_token",
+		CookieSecure:	true,
+		CookieHTTPOnly:	true,
+		CookieSameSite:	http.SameSiteStrictMode,
 		
 	}))
 
