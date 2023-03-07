@@ -5,11 +5,10 @@ package main
 // Source: https://github.com/verybluebot/echo-server-tutorial/
 
 import (
-	"os"
-	"crypto/tls"
-	"crypto/rand"
-	"math/big"
 	"math/rand"
+	"os"
+	"time"
+	"crypto/tls"
 	"net/http"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
@@ -53,20 +52,7 @@ func init() {
 }
 
 func main() {
-	// Generate a secure random seed value for the random number generator
-	seed, err := rand.Int(rand.Reader, big.NewInt(1<<62-1))
-	if err != nil {
-		log.Fatalf("Error generating secure random seed value: %v", err)
-	}
-
-	// Create a new rand.Rand object using the generated seed
-	rng := rand.New(rand.NewSource(seed.Int64()))
-
-	// Generate a random integer between 0 and 999
-	randomInt := rng.Intn(1000)
-
-	// Print the generated random integer
-	log.Printf("Random integer: %d", randomInt)
+	rand.Seed(time.Now().UnixNano())
 
 	e := router.New()
 
