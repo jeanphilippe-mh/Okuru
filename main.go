@@ -1,7 +1,8 @@
 package main
 
-//Source: https://echo.labstack.com/guide
-//Source: https://github.com/verybluebot/echo-server-tutorial/
+// Source: https://echo.labstack.com/guide
+// Source: https://echo.labstack.com/cookbook/http2/
+// Source: https://github.com/verybluebot/echo-server-tutorial/
 
 import (
 	"math/rand"
@@ -31,7 +32,7 @@ func init() {
 		log.Panic("Redis issue is detected")
 	}
 
-	// Log as JSON instead of the default ASCII formatter.
+	// Log as JSON instead of the default ASCII formatter
 	log.SetFormatter(&log.JSONFormatter{})
 
 	// Output to stdout instead of the default stderr
@@ -51,6 +52,12 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	e := router.New()
+	
+	// Start and force TLS 1.3 server with HTTP/2
+	tlsConfig := &tls.Config{
+        MinVersion: tls.VersionTLS13,
+        MaxVersion: tls.VersionTLS13,
+	}
 
-	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, "cert.pem", "key.pem"))
+	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, "cert.pem", "key.pem", tlsConfig))
 }
