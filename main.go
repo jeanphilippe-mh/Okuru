@@ -62,11 +62,10 @@ func main() {
 	tlsConfig := &tls.Config{
         MinVersion: tls.VersionTLS13,
         MaxVersion: tls.VersionTLS13,
-	NextProtos: h2,
-	
+	NextProtos: "h2",
 	}
 
-    	server := &http2.Server{
+    	server := &http.Server{
 	Addr: ":+APP_PORT",
         TLSConfig: tlsConfig,
         Handler: e,
