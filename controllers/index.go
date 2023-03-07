@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"crypto/rand"
-	"encoding/base64"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
