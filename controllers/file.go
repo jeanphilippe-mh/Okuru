@@ -120,14 +120,6 @@ func fileHandler(context echo.Context) error {
 	return context.Render(http.StatusOK, "file.html", DataContext)
 }
 
-func fileSubmitHandler(context echo.Context) error {
-	// Verify CSRF token
-	csrfToken := c.FormValue("csrf_token")
-	if csrfToken != session.CSRFToken {
-		return context.String(http.StatusBadRequest, "Invalid CSRF token")
-	}
-}
-
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
 	f := new(File)
