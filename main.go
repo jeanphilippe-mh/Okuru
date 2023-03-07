@@ -56,25 +56,24 @@ func main() {
 
 	e := router.New()
 	
-	// Start and force TLS 1.3 server with HTTP/2
+	// Start and force TLS 1.3 server with HTTP/2 and ALPN
 	certFile := "cert.pem"
 	keyFile := "key.pem"
 	tlsConfig := &tls.Config{
-        MinVersion: tls.VersionTLS13,
-        MaxVersion: tls.VersionTLS13,
-	NextProtos: "h2",
+		MinVersion:   tls.VersionTLS13,
+		MaxVersion:   tls.VersionTLS13,
+		NextProtos:   []string{"h2"},
 	}
 
-    	server := &http.Server{
-	Addr: ":+APP_PORT",
-        TLSConfig: tlsConfig,
-        Handler: e,
-    	}
+	server := &http.Server{
+		Addr:      ":+APP_PORT",
+		TLSConfig: tlsConfig,
+		Handler:   e,
+	}
 
-	http2.ConfigureServer(server, nil)
-
+	http2.ConfigureServer(server, &http2.Server{})
+	
 	e.Server = server
 	
 	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile))
-
 }
