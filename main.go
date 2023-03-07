@@ -8,9 +8,7 @@ import (
 	"os"
 	"crypto/tls"
 	"crypto/rand"
-	"encoding/binary"
 	"math/big"
-	"math/rand"
 	"net/http"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
