@@ -85,7 +85,7 @@ func indexHandler(context echo.Context) error {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
-	// Render HTML template with CSRF token
+	// Render HTML template with CSRF token for set_password.html
 	DataContext := struct {
 		CSRFToken string
 	}{
@@ -94,6 +94,12 @@ func indexHandler(context echo.Context) error {
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
 }
 
+func indexSubmitHandler(context echo.Context) error {
+	// Verify CSRF token
+	csrfToken := c.FormValue("csrf_token")
+	if csrfToken != session.CSRFToken {
+		return context.String(http.StatusBadRequest, "Invalid CSRF token")
+	}
 
 func RevealPassword(context echo.Context) error {
 	println("\n/ Password has been revealed by a viewver /\n")
