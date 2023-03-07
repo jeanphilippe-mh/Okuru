@@ -5,12 +5,12 @@ package main
 // Source: https://github.com/verybluebot/echo-server-tutorial/
 
 import (
+	"crypto/tls"
+	"golang.org/x/net/http2"
 	"math/rand"
+	"net/http"
 	"os"
 	"time"
-	"crypto/tls"
-	"net/http"
-	"golang.org/x/net/http2"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -55,25 +55,25 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	e := router.New()
-	
+
 	// Start and force TLS 1.3 server with HTTP/2
 	certFile := "cert.pem"
 	keyFile := "key.pem"
 	tlsConfig := &tls.Config{
-        MinVersion: tls.VersionTLS13,
-        MaxVersion: tls.VersionTLS13,
-    }
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+	}
 
-    	server := &http.Server{
-	Addr: ":+APP_PORT",
-        TLSConfig: tlsConfig,
-        Handler:   e,
-    	}
+	server := &http.Server{
+		Addr:      ":+APP_PORT",
+		TLSConfig: tlsConfig,
+		Handler:   e,
+	}
 
 	http2.ConfigureServer(server, nil)
 
 	e.Server = server
-	
+
 	e.Logger.Fatal(e.StartTLS(":+APP_PORT", certFile, keyFile))
 
 }
