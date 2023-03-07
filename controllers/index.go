@@ -94,14 +94,6 @@ func indexHandler(context echo.Context) error {
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
 }
 
-func indexSubmitHandler(context echo.Context) error {
-	// Verify CSRF token
-	csrfToken := c.FormValue("csrf_token")
-	if csrfToken != session.CSRFToken {
-		return context.String(http.StatusBadRequest, "Invalid CSRF token")
-	}
-}
-
 func RevealPassword(context echo.Context) error {
 	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
