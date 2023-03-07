@@ -95,13 +95,21 @@ func fileHandler(context echo.Context) error {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
-	// Render HTML template with CSRF token
-	DataContext := struct {
-		CSRFToken string
+	// Render HTML template with CSRF token for index_file.html
+	if DataContext := struct {
+		CSRFTokenIF string
 	}{
 		csrfToken,
 	}
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
+	// Render HTML template with CSRF token for file.html
+	if DataContext := struct {
+		CSRFTokenF string
+	}{
+		csrfToken,
+	}
+	return context.Render(http.StatusOK, "file.html", DataContext)
 }
 
 func DownloadFile(context echo.Context) error {
