@@ -88,7 +88,6 @@ func fileGenerateCSRFToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(token), nil
 }
 
-
 func fileIndexHandler(context echo.Context) error {
 	// Generate CSRF token
 	csrfToken, err := indexGenerateCSRFToken()
@@ -127,6 +126,7 @@ func fileSubmitHandler(context echo.Context) error {
 	if csrfToken != session.CSRFToken {
 		return context.String(http.StatusBadRequest, "Invalid CSRF token")
 	}
+}
 
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
