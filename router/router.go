@@ -97,14 +97,13 @@ func New() *echo.Echo {
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowMethods: []string{echo.GET, echo.HEAD, echo.OPTIONS, echo.POST, echo.DELETE},
 	}))
-	
+
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		TokenLookup: "form:csrf_token",
+		TokenLookup:    "form:csrf_token",
 		CookieSecure:   true,
 		CookieHTTPOnly: true,
 		CookieSameSite: SameSiteStrictMode,
-		
 	}))
 
 	// Middleware Static
