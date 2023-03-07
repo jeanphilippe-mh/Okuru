@@ -88,15 +88,16 @@ func fileGenerateCSRFToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(token), nil
 }
 
+
 func fileIndexHandler(context echo.Context) error {
 	// Generate CSRF token
-	csrfToken, err := fileGenerateCSRFToken()
+	csrfToken, err := indexGenerateCSRFToken()
 	if err != nil {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
-	// Render HTML template with CSRF token for index_file.html
-	if DataContext := struct {
+	// Render HTML template with CSRF token
+	DataContext := struct {
 		CSRFTokenIF string
 	}{
 		csrfToken,
@@ -106,13 +107,13 @@ func fileIndexHandler(context echo.Context) error {
 
 func fileHandler(context echo.Context) error {
 	// Generate CSRF token
-	csrfToken, err := fileGenerateCSRFToken()
+	csrfToken, err := indexGenerateCSRFToken()
 	if err != nil {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
-	// Render HTML template with CSRF token for index_file.html
-	if DataContext := struct {
+	// Render HTML template with CSRF token
+	DataContext := struct {
 		CSRFTokenF string
 	}{
 		csrfToken,
