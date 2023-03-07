@@ -6,16 +6,17 @@ package main
 
 import (
 	"os"
-	"crypto/rand"
 	"math/big"
+	"math/rand"
+	"crypto/rand"
 	"crypto/tls"
 	"net/http"
-	"golang.org/x/net/http2"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
+	"golang.org/x/net/http2"
 )
 
 var DebugLevel bool
