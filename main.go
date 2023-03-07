@@ -55,10 +55,12 @@ func main() {
 	e := router.New()
 	
 	// Start and force TLS 1.3 server with HTTP/2
+	certFile := "cert.pem"
+	keyFile := "key.pem"
 	tlsConfig := &tls.Config{
         MinVersion: tls.VersionTLS13,
         MaxVersion: tls.VersionTLS13,
 	}
 
-	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, "cert.pem", "key.pem", tlsConfig))
+	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile, tlsConfig))
 }
