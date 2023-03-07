@@ -5,11 +5,11 @@ package main
 // Source: https://github.com/verybluebot/echo-server-tutorial/
 
 import (
-	"os"
-	"crypto/tls"
 	"crypto/rand"
+	"crypto/tls"
 	"math/big"
 	"net/http"
+	"os"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -73,14 +73,14 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:	    ":" + APP_PORT,
-		TLSConfig:  tlsConfig,
-		Handler:    e,
+		Addr:      ":" + APP_PORT,
+		TLSConfig: tlsConfig,
+		Handler:   e,
 	}
 
 	http2.ConfigureServer(server, &http2.Server{})
 
 	e.Server = server
-	
+
 	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile))
 }
