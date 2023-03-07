@@ -79,7 +79,7 @@ func ReadFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "file.html", DataContext)
 }
 
-func fileGenerateCSRFToken() (string, error) {
+func FileGenerateCSRFToken() (string, error) {
 	token := make([]byte, 32)
 	_, err := rand.Read(token)
 	if err != nil {
@@ -88,7 +88,7 @@ func fileGenerateCSRFToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(token), nil
 }
 
-func fileRenderCSRFToken(context echo.Context, csrfToken string, renderCSRFToken string) error {
+func FileRenderCSRFToken(context echo.Context, csrfToken string, renderCSRFToken string) error {
 	// Render HTML template with CSRF token
 	dataContext := struct {
 		CSRFToken string
@@ -98,24 +98,24 @@ func fileRenderCSRFToken(context echo.Context, csrfToken string, renderCSRFToken
 	return context.Render(http.StatusOK, renderCSRFToken, dataContext)
 }
 
-func fileIndexHandler(context echo.Context) error {
+func FileIndexHandler(context echo.Context) error {
 	// Generate CSRF token
-	csrfToken, err := fileGenerateCSRFToken()
+	csrfToken, err := FileGenerateCSRFToken()
 	if err != nil {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
-
-	return fileRenderCSRFToken(context, csrfToken, "index_file.html")
+	// Render HTML template with CSRF token for index_file.html
+	return FileRenderCSRFToken(context, csrfToken, "index_file.html")
 }
 
-func fileHandler(context echo.Context) error {
+func FileHandler(context echo.Context) error {
 	// Generate CSRF token
-	csrfToken, err := fileGenerateCSRFToken()
+	csrfToken, err := FileGenerateCSRFToken()
 	if err != nil {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
-
-	return fileRenderCSRFToken(context, csrfToken, "file.html")
+	// Render HTML template with CSRF token for file.html
+	return FileRenderCSRFToken(context, csrfToken, "file.html")
 }
 
 func DownloadFile(context echo.Context) error {
