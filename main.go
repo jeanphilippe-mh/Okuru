@@ -51,12 +51,6 @@ func init() {
 	go CleanFileWatch()
 }
 
-
-import (
-	"crypto/rand"
-	"math/big"
-)
-
 func main() {
 	// Generate a secure random seed value for the random number generator
 	seed, err := rand.Int(rand.Reader, big.NewInt(1<<62-1))
