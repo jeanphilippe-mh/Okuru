@@ -103,7 +103,7 @@ func New() *echo.Echo {
 		TokenLookup: "form:csrf_token",
 		CookieSecure:   true,
 		CookieHTTPOnly: true,
-		CookieSameSite: http.SameSiteStrictMode,
+		CookieSameSite: SameSiteStrictMode,
 		
 	}))
 
