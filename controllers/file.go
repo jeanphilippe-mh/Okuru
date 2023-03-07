@@ -96,7 +96,7 @@ func fileIndexHandler(context echo.Context) error {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
-	// Render HTML template with CSRF token
+	// Render HTML template with CSRF token for index_file.html
 	DataContext := struct {
 		CSRFTokenIF string
 	}{
@@ -112,7 +112,7 @@ func fileHandler(context echo.Context) error {
 		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
 	}
 
-	// Render HTML template with CSRF token
+	// Render HTML template with CSRF token for file.html
 	DataContext := struct {
 		CSRFTokenF string
 	}{
@@ -120,6 +120,13 @@ func fileHandler(context echo.Context) error {
 	}
 	return context.Render(http.StatusOK, "file.html", DataContext)
 }
+
+func fileSubmitHandler(context echo.Context) error {
+	// Verify CSRF token
+	csrfToken := c.FormValue("csrf_token")
+	if csrfToken != session.CSRFToken {
+		return context.String(http.StatusBadRequest, "Invalid CSRF token")
+	}
 
 func DownloadFile(context echo.Context) error {
 	var passwordOk = true
