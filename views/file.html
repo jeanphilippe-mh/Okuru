@@ -9,7 +9,6 @@
         <p><span>{% if (errors) %}&#9940{{ errors }}{% endif %}</span> </p>
     </div>
     <form role="form" id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ CSRFToken }}">
         <div class="text-center">
             {% if passwordNeeded %}
             <div class="col">
