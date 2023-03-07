@@ -69,7 +69,7 @@ func ReadIndex(context echo.Context) error {
 	return context.Render(http.StatusOK, "password.html", DataContext)
 }
 
-func indexGenerateCSRFToken() (string, error) {
+func IndexGenerateCSRFToken() (string, error) {
 	token := make([]byte, 32)
 	_, err := rand.Read(token)
 	if err != nil {
@@ -78,20 +78,24 @@ func indexGenerateCSRFToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(token), nil
 }
 
-func indexHandler(context echo.Context) error {
-	// Generate CSRF token
-	csrfToken, err := indexGenerateCSRFToken()
-	if err != nil {
-		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
-	}
-
-	// Render HTML template with CSRF token for set_password.html
-	DataContext := struct {
+func IndexRenderCSRFToken(context echo.Context, csrfToken string, renderCSRFToken string) error {
+	// Render HTML template with CSRF token
+	dataContext := struct {
 		CSRFToken string
 	}{
 		csrfToken,
 	}
-	return context.Render(http.StatusOK, "set_password.html", DataContext)
+	return context.Render(http.StatusOK, renderCSRFToken, dataContext)
+}
+
+func IndexHandler(context echo.Context) error {
+	// Generate CSRF token
+	csrfToken, err := IndexGenerateCSRFToken()
+	if err != nil {
+		return context.String(http.StatusInternalServerError, "Error generating CSRF token")
+	}
+	// Render HTML template with CSRF token for set_password.html
+	return IndexRenderCSRFToken(context, csrfToken, "set_password.html")
 }
 
 func RevealPassword(context echo.Context) error {
