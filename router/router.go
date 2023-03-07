@@ -1,11 +1,11 @@
 package router
 
 import (
-	"net/http"
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/routes"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -98,14 +98,13 @@ func New() *echo.Echo {
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowMethods: []string{echo.GET, echo.HEAD, echo.OPTIONS, echo.POST, echo.DELETE},
 	}))
-	
+
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup:    "form:csrf",
-		CookieSecure:	true,
-		CookieHTTPOnly:	true,
-		CookieSameSite:	http.SameSiteStrictMode,
-		
+		CookieSecure:   true,
+		CookieHTTPOnly: true,
+		CookieSameSite: http.SameSiteStrictMode,
 	}))
 
 	// Middleware Static
