@@ -58,7 +58,7 @@ func main() {
 	// Start and force TLS 1.3 server with HTTP/2
 	certFile := "cert.pem"
 	keyFile := "key.pem"
-	serverPort := "":"+APP_PORT"
+	serverPort := "":"+APP_PORT""
 	tlsConfig := &tls.Config{
     	}
 
