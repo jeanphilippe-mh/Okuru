@@ -6,10 +6,11 @@ package main
 
 import (
 	"os"
+	"crypto/tls"
+	"crypto/rand"
+	"encoding/binary"
 	"math/big"
 	"math/rand"
-	"crypto/rand"
-	"crypto/tls"
 	"net/http"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
