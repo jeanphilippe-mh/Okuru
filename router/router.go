@@ -101,6 +101,7 @@ func New() *echo.Echo {
 	
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
+		TokenLenght:	32,
 		TokenLookup:    "cookie:_csrf",
 		CookieSecure:	true,
 		CookieHTTPOnly:	true,
