@@ -5,9 +5,9 @@ package main
 // Source: https://github.com/verybluebot/echo-server-tutorial/
 
 import (
-	"math/rand"
 	"os"
-	"time"
+	"crypto/rand"
+	"math/big"
 	"crypto/tls"
 	"net/http"
 	"golang.org/x/net/http2"
@@ -51,28 +51,41 @@ func init() {
 	go CleanFileWatch()
 }
 
+
+import (
+	"crypto/rand"
+	"math/big"
+)
+
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	// Generate a secure random seed value for the random number generator
+	seed, err := rand.Int(rand.Reader, big.NewInt(1<<62-1))
+	if err != nil {
+		log.Fatalf("Error generating secure random seed value: %v", err)
+	}
+
+	// Seed the random number generator with the secure random value
+	rand.Seed(seed.Int64())
 
 	e := router.New()
-	
+
 	// Start and force TLS 1.3 server with HTTP/2 and ALPN
 	certFile := "cert.pem"
 	keyFile := "key.pem"
 	tlsConfig := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		MaxVersion:   tls.VersionTLS13,
-		NextProtos:   []string{"h2"},
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2"},
 	}
 
 	server := &http.Server{
-		Addr:      ":+APP_PORT",
-		TLSConfig: tlsConfig,
-		Handler:   e,
+		Addr:	    ":" + APP_PORT,
+		TLSConfig:  tlsConfig,
+		Handler:    e,
 	}
 
 	http2.ConfigureServer(server, &http2.Server{})
-	
+
 	e.Server = server
 	
 	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile))
