@@ -62,6 +62,7 @@ func main() {
     	}
 
     	server := &http.Server{
+	Addr: ":+APP_PORT"
         TLSConfig: tlsConfig,
         Handler:   e,
     	}
@@ -70,6 +71,6 @@ func main() {
 
 	e.Server = server
 	
-	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile))
+	e.Logger.Fatal(e.StartTLS(:+APP_PORT, certFile, keyFile))
 
 }
