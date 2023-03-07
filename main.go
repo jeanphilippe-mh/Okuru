@@ -58,12 +58,10 @@ func main() {
 	// Start and force TLS 1.3 server with HTTP/2
 	certFile := "cert.pem"
 	keyFile := "key.pem"
-	serverPort := "":"+APP_PORT"
 	tlsConfig := &tls.Config{
     	}
 
     	server := &http.Server{
-        Addr:      serverPort,
         TLSConfig: tlsConfig,
         Handler:   e,
     	}
@@ -72,6 +70,6 @@ func main() {
 
 	e.Server = server
 	
-	e.Logger.Fatal(e.StartTLS(serverPort, certFile, keyFile))
+	e.Logger.Fatal(e.StartTLS(":"+APP_PORT, certFile, keyFile))
 
 }
