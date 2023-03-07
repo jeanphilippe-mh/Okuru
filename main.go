@@ -59,8 +59,14 @@ func main() {
 		log.Fatalf("Error generating secure random seed value: %v", err)
 	}
 
-	// Seed the random number generator with the secure random value
-	rand.Seed(seed.Int64())
+	// Create a new rand.Rand object using the generated seed
+	rng := rand.New(rand.NewSource(seed.Int64()))
+
+	// Generate a random integer between 0 and 999
+	randomInt := rng.Intn(1000)
+
+	// Print the generated random integer
+	log.Printf("Random integer: %d", randomInt)
 
 	e := router.New()
 
