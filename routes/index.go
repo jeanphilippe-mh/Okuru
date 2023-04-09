@@ -10,6 +10,7 @@ func Index(e *echo.Echo) {
 	e.POST("/", controllers.AddIndex)
 	e.GET("/privacy-policy", controllers.PrivacyIndex)
 	e.GET("/:password_key", controllers.ReadIndex)
+	e.GET("/csrf-token", controllers.GetCSRFToken)
 	e.POST("/:password_key", controllers.RevealPassword)
 	e.GET("/remove/:password_key", controllers.DeleteIndex)
 }
