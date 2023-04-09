@@ -18,6 +18,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func getCSRFToken(c echo.Context) error {
+	csrfToken := c.Get("csrf_token")
+	return c.JSON(http.StatusOK, map[string]string{"csrfToken": csrfToken.(string)})
+}
+
 func IndexFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	DataContext["maxFileSize"] = MaxFileSize
