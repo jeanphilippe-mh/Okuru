@@ -1,9 +1,9 @@
 package controllers
 
 import (
-	"net/http"
 	"errors"
-	
+	"net/http"
+
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
@@ -11,14 +11,14 @@ import (
 )
 
 func getCSRFToken(context echo.Context) error {
-    delete(DataContext, "errors")
-    csrfToken := context.Get("csrf_token")
+	delete(DataContext, "errors")
+	csrfToken := context.Get("csrf_token")
 
-    if csrfToken == nil {
-        err := errors.New("Failed to retrieve CSRF token")
-        log.Error("%+v\n", err)
-        return context.Render(http.StatusBadRequest, "403.html", DataContext)
-    }
+	if csrfToken == nil {
+		err := errors.New("Failed to retrieve CSRF token")
+		log.Error("%+v\n", err)
+		return context.Render(http.StatusBadRequest, "403.html", DataContext)
+	}
 
-    return context.JSON(http.StatusOK, map[string]string{"csrfToken": csrfToken.(string)})
+	return context.JSON(http.StatusOK, map[string]string{"csrfToken": csrfToken.(string)})
 }
