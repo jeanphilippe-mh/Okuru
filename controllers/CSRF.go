@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func getCSRFToken(context echo.Context) error {
+func GetCSRFToken(context echo.Context) error {
     delete(DataContext, "errors")
     csrfToken := context.Get("csrf_token")
 
