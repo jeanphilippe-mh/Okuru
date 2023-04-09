@@ -20,6 +20,7 @@ func GetCSRFToken(context echo.Context) error {
 		return context.Render(http.StatusBadRequest, "403.html", DataContext)
 	}
 
+	context.Response().Header().Set("Content-Type", "application/json")
 	fmt.Println("CSRF token retrieved successfully: ", csrfToken)
 
 	return context.JSON(http.StatusOK, map[string]string{"csrfToken": csrfToken.(string)})
