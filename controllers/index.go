@@ -11,6 +11,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func getCSRFToken(c echo.Context) error {
+	csrfToken := c.Get("csrf_token")
+	return c.JSON(http.StatusOK, map[string]string{"csrfToken": csrfToken.(string)})
+}
+
 func Index(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
