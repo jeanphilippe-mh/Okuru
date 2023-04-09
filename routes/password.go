@@ -6,7 +6,6 @@ import (
 )
 
 func Password(g *echo.Group) {
-	g.GET("/csrf-token", controllers.GetCSRFToken)
 	g.GET("", controllers.HelpPassword)
 	g.HEAD("", controllers.HelpPassword)
 	g.OPTIONS("", controllers.HelpPassword)
