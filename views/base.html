@@ -84,17 +84,6 @@
 </footer>
 </div>
 <script async src=/scripts/bootstrap.min.js></script>
-<script>
-    document.addEventListener("DOMContentLoaded", async function() {
-        try {
-            const response = await fetch("/csrf-token");
-            const data = await response.json();
-            document.getElementById("csrf-token").value = data.csrfToken;
-        } catch (error) {
-            console.error("Error fetching CSRF token:", error);
-        }
-    });
-</script>
 {% block js %}{% endblock %}
 </body>
 </html>
