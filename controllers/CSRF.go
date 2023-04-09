@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"net/http"
+	"fmt"
 
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
