@@ -10,7 +10,7 @@
     </div>
     <form role="form" id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
         <!-- CSRF token field -->
-        <input type="hidden" id="csrf-token" name="_csrf" value="">
+        {{ .csrfField }}
         <div class="text-center">
             {% if passwordNeeded %}
             <div class="col">
