@@ -88,6 +88,7 @@ func main() {
 
         s := &http.Server{
                 Addr:       ":" + APP_PORT,
+		ReadHeaderTimeout: 3 * time.Second,
                 TLSConfig:  tlsConfig,
                 Handler:    e,
         }
