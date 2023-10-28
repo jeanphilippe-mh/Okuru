@@ -21,7 +21,7 @@
             <br>
             <div class="col">
                     <div id="revealarea" class="row">
-                    <input type="hidden" value="{{ f.FileKey }}" />
+                    <input type="hidden" name="_csrf" value="{{ csrfToken }}">
                     <button id="revealbutton" class="btn btn-primary">Download</button>
                     </div>
             </div>
