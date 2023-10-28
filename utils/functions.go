@@ -308,7 +308,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	if len(p.Token) == 0 "" {
+	if len(p.Token) == 0 {
 		log.Error("Empty token")
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
