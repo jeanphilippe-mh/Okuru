@@ -118,7 +118,8 @@ func ParseToken(token string) (string, string, error) {
 	return tokenFragments[0], tokenFragments[1], nil
 }
 
-/**
+/*
+*
 Take a password string, encrypt it with Fernet symmetric encryption and return the result (bytes), with the decryption key (bytes).
 * @param password
 */
@@ -420,38 +421,38 @@ func CleanFile(fileName string) {
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
 	log.Debug("CleanFile fileName : %s\n", escapedfileName)
-	
+
 	// Validate the file name to prevent path traversal attacks
 	fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
 	re := regexp.MustCompile(fileNamePattern)
 	cleanFileName := filepath.Base(escapedfileName)
-		
+
 	if re.MatchString(cleanFileName) {
-	errorMessage := "File name contains prohibited characters"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	return	
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		return
 	}
-		
+
 	if strings.Count(cleanFileName, ".") > 1 {
-	errorMessage := "File name contains prohibited characters"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	return
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		return
 	}
-		
+
 	if strings.ContainsAny(cleanFileName, "/\\") {
-	errorMessage := "File name contains prohibited characters"
-	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-	log.Error(escapederrorMessage)
-	return
+		errorMessage := "File name contains prohibited characters"
+		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+		log.Error(escapederrorMessage)
+		return
 	}
-	
+
 	// Construct the file path to prevent path traversal attacks
-	filePathName := filepath.Join(FILEFOLDER, cleanFileName + ".zip")
+	filePathName := filepath.Join(FILEFOLDER, cleanFileName+".zip")
 
 	// Delete the file
 	err := os.Remove(filePathName)
@@ -486,7 +487,7 @@ func GenerateRandomString(n int) (string, error) {
  * @param {boolean} deletable
  * @return {string} token
  */
-func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string) (string, *echo.HTTPError) { //done
+func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string) (string, *echo.HTTPError) { // done
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
