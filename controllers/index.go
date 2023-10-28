@@ -27,7 +27,7 @@ func ReadIndex(context echo.Context) error {
 	delete(DataContext, "errors")
 	// Retrieve the CSRF token from the form
 	csrfTokenFromForm := context.FormValue("_csrf")
-	
+
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 
@@ -75,7 +75,7 @@ func ReadIndex(context echo.Context) error {
 func RevealPassword(context echo.Context) error {
 	// Retrieve the CSRF token from the form
 	csrfTokenFromForm := context.FormValue("_csrf")
-	
+
 	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
@@ -105,7 +105,7 @@ func AddIndex(context echo.Context) error {
 	delete(DataContext, "errors")
 	// Retrieve the CSRF token from the form
 	csrfTokenFromForm := context.FormValue("_csrf")
-	
+
 	var err error
 	p := new(Password)
 	p.Password = context.FormValue("password")
@@ -185,7 +185,7 @@ func DeleteIndex(context echo.Context) error {
 	delete(DataContext, "errors")
 	// Retrieve the CSRF token from the form
 	csrfTokenFromForm := context.FormValue("_csrf")
-	
+
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {
