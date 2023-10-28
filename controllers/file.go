@@ -52,7 +52,7 @@ func ReadFile(context echo.Context) error {
 
 	err := GetFile(f)
 	if err != nil {
-		return context.Render(http.StatusNotFound, "404.html", DataContext)
+		return context.Render(http.StatusForbidden, "403.html", DataContext)
 	}
 
 	var (
