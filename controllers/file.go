@@ -353,7 +353,7 @@ func DeleteFile(context echo.Context) error {
 
 // Security: Helper function to call for sanitizing the file name.
 
-func sanitizeFileName(file.Filename string) string {
+func sanitizeFileName(Filename string) string {
     
 	// Replace newline characters to prevent path traversal attacks.
     	escapedFileName := strings.ReplaceAll(file.Filename, "\n", "")
