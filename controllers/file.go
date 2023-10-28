@@ -379,27 +379,30 @@ func DeleteFile(context echo.Context) error {
 // Security: Helper function to call for sanitizing the file name.
 
 func sanitizeFileName(Filename string) string {
-    
-	// Replace newline characters to prevent path traversal attacks.
-    	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
-    	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
-	log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
-	checkFileName := filepath.Base(escapedFileName)
+	
+    // Replace newline characters to prevent path traversal attacks.
+    escapedFileName := strings.ReplaceAll(Filename, "\n", "")
+    escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
+    log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
+    checkFileName := filepath.Base(escapedFileName)
 
-	// Validate the file name to prevent path traversal attacks.	
-	if strings.Count(checkFileName, ".") > 1 {
-	return ""
-	}
-		
-	if strings.ContainsAny(checkFileName, "/\\") {
-	return ""
-	}
+    // Check for path traversal patterns.
+    if strings.Contains(checkFileName, "..") || strings.ContainsAny(checkFileName, "/\\") {
+        return ""
+    }
+	
+    // Check for valid length to prevent potential buffer overflow attacks.
+    if len(checkFileName) > 255 || len(checkFileName) < 1 {
+        return ""
+    }
 
-    	allowedPattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
-    	re := regexp.MustCompile(allowedPattern)
-   	if !re.MatchString(checkFileName) || strings.Contains(checkFileName, "..") {
-        return ""	
-    	}
+    // Validate the file name to prevent path traversal attacks.
+    disallowedPattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
+    re := regexp.MustCompile(disallowedPattern)
+    if re.MatchString(checkFileName) {
+        return ""
+    }
 
-    	return checkFileName
+    return checkFileName
 }
+
