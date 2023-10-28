@@ -200,7 +200,7 @@ func DeleteIndex(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
-		return context.Render(status, "404.html", DataContext)
+		return context.Render(http.StatusForbidden, "403.html", DataContext)
 	} else {
 		DataContext["type"] = "Password"
 		return context.Render(http.StatusOK, "removed.html", DataContext)
