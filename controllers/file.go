@@ -125,12 +125,8 @@ func DownloadFile(context echo.Context) error {
 	}
 
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
-
-	// Security: Ensure that the fileName does not contain path traversal sequences.
-	safeFileName := filepath.Base(fileName)
-
-	filePathName := filepath.Join(FILEFOLDER, safeFileName+".zip")
-	return context.Attachment(filePathName, safeFileName+".zip")
+ 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
+ 	return context.Attachment(filePathName, fileName+".zip")
 }
 
 func AddFile(context echo.Context) error {
