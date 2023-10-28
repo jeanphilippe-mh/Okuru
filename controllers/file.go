@@ -20,8 +20,10 @@ import (
 
 func IndexFile(context echo.Context) error {
 	delete(DataContext, "errors")
+	csrfToken := context.Get("csrf")
 	DataContext["maxFileSize"] = MaxFileSize
 	DataContext["maxFileSizeText"] = GetMaxFileSizeText()
+	DataContext["csrfToken"] = csrfToken
 
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
 }
