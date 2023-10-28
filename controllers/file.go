@@ -207,6 +207,8 @@ func AddFile(context echo.Context) error {
 	var totalUploadedFileSize int64
 	
 	// Proceed with file operations for each file.
+	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
+	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	for _, file := range files {
 		
 		// Security: Sanitize the file name in helper function to prevent path traversal attacks.
@@ -223,14 +225,14 @@ func AddFile(context echo.Context) error {
 		}
 
 		// If all file names are sanitized successfully, create the folder.
-		folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-		folderPathName := FILEFOLDER + "/" + folderName + "/"
 		err = os.Mkdir(folderPathName, os.ModePerm)
 		if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
 		DataContext["errors"] = "There was a problem during the file processing, please try again"
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
+
+		/*File upload start*/
 		
 		// Open and start file integration.
 		src, err := file.Open()
@@ -306,6 +308,7 @@ func AddFile(context echo.Context) error {
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
+	
 	/*File upload end*/
 
 	var (
