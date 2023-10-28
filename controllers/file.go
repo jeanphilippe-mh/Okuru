@@ -30,8 +30,10 @@ func IndexFile(context echo.Context) error {
 
 func ReadFile(context echo.Context) error {
 	delete(DataContext, "errors")
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
+
 	f := new(File)
 	f.FileKey = context.Param("file_key")
 
@@ -82,8 +84,10 @@ func ReadFile(context echo.Context) error {
 }
 
 func DownloadFile(context echo.Context) error {
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
+	
 	var passwordOk = true
 	f := new(File)
 	f.FileKey = context.Param("file_key")
@@ -126,8 +130,10 @@ func DownloadFile(context echo.Context) error {
 
 func AddFile(context echo.Context) error {
 	delete(DataContext, "errors")
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
+	
 	var err error
 	f := new(File)
 	f.Password = context.FormValue("password")
@@ -348,9 +354,11 @@ func AddFile(context echo.Context) error {
 }
 
 func DeleteFile(context echo.Context) error {
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
 	delete(DataContext, "errors")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
+	
 	f := new(File)
 	f.FileKey = context.Param("file_key")
 	if f.FileKey == "" || strings.Contains(f.FileKey, "*") {
