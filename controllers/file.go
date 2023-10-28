@@ -377,7 +377,7 @@ func sanitizeFileName(Filename string) string {
 	return ""
 	}
 
-    	allowedPattern := `^[a-zA-Z0-9._-]+$`
+    	allowedPattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
     	re := regexp.MustCompile(allowedPattern)
    	if !re.MatchString(checkFileName) || strings.Contains(checkFileName, "..") {
         return ""	
