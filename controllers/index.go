@@ -13,8 +13,6 @@ import (
 
 func Index(context echo.Context) error {
 	delete(DataContext, "errors")
-	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
 }
 
