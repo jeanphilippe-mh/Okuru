@@ -28,7 +28,7 @@ func ReadIndex(context echo.Context) error {
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
 	DataContext["csrfToken"] = csrfToken
-	
+
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 
@@ -51,10 +51,8 @@ func ReadIndex(context echo.Context) error {
 		return context.Render(http.StatusForbidden, "403.html", DataContext)
 	}
 
-	var (
-		deletableText,
+	var deletableText,
 		deletableURL string
-	)
 
 	if !p.Deletable {
 		deletableText = "not deletable"
@@ -77,7 +75,7 @@ func RevealPassword(context echo.Context) error {
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
 	DataContext["csrfToken"] = csrfToken
-	
+
 	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
@@ -108,7 +106,7 @@ func AddIndex(context echo.Context) error {
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
 	DataContext["csrfToken"] = csrfToken
-	
+
 	var err error
 	p := new(Password)
 	p.Password = context.FormValue("password")
@@ -157,10 +155,8 @@ func AddIndex(context echo.Context) error {
 		return context.Render(http.StatusOK, "set_password.html", DataContext)
 	}
 
-	var (
-		deletableText,
+	var deletableText,
 		deletableURL string
-	)
 
 	baseUrl := GetBaseUrl(context) + "/"
 	if !p.Deletable {
@@ -189,7 +185,7 @@ func DeleteIndex(context echo.Context) error {
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
 	DataContext["csrfToken"] = csrfToken
-	
+
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {

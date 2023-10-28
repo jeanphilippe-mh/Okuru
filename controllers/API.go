@@ -1,11 +1,12 @@
 package controllers
 
 import (
+	"net/http"
+	"strings"
+
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
-	"net/http"
-	"strings"
 )
 
 /**
