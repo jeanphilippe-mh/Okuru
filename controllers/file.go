@@ -369,7 +369,7 @@ func DeleteFile(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
-		return context.Render(status, "404.html", DataContext)
+		return context.Render(http.StatusForbidden, "403.html", DataContext)
 	} else {
 		DataContext["type"] = "File"
 		return context.Render(http.StatusOK, "removed.html", DataContext)
