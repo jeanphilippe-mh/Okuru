@@ -25,8 +25,9 @@ func PrivacyIndex(context echo.Context) error {
 
 func ReadIndex(context echo.Context) error {
 	delete(DataContext, "errors")
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
 	
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
@@ -73,8 +74,9 @@ func ReadIndex(context echo.Context) error {
 }
 
 func RevealPassword(context echo.Context) error {
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
 	
 	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
@@ -103,8 +105,9 @@ func RevealPassword(context echo.Context) error {
 
 func AddIndex(context echo.Context) error {
 	delete(DataContext, "errors")
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
 	
 	var err error
 	p := new(Password)
@@ -183,8 +186,9 @@ func AddIndex(context echo.Context) error {
 
 func DeleteIndex(context echo.Context) error {
 	delete(DataContext, "errors")
-	// Retrieve the CSRF token from the form
-	csrfTokenFromForm := context.FormValue("_csrf")
+	// Retrieve the CSRF token
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
 	
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
