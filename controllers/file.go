@@ -356,9 +356,10 @@ func DeleteFile(context echo.Context) error {
 func sanitizeFileName(Filename string) string {
     
 	// Replace newline characters to prevent path traversal attacks.
-    	escapedFileName := strings.ReplaceAll(file.Filename, "\n", "")
+    	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
     	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
-	checkFileName := filepath.Base(escapedfileName)
+	log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
+	checkFileName := filepath.Base(escapedFileName)
 
 	// Validate the file name to prevent path traversal attacks.	
 	if strings.Count(checkFileName, ".") > 1 {
