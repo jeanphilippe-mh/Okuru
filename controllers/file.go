@@ -203,17 +203,33 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
+	// Security: Sanitize the file name in helper function to prevent path traversal attacks.
+	cleanFileName := sanitizeFileName(file.Filename)
+
+	// Security: Check if the sanitized file name is empty, which indicates a sanitization issue and prevent file creation in /data folder.
+	if cleanFileName == "" {
+    	errorMessage := "File name contains prohibited characters or is not valid"
+	escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+	escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+	log.Error(escapederrorMessage)
+	DataContext["errors"] = errorMessage
+    	return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+	}
+
+	// If all file names are sanitized successfully, create the folder.
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
 	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	err = os.Mkdir(folderPathName, os.ModePerm)
 	if err != nil {
 		log.Error("AddFile Error while mkdir : %+v\n", err)
-		DataContext["errors"] = "There was a problem during the process, please contact your administrator"
+		DataContext["errors"] = "There was a problem during the upload process, please try again"
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
 	var fileList []string
 	var totalUploadedFileSize int64
+	
+	// Now, proceed with file operations for each file.
 	for _, file := range files {
 		// Source
 		src, err := file.Open()
@@ -237,19 +253,6 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		totalUploadedFileSize += file.Size
-
-		// Security: Sanitize the file name in helper function to prevent path traversal attacks.
-		cleanFileName := sanitizeFileName(file.Filename)
-
-		// Security: Check if the sanitized file name is empty, which indicates a sanitization issue and prevent file creation in /data folder.
-		if cleanFileName == "" {
-    		errorMessage := "File name contains prohibited characters or is not valid"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-    		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
-		}
 		
 		// Security: Secure the file path to prevent path traversal attacks
 		dstFile := filepath.Base(cleanFileName)
