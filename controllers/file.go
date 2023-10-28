@@ -123,10 +123,14 @@ func DownloadFile(context echo.Context) error {
 		DataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
 	}
-
+	
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
- 	filePathName := FILEFOLDER + "/" + fileName + ".zip"
- 	return context.Attachment(filePathName, fileName+".zip")
+
+ 	// Security: Ensure that the fileName does not contain path traversal sequences.
+ 	safeFileName := filepath.Base(fileName)
+
+ 	filePathName := filepath.Join(FILEFOLDER, safeFileName+".zip")
+ 	return context.Attachment(filePathName, safeFileName+".zip")
 }
 
 func AddFile(context echo.Context) error {
