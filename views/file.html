@@ -14,6 +14,7 @@
             <div class="col">
                 <div class="form-group">
                     <label for="password">&#128273 Please, enter the file password:</label>
+                    <input type="hidden" name="_csrf" value="{{ csrfToken }}">
                     <input type="password" id="password" name="password" minlength="5" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password is required. If a wrong one is provided, this will be counted as a failed access attempt &#9888" title="Password is required. If a wrong one is provided, this will be counted as a failed access attempt&#9888" aria-describedby="basic-addon1" autocomplete="off" />
                 </div>
             </div>
