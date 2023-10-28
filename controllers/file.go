@@ -205,35 +205,35 @@ func AddFile(context echo.Context) error {
 
 	var fileList []string
 	var totalUploadedFileSize int64
-	
+
 	// Proceed with file operations for each file.
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
 	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	for _, file := range files {
-		
+
 		// Security: Sanitize the file name in helper function to prevent path traversal attacks.
 		cleanFileName := sanitizeFileName(file.Filename)
 
 		// Security: Check if the sanitized file name is empty, which indicates a sanitization issue and prevent file creation in /data folder.
 		if cleanFileName == "" {
-    		errorMessage := "File name contains prohibited characters or is not valid"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-    		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+			errorMessage := "File name contains prohibited characters or is not valid"
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+			log.Error(escapederrorMessage)
+			DataContext["errors"] = errorMessage
+			return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
 
 		// If all file names are sanitized successfully, create the folder.
 		err = os.Mkdir(folderPathName, os.ModePerm)
 		if err != nil {
-		log.Error("AddFile Error while mkdir : %+v\n", err)
-		DataContext["errors"] = "There was a problem during the file processing, please try again"
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+			log.Error("AddFile Error while mkdir : %+v\n", err)
+			DataContext["errors"] = "There was a problem during the file processing, please try again"
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
 		/*File upload start*/
-		
+
 		// Open and start file integration.
 		src, err := file.Open()
 		if err != nil {
@@ -242,7 +242,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer src.Close()
-		
+
 		if file.Size > MaxFileSize {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
@@ -256,10 +256,10 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		totalUploadedFileSize += file.Size
-		
+
 		// Security: Secure the file path to prevent path traversal attacks
 		dstFile := filepath.Base(cleanFileName)
-		
+
 		// Destination
 		dst, err := os.Create(folderPathName + dstFile)
 		if err != nil {
@@ -308,7 +308,7 @@ func AddFile(context echo.Context) error {
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
-	
+
 	/*File upload end*/
 
 	var (
@@ -361,27 +361,27 @@ func DeleteFile(context echo.Context) error {
 // Security: Helper function to call for sanitizing the file name.
 
 func sanitizeFileName(Filename string) string {
-    
+
 	// Replace newline characters to prevent path traversal attacks.
-    	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
-    	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
+	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
+	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
 	log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
 	checkFileName := filepath.Base(escapedFileName)
 
-	// Validate the file name to prevent path traversal attacks.	
+	// Validate the file name to prevent path traversal attacks.
 	if strings.Count(checkFileName, ".") > 1 {
-	return ""
+		return ""
 	}
-		
+
 	if strings.ContainsAny(checkFileName, "/\\") {
-	return ""
+		return ""
 	}
 
-    	allowedPattern := `^[a-zA-Z0-9._-]+$`
-    	re := regexp.MustCompile(allowedPattern)
-   	if !re.MatchString(checkFileName) || strings.Contains(checkFileName, "..") {
-        return ""	
-    	}
+	allowedPattern := `^[a-zA-Z0-9._-]+$`
+	re := regexp.MustCompile(allowedPattern)
+	if !re.MatchString(checkFileName) || strings.Contains(checkFileName, "..") {
+		return ""
+	}
 
-    	return checkFileName
+	return checkFileName
 }
