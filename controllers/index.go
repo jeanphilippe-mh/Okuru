@@ -13,6 +13,8 @@ import (
 
 func Index(context echo.Context) error {
 	delete(DataContext, "errors")
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
 }
 
@@ -68,6 +70,8 @@ func ReadIndex(context echo.Context) error {
 }
 
 func RevealPassword(context echo.Context) error {
+	csrfToken := context.Get("csrf")
+	DataContext["csrfToken"] = csrfToken
 	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
