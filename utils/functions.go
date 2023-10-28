@@ -230,7 +230,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	if string(p.Token) == "" {
+	if len(p.Token) == 0 {
 		log.Error("Empty token")
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -308,7 +308,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	if string(p.Token) == "" {
+	if len(p.Token) == 0 "" {
 		log.Error("Empty token")
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -556,7 +556,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	if string(f.Token) == "" {
+	if len(f.Token) == 0 {
 		log.Error("Empty token")
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
