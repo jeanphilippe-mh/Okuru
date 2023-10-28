@@ -223,7 +223,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		defer src.Close()
-		
+
 		if file.Size > MaxFileSize {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
@@ -243,17 +243,17 @@ func AddFile(context echo.Context) error {
 
 		// Security: Check if the sanitized file name is empty, which indicates a sanitization issue and prevent file creation in /data folder.
 		if cleanFileName == "" {
-    		errorMessage := "File name contains prohibited characters or is not valid"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-    		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+			errorMessage := "File name contains prohibited characters or is not valid"
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+			log.Error(escapederrorMessage)
+			DataContext["errors"] = errorMessage
+			return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
 		}
-		
+
 		// Security: Secure the file path to prevent path traversal attacks
 		dstFile := filepath.Base(cleanFileName)
-		
+
 		// Destination
 		dst, err := os.Create(folderPathName + dstFile)
 		if err != nil {
@@ -354,26 +354,26 @@ func DeleteFile(context echo.Context) error {
 // Security: Helper function to call for sanitizing the file name.
 
 func sanitizeFileName(Filename string) string {
-    
+
 	// Replace newline characters to prevent path traversal attacks.
-    	escapedFileName := strings.ReplaceAll(file.Filename, "\n", "")
-    	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
+	escapedFileName := strings.ReplaceAll(file.Filename, "\n", "")
+	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
 	checkFileName := filepath.Base(escapedfileName)
 
-	// Validate the file name to prevent path traversal attacks.	
+	// Validate the file name to prevent path traversal attacks.
 	if strings.Count(checkFileName, ".") > 1 {
-	return ""
+		return ""
 	}
-		
+
 	if strings.ContainsAny(checkFileName, "/\\") {
-	return ""
+		return ""
 	}
 
-    	allowedPattern := `^[a-zA-Z0-9._-]+$`
-    	re := regexp.MustCompile(allowedPattern)
-   	if !re.MatchString(checkFileName) || strings.Contains(checkFileName, "..") {
-        return ""	
-    	}
+	allowedPattern := `^[a-zA-Z0-9._-]+$`
+	re := regexp.MustCompile(allowedPattern)
+	if !re.MatchString(checkFileName) || strings.Contains(checkFileName, "..") {
+		return ""
+	}
 
-    	return checkFileName
+	return checkFileName
 }
