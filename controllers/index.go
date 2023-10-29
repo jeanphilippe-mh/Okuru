@@ -20,7 +20,7 @@ func Index(context echo.Context) error {
 
 func SecurityIndex(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http.StatusOK, "/.well-known/security.txt", DataContext)
+	return context.File("public/.well-known/security.txt")
 }
 
 func PrivacyIndex(context echo.Context) error {
