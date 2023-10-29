@@ -59,6 +59,7 @@
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
+        submitButton = document.getElementById('submit'),
         maxsize = {{ maxFileSize }},
         isFileSizeOK = true;
 
@@ -73,24 +74,22 @@
     };
 
     myFiles.addEventListener('change', function() {
-        const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsize * 1024 * 1024);
-        const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
+    // Reset isFileSizeOK to true at the beginning of the check.
+    isFileSizeOK = true;
 
-        if (oversizedFiles.length) {
-            alert(`File(s) ${oversizedFiles.map(f => `${f.name} (${Math.floor(f.size / 1024 / 1024)}mb)`).join(', ')} exceed the max size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
-            isFileSizeOK = false;
-        } else if (totalSize > maxsize * 1024 * 1024) {
-            alert(`The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
-            isFileSizeOK = false;
-        } else {
-            isFileSizeOK = true;
-        }
-    });
+    const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsize * 1024 * 1024);
+    const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
 
-    fileForm.addEventListener("submit", function(e) {
-        if (!isFileSizeOK) {
-            e.preventDefault();
-        }
+    if (oversizedFiles.length) {
+        alert(`File(s) ${oversizedFiles.map(f => `${f.name} (${Math.floor(f.size / 1024 / 1024)}mb)`).join(', ')} exceed the max size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
+        isFileSizeOK = false;
+    } else if (totalSize > maxsize * 1024 * 1024) {
+        alert(`The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
+        isFileSizeOK = false;
+    }
+
+    // Disable or enable the submit button (Generate URL) based on file size check.
+    submitButton.disabled = !isFileSizeOK;
     });
 </script>
 {% endblock %}
