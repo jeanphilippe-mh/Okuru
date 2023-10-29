@@ -40,11 +40,11 @@ func init() {
                 log.Panic("Redis issue is detected")
         }
 
-        // Log as JSON instead of the default ASCII formatter
+        // Log as JSON instead of the default ASCII formatter.
         log.SetFormatter(&log.JSONFormatter{})
 
-        // Output to stdout instead of the default stderr
-        // Can be any io.Writer, see below for File example
+        // Output to stdout instead of the default stderr.
+        // Can be any io.Writer, see below for File example.
         log.SetOutput(os.Stdout)
 
         if DebugLevel {
@@ -57,7 +57,7 @@ func init() {
 }
 
 const (
-        // Version of Echo
+        // Version of Echo.
         version = echo.Version
         website = "https://echo.labstack.com"
 	banner = `
@@ -77,7 +77,32 @@ func main() {
 
         e := router.New()
 
-        // Start and force TLS 1.3 server with HTTP/2 and ALPN
+	// Custom error handler for "Internal Server Error", "Not Found", "Forbidden" and "Bad Request".
+    	errorPages := map[int]string{
+        http.StatusInternalServerError: "views/500.html",
+        http.StatusNotFound:           "views/404.html",
+        http.StatusForbidden:          "views/403.html",
+	http.StatusBadRequest:         "views/400.html",
+    	}
+
+    	// Custom error handler
+    	e.HTTPErrorHandler = func(err error, c echo.Context) {
+        code := http.StatusInternalServerError
+        if he, ok := err.(*echo.HTTPError); ok {
+            code = he.Code
+        }
+
+        if page, exists := errorPages[code]; exists {
+            // Render the custom error page
+            if err := c.File(page); err != nil {
+                c.Logger().Error(err)
+            }
+        } else {
+            e.DefaultHTTPErrorHandler(err, c)
+        }
+    	}
+
+        // Start and force TLS 1.3 server with HTTP/2 and ALPN.
         certFile := "cert.pem"
         keyFile := "key.pem"
         tlsConfig := &tls.Config{
@@ -95,7 +120,7 @@ func main() {
 
         http2.ConfigureServer(s, &http2.Server{})
 
-        // Print the banner message to the log
+        // Print the banner message to the log.
         fmt.Printf(banner, version, website)
 
         go func() {
@@ -106,7 +131,7 @@ func main() {
                 }
         }()
 
-        // Wait for interrupt signal to gracefully shutdown the server with a 5 seconds timeout
+        // Wait for interrupt signal to gracefully shutdown the server with a 5 seconds timeout.
         quit := make(chan os.Signal, 1)
         signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
         <-quit
