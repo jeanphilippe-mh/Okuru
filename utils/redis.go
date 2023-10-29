@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//https://medium.com/@gilcrest_65433/basic-redis-examples-with-go-a3348a12878e
+// https://medium.com/@gilcrest_65433/basic-redis-examples-with-go-a3348a12878e
 func NewPool() *redis.Pool {
 	return &redis.Pool{
 		// Maximum number of idle connections in the pool.
@@ -70,8 +70,8 @@ func Ping(c redis.Conn) bool {
 func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	onStart func() error,
 	onMessage func(channel string, data []byte) error,
-	channels ...string) error {
-
+	channels ...string,
+) error {
 	// A ping is set to the server with this period to test for the health of
 	// the connection and server.
 	const healthCheckPeriod = time.Minute
@@ -79,7 +79,6 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 		// Read timeout on server should be greater than ping period.
 		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
 		redis.DialWriteTimeout(10*time.Second))
-
 	if err != nil {
 		return err
 	}
