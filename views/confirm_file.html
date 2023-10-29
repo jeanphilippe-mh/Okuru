@@ -11,7 +11,7 @@
             <label for="file-link">The file has been temporarily stored (<b>{{ ttl }}</b> / <b>{{ dlViews }}</b>) and is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a>{% else %}{{ deletableText }}{% endif %}. <b>Copy and send</b> the following URL.</label>
             <input type="text" class="form-control" id="file-link" value="{{ f.Link }}" readonly="readonly">
         </div>
-
+        <br>
         <div class="col-sm-1">
             <label for="copy-clipboard-btn">Copy it</label><br/>
             <button title="Copy to clipboard" type="button" class="btn btn-primary copy-clipboard-btn" id="copy-clipboard-btn" data-clipboard-target="#file-link" data-placement="bottom">
