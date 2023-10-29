@@ -53,49 +53,42 @@
 {% block js %}
 <script type="text/javascript" src="scripts/purify.min.js"></script>
 <script type="application/javascript">
-    let rangeTtl = document.getElementById('ttl'),
+    const rangeTtl = document.getElementById('ttl'),
         rangeTtlValue = document.getElementById('ttl-value'),
         rangeView = document.getElementById("ttlViews"),
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
+        maxsize = {{ maxFileSize }},
         isFileSizeOK = true;
 
-    rangeTtl.oninput = () => {
-        let v = parseInt(rangeTtl.value),
-            after = "";
-        if(v === 1) {
-            after = " hour";
-        } else if(v > 1 && v <= 24) {
-            after = " hours";
-        } else if (v > 24 && v <= 30){
-            v=v-23;
-            after = " days";
-        }
-        rangeTtlValue.innerHTML = DOMPurify.sanitize(v + after, {RETURN_TRUSTED_TYPE: true});
-    };
-    rangeView.oninput = () => {
-        let view = parseInt(rangeView.value),
-            after = "";
-        if(view === 1) {
-            after = " view";
-        } else if(view > 1 && view <= 100) {
-            after = " views";
-        }
-        rangeViewValue.innerHTML = DOMPurify.sanitize(view + after, {RETURN_TRUSTED_TYPE: true});
+    rangeTtl.oninput = function() {
+        const v = parseInt(rangeTtl.value);
+        rangeTtlValue.innerHTML = DOMPurify.sanitize(v === 1 ? "1 hour" : (v <= 24 ? `${v} hours` : `${v-23} days`), {RETURN_TRUSTED_TYPE: true});
     };
 
-    myFiles.addEventListener('change', () => {
-        let maxsize = {{ maxFileSize }};
-        for (let i = 0; i < myFiles.files.length; i++) {
-            if(myFiles.files[i].size > maxsize * 1024 * 1024) {
-                isFileSizeOK = false;
-                alert("File " + myFiles.files[i].name + "is too large (" + Math.floor(myFiles.files[i].size / 1024 / 1024) + "mb), max: " + Math.floor(maxsize / 1024 / 1024) + "mb");
-            }
+    rangeView.oninput = function() {
+        const view = parseInt(rangeView.value);
+        rangeViewValue.innerHTML = DOMPurify.sanitize(view === 1 ? "1 view" : `${view} views`, {RETURN_TRUSTED_TYPE: true});
+    };
+
+    myFiles.addEventListener('change', function() {
+        const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsize * 1024 * 1024);
+        const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
+
+        if (oversizedFiles.length) {
+            alert(`File(s) ${oversizedFiles.map(f => `${f.name} (${Math.floor(f.size / 1024 / 1024)}mb)`).join(', ')} exceed the max size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
+            isFileSizeOK = false;
+        } else if (totalSize > maxsize * 1024 * 1024) {
+            alert(`The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
+            isFileSizeOK = false;
+        } else {
+            isFileSizeOK = true;
         }
     });
-    fileForm.addEventListener("submit", (e) => {
-        if (isFileSizeOK === false) {
+
+    fileForm.addEventListener("submit", function(e) {
+        if (!isFileSizeOK) {
             e.preventDefault();
         }
     });
