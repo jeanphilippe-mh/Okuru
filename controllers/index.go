@@ -18,6 +18,11 @@ func Index(context echo.Context) error {
 	return context.Render(http.StatusOK, "set_password.html", DataContext)
 }
 
+func SecurityIndex(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusOK, "/.well-known/security.txt", DataContext)
+}
+
 func PrivacyIndex(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusOK, "privacy.html", DataContext)
