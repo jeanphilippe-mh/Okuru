@@ -59,8 +59,9 @@
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
-        maxsize = {{ maxFileSize }},
-        isFileSizeOK = true;
+        maxsize = {{ maxFileSize }};
+        
+    let isFileSizeOK = true; // Changed from const to let
 
     rangeTtl.oninput = function() {
         const v = parseInt(rangeTtl.value);
