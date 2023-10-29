@@ -1,0 +1,26 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Contact: mailto:jean.philippe.mh@protonmail.com
+Expires: 2024-10-29T15:42:00.000Z
+Encryption: https://share.jeanphilippe.io/.well-known/publickey.jean.philippe.mh@protonmail.com-af24471f474876ce10836b2acf2aa1aee91cb5ef.asc
+Acknowledgments: https://github.com/jeanphilippe-mh/Okuru
+Preferred-Languages: en, fr
+Canonical: https://share.jeanphilippe.io/.well-known/security.txt
+Policy: https://github.com/jeanphilippe-mh/Okuru/security/policy
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEW4Q05QkhSN8WCT7aklHrQtB17GgFAmU+lnQACgkQklHrQtB1
+7GgXSQ/+PNmyh4fTZZ5SUMDKY3GFpWmuS1hKnyZczFZYZa4rfN1uK6E0hxF3kupz
+CS7U3UuYex//SwbRkngTrOoeSHo4WCxg40mF0XxYw+6TU97A99bSSuYg92wVlNA9
+KQ7/oKVAMl4+u+5NbR6HjJdUtCTdp1CMIUWynsssZOFRbvmeKSBMFuQx76RYMjHN
+PoF8DlHnstd5/KwGwq2CwTw728KyJjS4/gkq8cnbV1NaQJRFhSdveMc+YDo45Wd2
+WBcU9AWd2tJSt124IIwFs9Rozu2NoBAI/92x8f6pwlHukIgYfsbnbLGz0PXXzRgI
+Ujqms66+8Ve07HiAeRFZl7gSH2VG4RqnmI94NTAc8i7UK2gR5QjzTrWAXCTWj6CW
+sjwiqDz+qm3XZx3vE/6SZRWDwP41movqAY3KGFOpAY/DV8KrNFy1L1GQBG9+ZXwg
+jBOxdVNUMWO/Rei3isGu19LcyI2iNkUYVdTcenIHNQEUO7GiCeVfw1aw3TIiwn4A
+Y1lFXTpGd2CwEZpXhXKa5NGmrGILWUSc8/RuvdKLY0+1PJPs8kmVJAZu6buXWce5
+uC+tG0DKdnxuomcuhRGOjg0++1QZCN+RLKTnDKYUOpv7nVzyTmZhdupdRF0DM9z5
+aVno61dqdkuPqxzspMZVDjRwnUbY0pSVWUwklZmdV3jOD41iQ3k=
+=YDwN
+-----END PGP SIGNATURE-----
