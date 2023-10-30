@@ -59,8 +59,8 @@
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
-        errorSpan = document.querySelector("p > span"),
-        maxsizeBytes = {{ maxFileSize }};
+        errorSpan = document.querySelector("p > span"), // Added for displaying error in span.
+        maxsizeBytes = {{ maxFileSize }}; // This value is already in bytes.
         
     let isFileSizeOK = true;
 
