@@ -1,5 +1,5 @@
 # Okuru
-送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation" in Golang** with the echo web framework adding API (for Password only at the moment) and File upload.
+送る(Okuru, "to send") is a [snappass](https://github.com/pinterest/snappass) **fork/reimplementation in Golang** with the echo web framework adding API (for Password only at the moment) and File upload.
 
 You can use it to temporary store safely password(s) and file(s).
 
