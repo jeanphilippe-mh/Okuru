@@ -86,15 +86,19 @@ func main() {
 	http.StatusRequestEntityTooLarge:	"views/413.html",
     	}
 
-    	// Custom error handler
+    	// Custom error handler for API endpoints (json) and regular web routes (html).
     	e.HTTPErrorHandler = func(err error, c echo.Context) {
         code := http.StatusInternalServerError
         if he, ok := err.(*echo.HTTPError); ok {
             code = he.Code
         }
 
+        if strings.HasPrefix(c.Request().URL.Path, "/api") {
+            c.JSON(code, map[string]string{"error": http.StatusText(code)})
+            return
+        }
+
         if page, exists := errorPages[code]; exists {
-            // Render the custom error page
             if err := c.File(page); err != nil {
                 c.Logger().Error(err)
             }
