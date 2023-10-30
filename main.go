@@ -77,12 +77,13 @@ func main() {
 
         e := router.New()
 
-	// Custom error handler for "Internal Server Error", "Not Found", "Forbidden" and "Bad Request".
+	// Custom error handler for "Internal Server Error", "Not Found", "Forbidden", "Bad Request" and "Request Entity Too Large".
     	errorPages := map[int]string{
-        http.StatusInternalServerError: "views/500.html",
-        http.StatusNotFound:           "views/404.html",
-        http.StatusForbidden:          "views/403.html",
-	http.StatusBadRequest:         "views/400.html",
+        http.StatusInternalServerError:		"views/500.html",
+        http.StatusNotFound:			"views/404.html",
+        http.StatusForbidden:			"views/403.html",
+	http.StatusBadRequest:			"views/400.html",
+	http.StatusRequestEntityTooLarge:	"views/400.html",
     	}
 
     	// Custom error handler
