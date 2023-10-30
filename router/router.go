@@ -85,6 +85,10 @@ func New() *echo.Echo {
 		log.Fatal(err)
 	}
 
+	// Middleware BodyLimit
+	// Set the request body size limit to 1024 MB to reflect ModSecurity - OWASP WAF max limitation.
+	e.Use(middleware.BodyLimit("1024M"))
+	
 	// Middleware Logger
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
