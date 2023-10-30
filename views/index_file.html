@@ -59,9 +59,10 @@
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
-        maxsize = {{ maxFileSize }};
+        errorSpan = document.querySelector("p > span"),
+        maxsizeBytes = {{ maxFileSize }};
         
-    let isFileSizeOK = true; // Changed from const to let
+    let isFileSizeOK = true;
 
     rangeTtl.oninput = function() {
         const v = parseInt(rangeTtl.value);
@@ -74,18 +75,27 @@
     };
 
     myFiles.addEventListener('change', function() {
-        const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsize * 1024 * 1024);
+        const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsizeBytes);
         const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
+        const fileWord = oversizedFiles.length > 1 ? "files" : "file";
 
         if (oversizedFiles.length) {
-            alert(`File(s) ${oversizedFiles.map(f => `${f.name} (${Math.floor(f.size / 1024 / 1024)}mb)`).join(', ')} exceed the max size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
+            const fileList = oversizedFiles.map(f => `&bull; ${f.name} (<b>${Math.floor(f.size / 1024 / 1024)}mb</b>)`).join('<br>');
+            errorSpan.innerHTML = `&#128683; The following ${fileWord} exceed the max size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>:<br>${fileList}`;
             isFileSizeOK = false;
-        } else if (totalSize > maxsize * 1024 * 1024) {
-            alert(`The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of ${Math.floor(maxsize / 1024 / 1024)}mb.`);
+        } else if (totalSize > maxsizeBytes) {
+            errorSpan.innerHTML = `&#128683; The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>`;
             isFileSizeOK = false;
         } else {
+            errorSpan.innerHTML = "";
             isFileSizeOK = true;
         }
+
+        // Reset form and error message after 5 seconds
+        setTimeout(() => {
+            errorSpan.innerHTML = "";
+            fileForm.reset();
+        }, 5000);
     });
 
     fileForm.addEventListener("submit", function(e) {
