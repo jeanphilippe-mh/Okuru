@@ -83,7 +83,7 @@ func main() {
         http.StatusNotFound:			"views/404.html",
         http.StatusForbidden:			"views/403.html",
 	http.StatusBadRequest:			"views/400.html",
-	http.StatusRequestEntityTooLarge:	"views/400.html",
+	http.StatusRequestEntityTooLarge:	"views/413.html",
     	}
 
     	// Custom error handler
