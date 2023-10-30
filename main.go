@@ -9,7 +9,7 @@ import (
         "context"
         "os"
         "os/signal"
-	"string"
+	"strings"
         "syscall"
         "time"
         "fmt"
