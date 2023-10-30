@@ -77,7 +77,9 @@ func main() {
         rand.Seed(time.Now().UnixNano())
 
         e := router.New()
-	e.MaxRequestBodySize = 1024 * 1024 * 1024  // Set to 1024 MB to reflect ModSecurity - OWASP WAF setup.
+	
+	// Set the request body size limit to 1024 MB to reflect ModSecurity - OWASP WAF max limitation.
+	e.Use(middleware.BodyLimit("1024M"))
 
 	// Custom error handler for "Internal Server Error", "Not Found", "Forbidden", "Bad Request" and "Request Entity Too Large".
     	errorPages := map[int]string{
