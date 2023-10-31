@@ -53,6 +53,17 @@
 {% block js %}
 <script type="text/javascript" src="scripts/purify.min.js"></script>
 <script type="application/javascript">
+    // Check for Trusted Types support and create a policy if available.
+    let sanitizeHTML;
+    if (window.trustedTypes && trustedTypes.createPolicy) {
+        const policy = trustedTypes.createPolicy('myPolicy', {
+            createHTML: (string) => DOMPurify.sanitize(string)
+        });
+        sanitizeHTML = (string) => policy.createHTML(string);
+    } else {
+        sanitizeHTML = (string) => DOMPurify.sanitize(string);
+    }
+
     const rangeTtl = document.getElementById('ttl'),
         rangeTtlValue = document.getElementById('ttl-value'),
         rangeView = document.getElementById("ttlViews"),
@@ -60,20 +71,23 @@
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
         errorSpan = document.querySelector("p > span"), // Added for displaying error in span.
-        maxsizeBytes = {{ maxFileSize }}; // This value is already in bytes.
+        maxsizeBytes = {{ maxFileSize }}; // This value is in bytes.
         
     let isFileSizeOK = true;
 
+    // Update the TTL display based on the range input.
     rangeTtl.oninput = function() {
         const v = parseInt(rangeTtl.value);
-        rangeTtlValue.innerHTML = DOMPurify.sanitize(v === 1 ? "1 hour" : (v <= 24 ? `${v} hours` : `${v-23} days`), {RETURN_TRUSTED_TYPE: true});
+        rangeTtlValue.innerHTML = sanitizeHTML(v === 1 ? "1 hour" : (v <= 24 ? `${v} hours` : `${v-23} days`));
     };
 
+    // Update the Views display based on the range input.
     rangeView.oninput = function() {
         const view = parseInt(rangeView.value);
-        rangeViewValue.innerHTML = DOMPurify.sanitize(view === 1 ? "1 view" : `${view} views`, {RETURN_TRUSTED_TYPE: true});
+        rangeViewValue.innerHTML = sanitizeHTML(view === 1 ? "1 view" : `${view} views`);
     };
 
+    // Check the file size when a new file is selected.
     myFiles.addEventListener('change', function() {
         const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsizeBytes);
         const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
@@ -99,6 +113,7 @@
         }
     });
 
+    // Prevent form submission if the file size is too large.
     fileForm.addEventListener("submit", function(e) {
         if (!isFileSizeOK) {
             e.preventDefault();
@@ -106,3 +121,4 @@
     });
 </script>
 {% endblock %}
+
