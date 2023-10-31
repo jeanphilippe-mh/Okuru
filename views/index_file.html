@@ -59,7 +59,7 @@
         const policy = trustedTypes.createPolicy('myPolicy', {
             createHTML: (string) => DOMPurify.sanitize(string)
         });
-        sanitizeHTML = (string) => policy.createHTML(string);
+        sanitizeHTML = (string) => policy.createHTML(string).toString(); // Convert TrustedHTML to string
     } else {
         sanitizeHTML = (string) => DOMPurify.sanitize(string);
     }
@@ -72,7 +72,7 @@
         fileForm = document.getElementById("file_create"),
         errorSpan = document.querySelector("p > span"), // Added for displaying error in span.
         maxsizeBytes = {{ maxFileSize }}; // This value is in bytes.
-        
+
     let isFileSizeOK = true;
 
     // Update the TTL display based on the range input.
