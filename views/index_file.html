@@ -59,7 +59,7 @@
         const policy = trustedTypes.createPolicy('myPolicy', {
             createHTML: (string) => DOMPurify.sanitize(string)
         });
-        sanitizeHTML = (string) => policy.createHTML(string).toString(); // Convert TrustedHTML to string
+        sanitizeHTML = (string) => policy.createHTML(string).toString(); // Convert TrustedHTML to string.
     } else {
         sanitizeHTML = (string) => DOMPurify.sanitize(string);
     }
@@ -75,19 +75,16 @@
 
     let isFileSizeOK = true;
 
-    // Update the TTL display based on the range input.
     rangeTtl.oninput = function() {
         const v = parseInt(rangeTtl.value);
         rangeTtlValue.innerHTML = sanitizeHTML(v === 1 ? "1 hour" : (v <= 24 ? `${v} hours` : `${v-23} days`));
     };
 
-    // Update the Views display based on the range input.
     rangeView.oninput = function() {
         const view = parseInt(rangeView.value);
         rangeViewValue.innerHTML = sanitizeHTML(view === 1 ? "1 view" : `${view} views`);
     };
 
-    // Check the file size when a new file is selected.
     myFiles.addEventListener('change', function() {
         const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsizeBytes);
         const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
@@ -113,7 +110,6 @@
         }
     });
 
-    // Prevent form submission if the file size is too large.
     fileForm.addEventListener("submit", function(e) {
         if (!isFileSizeOK) {
             e.preventDefault();
@@ -121,4 +117,3 @@
     });
 </script>
 {% endblock %}
-
