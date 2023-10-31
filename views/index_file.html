@@ -91,11 +91,12 @@
             isFileSizeOK = true;
         }
 
-        // Reset form and error message after 5 seconds.
-        setTimeout(() => {
-            errorSpan.innerHTML = "";
-            fileForm.reset();
-        }, 5000);
+        // Reload the page after 5 seconds if there's an error.
+        if (!isFileSizeOK) {
+            setTimeout(() => {
+                location.reload();
+            }, 5000);
+        }
     });
 
     fileForm.addEventListener("submit", function(e) {
