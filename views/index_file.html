@@ -74,29 +74,29 @@
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
-        errorSpan = document.querySelector("p > span"); // Element for displaying errors
+        errorSpan = document.querySelector("p > span");
 
   // Max file size in bytes configuration
   const maxsizeBytes = {{ maxFileSize }};
 
-  // State
+  // File Size current state.
   let isFileSizeOK = true;
 
-  // Update the TTL display based on the range input
+  // Update the TTL display based on the range input.
   rangeTtl.oninput = function() {
     const hours = parseInt(rangeTtl.value);
     const text = hours === 1 ? "1 hour" : (hours <= 24 ? `${hours} hours` : `${hours - 23} days`);
     rangeTtlValue.innerHTML = sanitizeHTML(text);
   };
 
-  // Update the Views display based on the range input
+  // Update the Views display based on the range input.
   rangeView.oninput = function() {
     const views = parseInt(rangeView.value);
     const text = views === 1 ? "1 view" : `${views} views`;
     rangeViewValue.innerHTML = sanitizeHTML(text);
   };
 
-  // Check the file size when a new file is selected
+  // Check the file size when a new file is selected.
   myFiles.addEventListener('change', function() {
     const files = Array.from(myFiles.files);
     const oversizedFiles = files.filter(file => file.size > maxsizeBytes);
@@ -122,7 +122,6 @@
     }
   });
 
-  // Prevent form submission if the file size is too large
   fileForm.addEventListener("submit", function(e) {
     if (!isFileSizeOK) {
       e.preventDefault();
