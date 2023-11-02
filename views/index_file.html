@@ -9,16 +9,19 @@
         <p><span>{% if (errors) %}&#128683{{ errors }}{% endif %}</span> </p>
     </div>
 <form id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
+    <!-- Hidden CSRF Token -->
     <input type="hidden" name="_csrf" value="{{ csrfToken }}">
         <div class="row">
             <div class="col">
                 <div class="form-group">
-                    <label for="files"><b>File(s)</b> to upload [total max size <b>{{ maxFileSizeText }}</b>]:</label>
+                    <label for="files"><b>File(s)</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
                     <input type="file" id="files" name="files" class="form-control-file" multiple />
                 </div>
                 <br>
                 <div class="form-group">
-                    <label for="password"><b>Password</b> [optional]:</label>
+                    <label for="password"><b>Password</b> {optional}:</label>
+                    <!-- Hidden Username Field for Accessibility-->
+                    <input type="text" style="display:none;" autocomplete="username" value="" />
                     <input type="password" id="password" name="password" minlength="8" maxlength="25" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." autocomplete="new-password" />
                 </div>
                 <br>
@@ -53,67 +56,77 @@
 {% block js %}
 <script type="text/javascript" src="scripts/purify.min.js"></script>
 <script type="application/javascript">
-    // Check for Trusted Types support and create a policy if available.
-    let sanitizeHTML;
+  // Check for Trusted Types Browser support and create a dedicated Policy if available, otherwise use DOMPurify.
+  const sanitizeHTML = (function() {
     if (window.trustedTypes && trustedTypes.createPolicy) {
-        const policy = trustedTypes.createPolicy('myPolicy', {
-            createHTML: (string) => DOMPurify.sanitize(string)
-        });
-        sanitizeHTML = (string) => policy.createHTML(string).toString(); // Convert TrustedHTML to string.
-    } else {
-        sanitizeHTML = (string) => DOMPurify.sanitize(string);
+      const policy = trustedTypes.createPolicy('myPolicy', {
+        createHTML: (string) => DOMPurify.sanitize(string)
+      });
+      return (string) => policy.createHTML(string).toString();
     }
+    return (string) => DOMPurify.sanitize(string);
+  })();
 
-    const rangeTtl = document.getElementById('ttl'),
+  // DOM elements
+  const rangeTtl = document.getElementById('ttl'),
         rangeTtlValue = document.getElementById('ttl-value'),
         rangeView = document.getElementById("ttlViews"),
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
         fileForm = document.getElementById("file_create"),
-        errorSpan = document.querySelector("p > span"), // Added for displaying error in span.
-        maxsizeBytes = {{ maxFileSize }}; // This value is in bytes.
+        errorSpan = document.querySelector("p > span"); // Element for displaying errors
 
-    let isFileSizeOK = true;
+  // Max file size in bytes configuration
+  const maxsizeBytes = {{ maxFileSize }};
 
-    rangeTtl.oninput = function() {
-        const v = parseInt(rangeTtl.value);
-        rangeTtlValue.innerHTML = sanitizeHTML(v === 1 ? "1 hour" : (v <= 24 ? `${v} hours` : `${v-23} days`));
-    };
+  // State
+  let isFileSizeOK = true;
 
-    rangeView.oninput = function() {
-        const view = parseInt(rangeView.value);
-        rangeViewValue.innerHTML = sanitizeHTML(view === 1 ? "1 view" : `${view} views`);
-    };
+  // Update the TTL display based on the range input
+  rangeTtl.oninput = function() {
+    const hours = parseInt(rangeTtl.value);
+    const text = hours === 1 ? "1 hour" : (hours <= 24 ? `${hours} hours` : `${hours - 23} days`);
+    rangeTtlValue.innerHTML = sanitizeHTML(text);
+  };
 
-    myFiles.addEventListener('change', function() {
-        const oversizedFiles = Array.from(myFiles.files).filter(file => file.size > maxsizeBytes);
-        const totalSize = Array.from(myFiles.files).reduce((acc, file) => acc + file.size, 0);
-        const fileWord = oversizedFiles.length > 1 ? "files" : "file";
+  // Update the Views display based on the range input
+  rangeView.oninput = function() {
+    const views = parseInt(rangeView.value);
+    const text = views === 1 ? "1 view" : `${views} views`;
+    rangeViewValue.innerHTML = sanitizeHTML(text);
+  };
 
-        if (oversizedFiles.length) {
-            const fileList = oversizedFiles.map(f => `&bull; ${f.name} (<b>${Math.floor(f.size / 1024 / 1024)}mb</b>)`).join('<br>');
-            errorSpan.innerHTML = `&#128683; The following ${fileWord} exceed the max size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>:<br>${fileList}`;
-            isFileSizeOK = false;
-        } else if (totalSize > maxsizeBytes) {
-            errorSpan.innerHTML = `&#128683; The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>`;
-            isFileSizeOK = false;
-        } else {
-            errorSpan.innerHTML = "";
-            isFileSizeOK = true;
-        }
+  // Check the file size when a new file is selected
+  myFiles.addEventListener('change', function() {
+    const files = Array.from(myFiles.files);
+    const oversizedFiles = files.filter(file => file.size > maxsizeBytes);
+    const totalSize = files.reduce((acc, file) => acc + file.size, 0);
 
-        // Reload the page after 5 seconds if there's an error.
-        if (!isFileSizeOK) {
-            setTimeout(() => {
-                location.reload();
-            }, 5000);
-        }
-    });
+    if (oversizedFiles.length) {
+      const fileList = oversizedFiles.map(f => `&bull; ${f.name} (<b>${Math.floor(f.size / 1024 / 1024)}mb</b>)`).join('<br>');
+      errorSpan.innerHTML = sanitizeHTML(`&#128683; The following file(s) exceed the max size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>:<br>${fileList}`);
+      isFileSizeOK = false;
+    } else if (totalSize > maxsizeBytes) {
+      errorSpan.innerHTML = sanitizeHTML(`&#128683; The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>`);
+      isFileSizeOK = false;
+    } else {
+      errorSpan.innerHTML = sanitizeHTML("");
+      isFileSizeOK = true;
+    }
 
-    fileForm.addEventListener("submit", function(e) {
-        if (!isFileSizeOK) {
-            e.preventDefault();
-        }
-    });
+    // Reload the page after 5 seconds if there's an error
+    if (!isFileSizeOK) {
+      setTimeout(() => {
+        location.reload();
+      }, 5000);
+    }
+  });
+
+  // Prevent form submission if the file size is too large
+  fileForm.addEventListener("submit", function(e) {
+    if (!isFileSizeOK) {
+      e.preventDefault();
+    }
+  });
 </script>
 {% endblock %}
