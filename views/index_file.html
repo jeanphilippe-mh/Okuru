@@ -56,18 +56,20 @@
 {% block js %}
 <script type="text/javascript" src="scripts/purify.min.js"></script>
 <script type="application/javascript">
+(function() {
   // Check for Trusted Types Browser support and create a dedicated Policy if available, otherwise use DOMPurify.
   const sanitizeHTML = (function() {
     if (window.trustedTypes && trustedTypes.createPolicy) {
       const policy = trustedTypes.createPolicy('myPolicy', {
         createHTML: (string) => DOMPurify.sanitize(string)
       });
-      return (string) => policy.createHTML(string).toString();
+      // Return the Trusted Type object directly.
+      return (string) => policy.createHTML(string);
     }
     return (string) => DOMPurify.sanitize(string);
   })();
 
-  // DOM elements
+  // DOM elements.
   const rangeTtl = document.getElementById('ttl'),
         rangeTtlValue = document.getElementById('ttl-value'),
         rangeView = document.getElementById("ttlViews"),
@@ -76,7 +78,7 @@
         fileForm = document.getElementById("file_create"),
         errorSpan = document.querySelector("p > span");
 
-  // Max file size in bytes configuration
+  // Max file size in bytes configuration.
   const maxsizeBytes = {{ maxFileSize }};
 
   // File Size current state.
@@ -117,7 +119,7 @@
     // Reload the page after 5 seconds if there's an error
     if (!isFileSizeOK) {
       setTimeout(() => {
-        location.reload();
+        window.location.replace(window.location.href);
       }, 5000);
     }
   });
@@ -127,5 +129,6 @@
       e.preventDefault();
     }
   });
+})();
 </script>
 {% endblock %}
