@@ -11,6 +11,7 @@
 <form id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->
     <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+    <!-- Hidden CSRF Token -->
         <div class="row">
             <div class="col">
                 <div class="form-group">
@@ -22,6 +23,7 @@
                     <label for="password"><b>Password</b> {optional}:</label>
                     <!-- Hidden Username Field for Accessibility-->
                     <input type="text" style="display:none;" autocomplete="username" value="" />
+                    <!-- Hidden Username Field for Accessibility-->
                     <input type="password" id="password" name="password" minlength="8" maxlength="25" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." autocomplete="new-password" />
                 </div>
                 <br>
@@ -105,8 +107,9 @@
     const totalSize = files.reduce((acc, file) => acc + file.size, 0);
 
     if (oversizedFiles.length) {
+      const fileWord = oversizedFiles.length === 1 ? 'file' : 'files';
       const fileList = oversizedFiles.map(f => `&bull; ${f.name} (<b>${Math.floor(f.size / 1024 / 1024)}mb</b>)`).join('<br>');
-      errorSpan.innerHTML = sanitizeHTML(`&#128683; The following file(s) exceed the max size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>:<br>${fileList}`);
+      errorSpan.innerHTML = sanitizeHTML(`&#128683; The following ${fileWord} exceed the max size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>:<br>${fileList}`);
       isFileSizeOK = false;
     } else if (totalSize > maxsizeBytes) {
       errorSpan.innerHTML = sanitizeHTML(`&#128683; The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>`);
@@ -116,7 +119,7 @@
       isFileSizeOK = true;
     }
 
-    // Reload the page after 5 seconds if there's an error
+    // Reload the page after 5 seconds if there's an error.
     if (!isFileSizeOK) {
       setTimeout(() => {
         window.location.replace(window.location.href);
