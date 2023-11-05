@@ -86,7 +86,7 @@ func New() *echo.Echo {
 	}
 
 	// Middleware BodyLimit
-	// Set the request body size limit to 1024 MB to reflect ModSecurity - OWASP WAF max limitation.
+	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
 	e.Use(middleware.BodyLimit("1024M"))
 	
 	// Middleware Logger
@@ -107,6 +107,7 @@ func New() *echo.Echo {
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLength:	32,
 		TokenLookup:    "form:_csrf",
+		CookieHttpOnly: true,
 		CookieSecure:	true,
 		CookieHTTPOnly:	true,
 		CookieSameSite:	http.SameSiteStrictMode,
