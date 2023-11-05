@@ -9,7 +9,7 @@ import (
 )
 
 /**
- * Print help for API usage in a readable way for bash/curl call
+ * Print help for API usage in a readable way for bash/curl call.
  */
 func HelpPassword(context echo.Context) error {
 	help := `Generate a password share link with the following parameters:
@@ -37,14 +37,14 @@ func ReadPassword(context echo.Context) error {
 		return context.NoContent(http.StatusNotFound)
 	}
 
-	// Empty var so json response don't have them
+	// Empty var so json response don't have them.
 	p.Token = []byte("")
 	p.PasswordKey = ""
 	return context.JSON(http.StatusOK, p)
 }
 
 /**
- * From a give password, return link
+ * From a give password, return link.
  */
 func CreatePassword(context echo.Context) (err error) {
 	p := new(Password)
@@ -78,7 +78,7 @@ func CreatePassword(context echo.Context) (err error) {
 	p.Link = baseUrl + token
 	p.LinkApi = baseUrl + "api/v1/" + token
 
-	// Empty var so json response don't have them
+	// Empty var so json response don't have them.
 	p.Token = []byte("")
 	p.Password = ""
 	p.PasswordKey = ""
