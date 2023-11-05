@@ -66,6 +66,10 @@ footer {
     text-align: center;
 }
 
+.hidden-input {
+    display: none;
+}
+
 @media (prefers-color-scheme: light) {
   .site-title, body {
     color: #fff;
