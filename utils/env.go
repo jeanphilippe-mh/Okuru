@@ -106,7 +106,7 @@ func init() {
 	println("")
 	log.Debug("APP_NAME : %+v\n", APP_NAME)
 
-	//Init data context that'll be passed to render to avoid creating it every time for those "global" variable
+	// Init data context that'll be passed to render to avoid creating it every time for those "global" variable
 	DataContext = pongo2.Context{
 		"logo":       LOGO,
 		"APP_NAME":   APP_NAME,
