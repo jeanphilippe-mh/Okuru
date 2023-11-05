@@ -28,27 +28,27 @@ func IndexFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "index_file.html", DataContext)
 }
 
-func Error400Index(context echo.Context) error {
+func Error400File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusBadRequest, "400.html", DataContext)
 }
 
-func Error403Index(context echo.Context) error {
+func Error403File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusForbidden, "403.html", DataContext)
 }
 
-func Error404Index(context echo.Context) error {
+func Error404File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusNotFound, "404.html", DataContext)
 }
 
-func Error413Index(context echo.Context) error {
+func Error413File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusRequestEntityTooLarge, "413.html", DataContext)
 }
 
-func Error500Index(context echo.Context) error {
+func Error500File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
 }
