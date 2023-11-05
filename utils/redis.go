@@ -8,15 +8,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//https://medium.com/@gilcrest_65433/basic-redis-examples-with-go-a3348a12878e
+// Source: https://medium.com/@gilcrest_65433/basic-redis-examples-with-go-a3348a12878e
 func NewPool() *redis.Pool {
 	return &redis.Pool{
 		// Maximum number of idle connections in the pool.
 		MaxIdle: 80,
-		// max number of connections
+		// max number of connections.
 		MaxActive: 12000,
-		// Dial is an application supplied function for creating and
-		// configuring a connection.
+		// Dial is an application supplied function for creating and configuring a connection.
 		Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial("tcp", REDIS_HOST+":"+REDIS_PORT)
 			if err != nil {
@@ -45,9 +44,9 @@ func NewPool() *redis.Pool {
 	}
 }
 
-// Ping tests connectivity for redis (PONG should be returned)
+// Ping tests connectivity for redis (PONG should be returned).
 func Ping(c redis.Conn) bool {
-	// Send PING command to Redis
+	// Send PING command to Redis.
 	pong, err := redis.String(c.Do("PING"))
 	if err != nil {
 		return false
