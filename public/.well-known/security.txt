@@ -2,7 +2,7 @@
 Hash: SHA384
 
 Contact: mailto:jean.philippe.mh@protonmail.com
-Expires: 2027-11-25T11:20:00.000Z
+Expires: 2025-11-24T11:20:00.000Z
 Encryption: https://share.jeanphilippe.io/.well-known/publickey.jean.philippe.mh%40protonmail.com-af24471f474876ce10836b2acf2aa1aee91cb5ef.asc
 Acknowledgments: https://github.com/jeanphilippe-mh/Okuru
 Preferred-Languages: en, fr
@@ -10,9 +10,9 @@ Canonical: https://share.jeanphilippe.io/.well-known/security.txt
 Policy: https://github.com/jeanphilippe-mh/Okuru/security/policy
 -----BEGIN PGP SIGNATURE-----
 
-iJUEARMJAB0WIQRSH42E81ylfCad5jFT+R2j2xzcagUCZ0RqlAAKCRBT+R2j2xzc
-anxDAYDHU2nJzQZAkQ4uJm+rLGGxiIkH6UQ1ARzY6LZVRgCTrE4dA8miccxGdfDv
-c7yfx2sBf1sx+Od+ntEy9yN7R7dfddUOa3+FDBIZ3wPHxXspG6QSWgCVWBezi5/F
-RuTYiKbJCw==
-=Fmd0
+iJUEARMJAB0WIQRSH42E81ylfCad5jFT+R2j2xzcagUCZ0SsDAAKCRBT+R2j2xzc
+anczAYDQU0OYvEHRd74utFq9/sx1fJ4e/mYQIPL0jbevtTJV5EwQZOhURa0tcii/
+k43BMO0Bf36/K85jKJ4Fv6qcffm2ZEAx0ZbZYgMF8+ntLrCqQzhog6YcAh1wcaf8
+E+ua9k6g2A==
+=qjsP
 -----END PGP SIGNATURE-----
