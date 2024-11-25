@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -346,10 +345,10 @@ func AddFile(context echo.Context) error {
 	}
 	defer outFile.Close()
 
-	// Create a slice to hold archives.FileInfo
+	// Prepare the list of FileInfo for the archives
 	var fileInfos []archives.FileInfo
 	for _, file := range fileList {
-		// Retrieve file information
+		// Retrieve the file information
 		info, err := os.Stat(file)
 		if err != nil {
 			log.Error("Error while retrieving file info: %+v\n", err)
@@ -358,7 +357,7 @@ func AddFile(context echo.Context) error {
 		}
 
 		// Append file information to the slice
-		fileCopy := file // Prevent closure variable issue
+		fileCopy := file // Ensure closure captures the correct value
 		fileInfos = append(fileInfos, archives.FileInfo{
 			FileInfo:      info,
 			NameInArchive: filepath.Base(fileCopy),
@@ -372,8 +371,7 @@ func AddFile(context echo.Context) error {
 	zip := archives.Zip{}
 
 	// Perform the archiving operation
-	ctx := context.Background() // Create a context
-	err = zip.Archive(ctx, outFile, fileInfos)
+	err = zip.Archive(outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
