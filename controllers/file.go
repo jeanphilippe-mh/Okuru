@@ -1,8 +1,10 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -346,11 +348,16 @@ func AddFile(context echo.Context) error {
 
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
-		file := file
+		info, err := os.Stat(file)
+		if err != nil {
+			log.Error("Error while retrieving file info: %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
 		fileInfos = append(fileInfos, archives.FileInfo{
-			FileInfo:      os.Stat(file),
+			FileInfo:      info,
 			NameInArchive: filepath.Base(file),
-			Open: func() (io.ReadCloser, error) {
+			Open: func() (fs.File, error) {
 				return os.Open(file)
 			},
 		})
