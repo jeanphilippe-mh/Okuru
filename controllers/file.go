@@ -3,7 +3,6 @@ package controllers
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -336,54 +335,32 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	// Archive the files
+	// Archive the files using archives.Zip
 	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
 	if err != nil {
 		log.Error("Error while creating ZIP archive: %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
-	defer func() {
-		if outFile != nil {
-			outFile.Close()
-		}
-	}()
+	defer outFile.Close()
 
-	// Create a slice of FileInfo for the archive
+	// Prepare file information for archiving
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
 		file := file // Capture variable for use in closure
 
-		// Verify the file exists before adding it
-		if _, err := os.Stat(file); err != nil {
-			log.Errorf("File does not exist or is inaccessible: %s, error: %+v", file, err)
-			continue // Skip inaccessible files
-		}
-
+		// Add file to the archive
 		fileInfos = append(fileInfos, archives.FileInfo{
-			NameInArchive: filepath.Base(file), // Name as it appears in the archive
-			Open: func() (fs.File, error) {
-				log.Infof("Attempting to open file: %s", file)
-				f, err := os.Open(file)
-				if err != nil {
-					log.Errorf("Failed to open file: %s, error: %+v", file, err)
-				}
-				return f, err
+			NameInArchive: filepath.Base(file), // Name inside the archive
+			Open: func() (io.ReadCloser, error) {
+				return os.Open(file) // Open the file for reading
 			},
 		})
 	}
 
-	// Ensure there are valid files to archive
-	if len(fileInfos) == 0 {
-		log.Error("No valid files to archive")
-		DataContext["errors"] = "No valid files to archive"
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
-	}
-
-	// Configure the archive with default settings
+	// Create the ZIP archive
 	zip := archives.Zip{}
-
-	err = zip.Archive(nil, outFile, fileInfos)
+	err = zip.Archive(nil, outFile, fileInfos) // Use nil for context
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
