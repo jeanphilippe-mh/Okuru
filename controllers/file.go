@@ -342,7 +342,7 @@ func AddFile(context echo.Context) error {
 	if err != nil {
 		log.Error("Error while creating ZIP archive: %+v\n", err)
 		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return ctx.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 	defer outFile.Close()
 
@@ -352,12 +352,13 @@ func AddFile(context echo.Context) error {
 		if err != nil {
 			log.Error("Error while retrieving file info: %+v\n", err)
 			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			return ctx.Render(http.StatusOK, "index_file.html", DataContext)
 		}
+		file := file
 		fileInfos = append(fileInfos, archives.FileInfo{
 			FileInfo:      info,
 			NameInArchive: filepath.Base(file),
-			Open: func() (fs.File, error) {
+			Open: func() (io.ReadCloser, error) {
 				return os.Open(file)
 			},
 		})
@@ -368,7 +369,7 @@ func AddFile(context echo.Context) error {
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return ctx.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
 	// Remove the temporary folder created
