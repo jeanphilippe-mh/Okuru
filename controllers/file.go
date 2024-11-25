@@ -348,11 +348,17 @@ func AddFile(context echo.Context) error {
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
 		fileInfos = append(fileInfos, archives.FileInfo{
-			SystemPath: file, // Correct field for the file path
+			NameInArchive: file, // Name in archive
+			Open: func() (fs.File, error) {
+				return os.Open(file)
+			},
 		})
 	}
 
-	zip := archives.Zip{} // No compression is applied by default
+	// Configure the archive with compression
+	zip := archives.Zip{
+		Compression: archives.Deflate{}, // Change to archives.Store{} for no compression
+	}
 
 	err = zip.Archive(nil, outFile, fileInfos) // Pass nil as context
 	if err != nil {
