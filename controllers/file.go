@@ -65,7 +65,7 @@ func Error500File(context echo.Context) error {
 
 func Error501File(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http?StatusNotImplemented, "501.html", DataContext)
+	return context.Render(http.StatusNotImplemented, "501.html", DataContext)
 }
 
 func Error502File(context echo.Context) error {
