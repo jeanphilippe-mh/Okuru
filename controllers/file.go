@@ -351,8 +351,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	// Use FilesFromDisk to prepare the FileInfo structs
-	var files []archives.FileInfo
-	files, err = archives.FilesFromDisk(nil, nil, fileMappings)
+	archiveFiles, err := archives.FilesFromDisk(nil, nil, fileMappings)
 	if err != nil {
 		log.Error("Error while preparing files for archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
@@ -363,7 +362,7 @@ func AddFile(context echo.Context) error {
 	zipFormat := archives.Zip{}
 
 	// Create the ZIP archive
-	err = zipFormat.Archive(nil, outFile, files)
+	err = zipFormat.Archive(nil, outFile, archiveFiles)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
