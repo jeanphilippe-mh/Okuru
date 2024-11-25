@@ -30,7 +30,7 @@ func IndexFile(context echo.Context) error {
 
 func Error400File(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http.http.StatusBadRequest, "400.html", DataContext)
+	return context.Render(http.StatusBadRequest, "400.html", DataContext)
 }
 
 func Error401File(context echo.Context) error {
@@ -51,11 +51,6 @@ func Error404File(context echo.Context) error {
 func Error413File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusRequestEntityTooLarge, "413.html", DataContext)
-}
-
-func Error500File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
 }
 
 func Error500File(context echo.Context) error {
