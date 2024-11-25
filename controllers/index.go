@@ -30,7 +30,7 @@ func PrivacyIndex(context echo.Context) error {
 
 func Error400Index(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http.http.StatusBadRequest, "400.html", DataContext)
+	return context.Render(http.StatusBadRequest, "400.html", DataContext)
 }
 
 func Error401Index(context echo.Context) error {
@@ -51,11 +51,6 @@ func Error404Index(context echo.Context) error {
 func Error413Index(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusRequestEntityTooLarge, "413.html", DataContext)
-}
-
-func Error500Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
 }
 
 func Error500Index(context echo.Context) error {
