@@ -23,7 +23,6 @@ func Index(e *echo.Echo) {
 	e.GET("/506.html", controllers.Error506Index)
 	e.GET("/507.html", controllers.Error507Index)
 	e.GET("/508.html", controllers.Error508Index)
-	e.GET("/509.html", controllers.Error509Index)
 	e.GET("/:password_key", controllers.ReadIndex)
 	e.GET("/remove/:password_key", controllers.DeleteIndex)
 	e.POST("/", controllers.AddIndex)
