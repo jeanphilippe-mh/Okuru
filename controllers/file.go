@@ -343,21 +343,44 @@ func AddFile(context echo.Context) error {
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
-	defer outFile.Close()
+	defer func() {
+		if outFile != nil {
+			outFile.Close()
+		}
+	}()
 
 	// Create a slice of FileInfo for the archive
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
-		file := file // Capture file for use in closure
+		file := file // Capture variable for use in closure
+
+		// Verify the file exists before adding it
+		if _, err := os.Stat(file); err != nil {
+			log.Errorf("File does not exist or is inaccessible: %s, error: %+v", file, err)
+			continue // Skip inaccessible files
+		}
+
 		fileInfos = append(fileInfos, archives.FileInfo{
-			NameInArchive: filepath.Base(file), // Name in archive
+			NameInArchive: filepath.Base(file), // Name as it appears in the archive
 			Open: func() (fs.File, error) {
-				return os.Open(file)
+				log.Infof("Attempting to open file: %s", file)
+				f, err := os.Open(file)
+				if err != nil {
+					log.Errorf("Failed to open file: %s, error: %+v", file, err)
+				}
+				return f, err
 			},
 		})
 	}
 
-	// Configure the archive (no explicit compression)
+	// Ensure there are valid files to archive
+	if len(fileInfos) == 0 {
+		log.Error("No valid files to archive")
+		DataContext["errors"] = "No valid files to archive"
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
+
+	// Configure the archive with default settings
 	zip := archives.Zip{}
 
 	err = zip.Archive(nil, outFile, fileInfos)
@@ -369,10 +392,12 @@ func AddFile(context echo.Context) error {
 
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
-		log.Error("Error while removing folder : %+v\n", err)
+		log.Error("Error while removing folder: %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
+
+	return context.Render(http.StatusOK, "confirm_file.html", DataContext)
 	
 	/*File upload end*/
 
