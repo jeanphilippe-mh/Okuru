@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
