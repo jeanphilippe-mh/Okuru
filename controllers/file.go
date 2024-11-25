@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"compress/flate"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
-	"github.com/mholt/archives"
+	"github.com/mholt/archiver/v3"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -335,65 +336,22 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	// Archive the files using https://github.com/mholt/archives
-	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
-	if err != nil {
-		log.Error("Error while creating ZIP archive: %+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	z := archiver.Zip{
+		CompressionLevel: flate.NoCompression,
 	}
-	defer outFile.Close()
-
-	// Map files to their archive paths
-	fileMappings := map[string]string{}
-	for _, file := range fileList {
-		fileMappings[file] = filepath.Base(file)
-	}
-
-	// Generate FileInfo structs for the archive
-	files, err := archives.FilesFromDisk(archives.DiskOptions{}, map[string]string{}, fileMappings)
+	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
 	if err != nil {
-		log.Error("Error while preparing files for archiving: %+v\n", err)
+		log.Error("Error while archive : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	// Configure the ZIP format
-	zipFormat := archives.Zip{}
-
-	// Create the archive
-	err = zipFormat.Archive(context.Background(), outFile, files)
-	if err != nil {
-		log.Error("Error while archiving: %+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
-	}
-
-	// Remove the folder after successful archiving
-	err = os.RemoveAll(folderPathName)
-	if err != nil {
-		log.Error("Error while removing folder: %+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
-	}
-
-	// Remove the folder after successful archiving
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
 		log.Error("Error while removing folder : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
-
-	// Remove the temporary folder created
-	err = os.RemoveAll(folderPathName)
-	if err != nil {
-		log.Error("Error while removing folder: %+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
-	}
-
-	return context.Render(http.StatusOK, "confirm_file.html", DataContext)
 	
 	/*File upload end*/
 
@@ -477,4 +435,3 @@ func sanitizeFileName(Filename string) string {
 
     return checkFileName
 }
-
