@@ -65,7 +65,7 @@ func Error500Index(context echo.Context) error {
 
 func Error501Index(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http?StatusNotImplemented, "501.html", DataContext)
+	return context.Render(http.StatusNotImplemented, "501.html", DataContext)
 }
 
 func Error502Index(context echo.Context) error {
