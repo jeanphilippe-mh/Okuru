@@ -337,6 +337,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	// Archive the files using https://github.com/mholt/archives
+	// Archive the files
 	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
 	if err != nil {
 		log.Error("Error while creating ZIP archive: %+v\n", err)
@@ -354,12 +355,11 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		// Create and append FileInfo struct for each file
-		fileCopy := file // Ensure correct closure behavior
+		fileCopy := file // Capture file variable correctly for the closure
 		fileInfos = append(fileInfos, archives.FileInfo{
-			FileInfo:      info,                         // File metadata
-			NameInArchive: filepath.Base(fileCopy),      // Archive name
-			Open: func() (io.ReadCloser, error) {        // Function to open file
+			FileInfo:      info,
+			NameInArchive: filepath.Base(fileCopy),
+			Open: func() (io.ReadCloser, error) {
 				return os.Open(fileCopy)
 			},
 		})
@@ -369,7 +369,7 @@ func AddFile(context echo.Context) error {
 	zip := archives.Zip{}
 
 	// Perform the archiving operation
-	err = zip.Archive(context.Background(), outFile, fileInfos)
+	err = zip.Archive(context.TODO(), outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
