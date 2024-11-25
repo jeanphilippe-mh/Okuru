@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"compress/flate"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +14,7 @@ import (
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
-	"github.com/mholt/archiver/v3"
+	"github.com/mholt/archives/"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -336,15 +336,31 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	z := archiver.Zip{
-		CompressionLevel: flate.NoCompression,
-	}
-	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
+	// Archive the files with https://github.com/mholt/archives/
+	ctx := context.Background()
+	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
 	if err != nil {
-		log.Error("Error while archive : %+v\n", err)
+		log.Error("Error while creating ZIP archive: %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
+	defer outFile.Close()
+
+	fileInfos, err := archives.FilesFromDisk(ctx, nil, map[string]string{})
+	for _, file := range fileList {
+		fileInfos[file] = file
+	}
+
+	archive := archives.Archive{
+		Compression: nil, // Disable compression
+		Archival:    archives.Zip{},
+	}
+
+	err = archive.Archive(ctx, outFile, fileInfos)
+	if err != nil {
+		log.Error("Error while archiving: %+v\n", err)
+		DataContext["errors"] = err.Error()
+		r
 
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
