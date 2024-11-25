@@ -347,7 +347,8 @@ func AddFile(context echo.Context) error {
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
 		fileInfos = append(fileInfos, archives.FileInfo{
-			SourcePath: file, // Path to the file on disk
+			SystemPath: file, // Correct field for the file path
+			Mode:       0,    // Default file permissions
 		})
 	}
 
