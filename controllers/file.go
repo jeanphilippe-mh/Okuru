@@ -357,10 +357,12 @@ func AddFile(context echo.Context) error {
 	}
 
 	err = archive.Archive(ctx, outFile, fileInfos)
+
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
-		r
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
 
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
