@@ -30,7 +30,12 @@ func PrivacyIndex(context echo.Context) error {
 
 func Error400Index(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http.StatusBadRequest, "400.html", DataContext)
+	return context.Render(http.http.StatusBadRequest, "400.html", DataContext)
+}
+
+func Error401Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusUnauthorized, "401.html", DataContext)
 }
 
 func Error403Index(context echo.Context) error {
@@ -51,6 +56,51 @@ func Error413Index(context echo.Context) error {
 func Error500Index(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
+}
+
+func Error500Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
+}
+
+func Error501Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http?StatusNotImplemented, "501.html", DataContext)
+}
+
+func Error502Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusBadGateway, "502.html", DataContext)
+}
+
+func Error503Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusServiceUnavailable, "503.html", DataContext)
+}
+
+func Error504Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusGatewayTimeout, "504.html", DataContext)
+}
+
+func Error505Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", DataContext)
+}
+
+func Error506Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", DataContext)
+}
+
+func Error507Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusInsufficientStorage, "507.html", DataContext)
+}
+
+func Error508Index(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusLoopDetected, "508.html", DataContext)
 }
 
 func ReadIndex(context echo.Context) error {
