@@ -358,7 +358,7 @@ func AddFile(context echo.Context) error {
 		fileInfos = append(fileInfos, archives.FileInfo{
 			FileInfo:      info,
 			NameInArchive: filepath.Base(fileCopy),
-			Open: func() (fs.File, error) { // Corrected to match the expected type
+			Open: func() (io.ReadCloser, error) {
 				return os.Open(fileCopy)
 			},
 		})
@@ -368,7 +368,7 @@ func AddFile(context echo.Context) error {
 	zip := archives.Zip{}
 
 	// Perform the archiving operation
-	err = zip.Archive(context.Background(), outFile, fileInfos) // Ensure the correct context is used
+	err = zip.Archive(context.TODO(), outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
