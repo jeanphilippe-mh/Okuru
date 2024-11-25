@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -345,18 +344,18 @@ func AddFile(context echo.Context) error {
 	}
 	defer outFile.Close()
 
-	fileInfos := map[string]archives.FileInfo{}
+	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
-		fileInfos[file] = archives.FileInfo{
-			FileSystemPath: file,
-		}
+		fileInfos = append(fileInfos, archives.FileInfo{
+			SourcePath: file, // Path to the file on disk
+		})
 	}
 
 	zip := archives.Zip{
 		Compression: nil, // Disable compression
 	}
 
-	err = zip.Archive(outFile, fileInfos)
+	err = zip.Archive(nil, outFile, fileInfos) // Pass nil as context
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
