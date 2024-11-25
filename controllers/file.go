@@ -344,27 +344,35 @@ func AddFile(context echo.Context) error {
 	}
 	defer outFile.Close()
 
-	// Map the files from disk to their paths in the archive
-	fileMappings := make(map[string]string)
+	// Map files to their archive paths
+	fileMappings := map[string]string{}
 	for _, file := range fileList {
-		fileMappings[file] = filepath.Base(file) // Map each file to its name in the archive
+		fileMappings[file] = filepath.Base(file)
 	}
 
-	// Prepare the FileInfo structs
-	archiveFiles, err := archives.FilesFromDisk(nil, nil, fileMappings)
+	// Generate FileInfo structs for the archive
+	files, err := archives.FilesFromDisk(archives.DiskOptions{}, map[string]string{}, fileMappings)
 	if err != nil {
 		log.Error("Error while preparing files for archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	// Define the ZIP archive format
+	// Configure the ZIP format
 	zipFormat := archives.Zip{}
 
-	// Create the ZIP archive
-	err = zipFormat.Archive(nil, outFile, archiveFiles)
+	// Create the archive
+	err = zipFormat.Archive(context.Background(), outFile, files)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
+		DataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
+
+	// Remove the folder after successful archiving
+	err = os.RemoveAll(folderPathName)
+	if err != nil {
+		log.Error("Error while removing folder: %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
