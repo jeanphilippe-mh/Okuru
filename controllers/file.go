@@ -14,7 +14,7 @@ import (
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
-	"github.com/mholt/archives/"
+	"github.com/mholt/archives"
 	log "github.com/sirupsen/logrus"
 )
 
