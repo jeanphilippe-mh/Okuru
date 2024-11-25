@@ -3,7 +3,6 @@ package controllers
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -345,33 +344,25 @@ func AddFile(context echo.Context) error {
 	}
 	defer outFile.Close()
 
-	// Prepare the list of FileInfo for the archives
-	var fileInfos []archives.FileInfo
+	// Map the files from disk to their paths in the archive
+	fileMappings := make(map[string]string)
 	for _, file := range fileList {
-		// Retrieve the file information
-		info, err := os.Stat(file)
-		if err != nil {
-			log.Error("Error while retrieving file info: %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
-		}
-
-		// Append file information to the slice
-		fileCopy := file // Ensure closure captures the correct value
-		fileInfos = append(fileInfos, archives.FileInfo{
-			FileInfo:      info,
-			NameInArchive: filepath.Base(fileCopy),
-			Open: func() (fs.File, error) {
-				return os.Open(fileCopy)
-			},
-		})
+		fileMappings[file] = filepath.Base(file) // Map each file to its name in the archive
 	}
 
-	// Initialize the ZIP archiver
-	zip := archives.Zip{}
+	// Use FilesFromDisk to prepare the FileInfo structs
+	files, err := archives.FilesFromDisk(context.TODO(), nil, fileMappings)
+	if err != nil {
+		log.Error("Error while preparing files for archiving: %+v\n", err)
+		DataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
 
-	// Perform the archiving operation using context.TODO()
-	err = zip.Archive(context.TODO(), outFile, fileInfos)
+	// Define the ZIP archive format
+	zipFormat := archives.Zip{}
+
+	// Create the ZIP archive
+	err = zipFormat.Archive(context.TODO(), outFile, files)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
