@@ -336,8 +336,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	// Archive the files with https://github.com/mholt/archives/
-	ctx := context.Background()
+	// Archive the files
 	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
 	if err != nil {
 		log.Error("Error while creating ZIP archive: %+v\n", err)
@@ -346,18 +345,18 @@ func AddFile(context echo.Context) error {
 	}
 	defer outFile.Close()
 
-	fileInfos, err := archives.FilesFromDisk(ctx, nil, map[string]string{})
+	fileInfos := map[string]archives.FileInfo{}
 	for _, file := range fileList {
-		fileInfos[file] = file
+		fileInfos[file] = archives.FileInfo{
+			FileSystemPath: file,
+		}
 	}
 
-	archive := archives.Archive{
+	zip := archives.Zip{
 		Compression: nil, // Disable compression
-		Archival:    archives.Zip{},
 	}
 
-	err = archive.Archive(ctx, outFile, fileInfos)
-
+	err = zip.Archive(outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
