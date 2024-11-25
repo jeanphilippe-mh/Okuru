@@ -351,7 +351,8 @@ func AddFile(context echo.Context) error {
 	}
 
 	// Use FilesFromDisk to prepare the FileInfo structs
-	files, err := archives.FilesFromDisk(context.TODO(), nil, fileMappings)
+	var files []archives.FileInfo
+	files, err = archives.FilesFromDisk(nil, nil, fileMappings)
 	if err != nil {
 		log.Error("Error while preparing files for archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
@@ -362,9 +363,17 @@ func AddFile(context echo.Context) error {
 	zipFormat := archives.Zip{}
 
 	// Create the ZIP archive
-	err = zipFormat.Archive(context.TODO(), outFile, files)
+	err = zipFormat.Archive(nil, outFile, files)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
+		DataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
+
+	// Remove the folder after successful archiving
+	err = os.RemoveAll(folderPathName)
+	if err != nil {
+		log.Error("Error while removing folder : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
