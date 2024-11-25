@@ -351,7 +351,12 @@ func AddFile(context echo.Context) error {
 	}
 
 	// Use FilesFromDisk to prepare the FileInfo structs
-	archiveFiles, err := archives.FilesFromDisk(nil, nil, fileMappings)
+	// Provide a valid DiskOptions argument instead of nil
+	diskOptions := &archives.DiskOptions{
+		FollowSymbolicLinks: false, // Adjust as needed
+		IncludeHiddenFiles:  false, // Adjust as needed
+	}
+	archiveFiles, err := archives.FilesFromDisk(nil, diskOptions, fileMappings)
 	if err != nil {
 		log.Error("Error while preparing files for archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
