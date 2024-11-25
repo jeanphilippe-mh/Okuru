@@ -348,18 +348,19 @@ func AddFile(context echo.Context) error {
 	// Create a slice of FileInfo for the archive
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
+		file := file // Capture file for use in closure
 		fileInfos = append(fileInfos, archives.FileInfo{
-			NameInArchive: file, // Name in archive
+			NameInArchive: filepath.Base(file), // Name in archive
 			Open: func() (fs.File, error) {
 				return os.Open(file)
 			},
 		})
 	}
 
-	// Configure the archive (no explicit compression, uses default)
-	zip := archives.Zip{} // Compression is implicit if supported
+	// Configure the archive (no explicit compression)
+	zip := archives.Zip{}
 
-	err = zip.Archive(nil, outFile, fileInfos) // Pass nil as context
+	err = zip.Archive(nil, outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
