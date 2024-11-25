@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -335,7 +336,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	// Archive the files using archives.Zip
+		// Archive the files using archives.Zip
 	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
 	if err != nil {
 		log.Error("Error while creating ZIP archive: %+v\n", err)
@@ -352,8 +353,8 @@ func AddFile(context echo.Context) error {
 		// Add file to the archive
 		fileInfos = append(fileInfos, archives.FileInfo{
 			NameInArchive: filepath.Base(file), // Name inside the archive
-			Open: func() (io.ReadCloser, error) {
-				return os.Open(file) // Open the file for reading
+			Open: func() (fs.File, error) {
+				return os.Open(file) // Open the file as fs.File
 			},
 		})
 	}
@@ -367,9 +368,10 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
+	// Remove the temporary folder
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
-		log.Error("Error while removing folder: %+v\n", err)
+		log.Error("Error while removing folder : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
