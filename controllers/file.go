@@ -336,7 +336,7 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-		// Archive the files using archives.Zip
+	// Archive the files using https://github.com/mholt/archives
 	outFile, err := os.Create(FILEFOLDER + "/" + folderName + ".zip")
 	if err != nil {
 		log.Error("Error while creating ZIP archive: %+v\n", err)
@@ -348,20 +348,22 @@ func AddFile(context echo.Context) error {
 	// Prepare file information for archiving
 	fileInfos := []archives.FileInfo{}
 	for _, file := range fileList {
-		file := file // Capture variable for use in closure
+		file := file // Capture variable for closure
 
-		// Add file to the archive
 		fileInfos = append(fileInfos, archives.FileInfo{
-			NameInArchive: filepath.Base(file), // Name inside the archive
-			Open: func() (fs.File, error) {
-				return os.Open(file) // Open the file as fs.File
+			NameInArchive: filepath.Base(file), // File name in the archive
+			Open: func() (io.ReadCloser, error) {
+				return os.Open(file) // Open the file for reading
 			},
 		})
 	}
 
 	// Create the ZIP archive
-	zip := archives.Zip{}
-	err = zip.Archive(nil, outFile, fileInfos) // Use nil for context
+	zip := archives.Zip{
+		Compression: archives.Deflate, // Enable standard compression
+	}
+
+	err = zip.Archive(nil, outFile, fileInfos) // Archive the files
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
@@ -371,7 +373,7 @@ func AddFile(context echo.Context) error {
 	// Remove the temporary folder
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
-		log.Error("Error while removing folder : %+v\n", err)
+		log.Error("Error while removing folder: %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
