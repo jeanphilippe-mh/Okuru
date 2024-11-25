@@ -354,17 +354,22 @@ func AddFile(context echo.Context) error {
 			DataContext["errors"] = err.Error()
 			return ctx.Render(http.StatusOK, "index_file.html", DataContext)
 		}
+
+		// Wrap file information for the archive
 		file := file
 		fileInfos = append(fileInfos, archives.FileInfo{
-			FileInfo:      info,
-			NameInArchive: filepath.Base(file),
-			Open: func() (io.ReadCloser, error) {
+			FileInfo:      info,                         // File metadata
+			NameInArchive: filepath.Base(file),          // Name inside the archive
+			Open: func() (io.ReadCloser, error) {        // File reader
 				return os.Open(file)
 			},
 		})
 	}
 
+	// Configure ZIP archiver
 	zip := archives.Zip{}
+
+	// Archive files into the output ZIP
 	err = zip.Archive(context.Background(), outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
