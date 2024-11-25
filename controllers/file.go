@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -345,8 +344,10 @@ func AddFile(context echo.Context) error {
 	}
 	defer outFile.Close()
 
-	fileInfos := []archives.FileInfo{}
+	// Prepare the list of FileInfo for the archives
+	var fileInfos []archives.FileInfo
 	for _, file := range fileList {
+		// Retrieve the file information
 		info, err := os.Stat(file)
 		if err != nil {
 			log.Error("Error while retrieving file info: %+v\n", err)
@@ -354,12 +355,12 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 
-		fileCopy := file // Ensure closure correctness
+		// Append the file info to the list
 		fileInfos = append(fileInfos, archives.FileInfo{
-			FileInfo:      info,
-			NameInArchive: filepath.Base(fileCopy),
-			Open: func() (io.ReadCloser, error) {
-				return os.Open(fileCopy)
+			FileInfo:      info,                   // Metadata about the file
+			NameInArchive: filepath.Base(file),   // Ensure only the filename appears in the archive
+			Open: func() (io.ReadCloser, error) { // Function to open the file
+				return os.Open(file)
 			},
 		})
 	}
@@ -368,7 +369,7 @@ func AddFile(context echo.Context) error {
 	zip := archives.Zip{}
 
 	// Perform the archiving operation
-	err = zip.Archive(context.TODO(), outFile, fileInfos)
+	err = zip.Archive(outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
