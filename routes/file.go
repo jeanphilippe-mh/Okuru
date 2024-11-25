@@ -21,7 +21,6 @@ func File(g *echo.Group) {
 	g.GET("/506.html", controllers.Error506Index)
 	g.GET("/507.html", controllers.Error507Index)
 	g.GET("/508.html", controllers.Error508Index)
-	g.GET("/509.html", controllers.Error509Index)
 	g.GET("/remove/:file_key", controllers.DeleteFile)
 	g.GET("/:file_key", controllers.ReadFile)
 	g.POST("/:file_key", controllers.DownloadFile)
