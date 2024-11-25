@@ -370,8 +370,8 @@ func AddFile(context echo.Context) error {
 	// Initialize the ZIP archiver
 	zip := archives.Zip{}
 
-	// Perform the archiving operation
-	err = zip.Archive(outFile, fileInfos)
+	// Perform the archiving operation using context.TODO()
+	err = zip.Archive(context.TODO(), outFile, fileInfos)
 	if err != nil {
 		log.Error("Error while archiving: %+v\n", err)
 		DataContext["errors"] = err.Error()
