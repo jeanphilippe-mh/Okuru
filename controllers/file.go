@@ -30,7 +30,12 @@ func IndexFile(context echo.Context) error {
 
 func Error400File(context echo.Context) error {
 	delete(DataContext, "errors")
-	return context.Render(http.StatusBadRequest, "400.html", DataContext)
+	return context.Render(http.http.StatusBadRequest, "400.html", DataContext)
+}
+
+func Error401File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusUnauthorized, "401.html", DataContext)
 }
 
 func Error403File(context echo.Context) error {
@@ -51,6 +56,51 @@ func Error413File(context echo.Context) error {
 func Error500File(context echo.Context) error {
 	delete(DataContext, "errors")
 	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
+}
+
+func Error500File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
+}
+
+func Error501File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http?StatusNotImplemented, "501.html", DataContext)
+}
+
+func Error502File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusBadGateway, "502.html", DataContext)
+}
+
+func Error503File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusServiceUnavailable, "503.html", DataContext)
+}
+
+func Error504File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusGatewayTimeout, "504.html", DataContext)
+}
+
+func Error505File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", DataContext)
+}
+
+func Error506File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", DataContext)
+}
+
+func Error507File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusInsufficientStorage, "507.html", DataContext)
+}
+
+func Error508File(context echo.Context) error {
+	delete(DataContext, "errors")
+	return context.Render(http.StatusLoopDetected, "508.html", DataContext)
 }
 
 func ReadFile(context echo.Context) error {
