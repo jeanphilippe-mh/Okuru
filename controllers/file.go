@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -358,9 +359,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	// Create the ZIP archive
-	zip := archives.Zip{
-		Compression: nil, // Disable compression
-	}
+	zip := archives.Zip{} // No compression
 
 	err = zip.Archive(nil, outFile, fileInfos) // Archive the files
 	if err != nil {
