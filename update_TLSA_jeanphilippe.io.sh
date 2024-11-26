@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Script variables
-CF_API_TOKEN="" #Cloudflare API Token
-CF_ZONE_ID="" #Cloudflare DNS zone ID
+CF_API_TOKEN="" # Add your Cloudflare API Token
+CF_ZONE_ID="" # Add your Cloudflare DNS zone ID
 SUBDOMAINS=(
   "jeanphilippe.io"
   "monportfolio.jeanphilippe.io"
