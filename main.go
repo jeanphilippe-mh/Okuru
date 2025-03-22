@@ -93,7 +93,7 @@ func main() {
 	http.StatusGatewayTimeout:          "views/504.html", // 504
 	http.StatusHTTPVersionNotSupported: "views/505.html", // 505
 
-	// Not supported by net/http → mapped to Internal Server Error
+	// Not supported by net/http → mapped to Internal Server Error.
 	506: "views/506.html", // Internal Configuration Error
 	507: "views/507.html", // Insufficient Storage
 	508: "views/508.html", // Loop Detected
