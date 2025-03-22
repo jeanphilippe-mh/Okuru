@@ -78,7 +78,7 @@ func main() {
 
         e := router.New()
 
-	// Custom error handler for "Internal Server Error", "Not Found", "Forbidden", "Bad Request" and "Request Entity Too Large".
+	// Custom error handler for 400s and 500s statuses.
     	errorPages := map[int]string{
 	http.StatusBadRequest:              "views/400.html", // 400
 	http.StatusUnauthorized:            "views/401.html", // 401
@@ -93,10 +93,9 @@ func main() {
 	http.StatusGatewayTimeout:          "views/504.html", // 504
 	http.StatusHTTPVersionNotSupported: "views/505.html", // 505
 
-	// Not supported by net/http → mapped to Internal Server Error.
-	506: "views/506.html", // Internal Configuration Error
-	507: "views/507.html", // Insufficient Storage
-	508: "views/508.html", // Loop Detected
+	http.StatusVariantAlsoNegotiates: "views/506.html", // 506
+	http.StatusInsufficientStorage: "views/507.html", // 507
+	http.StatusLoopDetected: "views/508.html", // 508
     	}
 
     	// Custom error handler for API endpoints (json) and regular web routes (html).
