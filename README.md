@@ -18,8 +18,8 @@ This means that even if someone has access to the Redis store, the passwords are
 
 ## Installation/How to use it
 
-* wget https://go.dev/dl/go1.24.1.linux-arm64.tar.gz
-* tar -xvf go1.24.1.linux-arm64.tar.gz
+* wget https://go.dev/dl/go1.24.5.linux-arm64.tar.gz
+* tar -xvf go1.24.5.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 * **git clone** the repository
