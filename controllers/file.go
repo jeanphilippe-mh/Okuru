@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"compress/flate"
+	"archive/zip"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +14,6 @@ import (
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
-	"github.com/mholt/archiver/v3"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -381,14 +380,59 @@ func AddFile(context echo.Context) error {
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
 	}
 
-	z := archiver.Zip{
-		CompressionLevel: flate.NoCompression,
-	}
-	err = z.Archive(fileList, FILEFOLDER+"/"+folderName+".zip")
+	zipPath := FILEFOLDER + "/" + folderName + ".zip"
+	zipFile, err := os.Create(zipPath)
 	if err != nil {
-		log.Error("Error while archive : %+v\n", err)
+		log.Error("Error while creating zip file : %+v\n", err)
 		DataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", DataContext)
+	}
+	defer zipFile.Close()
+
+	zw := zip.NewWriter(zipFile)
+	defer zw.Close()
+
+	for _, filePath := range fileList {
+		fileToZip, err := os.Open(filePath)
+		if err != nil {
+			log.Error("Error while opening file for zipping : %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
+
+		info, err := fileToZip.Stat()
+		if err != nil {
+			fileToZip.Close()
+			log.Error("Error while stating file for zipping : %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			fileToZip.Close()
+			log.Error("Error creating zip header : %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
+		header.Name = filepath.Base(filePath)
+		header.Method = zip.Deflate // Compression (or zip.Store for "no compression")
+
+		writer, err := zw.CreateHeader(header)
+		if err != nil {
+			fileToZip.Close()
+			log.Error("Error adding file to zip : %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
+
+		if _, err := io.Copy(writer, fileToZip); err != nil {
+			fileToZip.Close()
+			log.Error("Error copying file to zip : %+v\n", err)
+			DataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", DataContext)
+		}
+		fileToZip.Close()
 	}
 
 	err = os.RemoveAll(folderPathName)

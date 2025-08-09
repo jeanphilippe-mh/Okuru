@@ -14,12 +14,12 @@ This means that even if someone has access to the Redis store, the passwords are
 
 * You can use **Debian 12** "Bookworm" (https://www.debian.org/CD/http-ftp/).
 * Redis package with **notify-keyspace-events KEA** set on redis.conf.
-* Golang (i've used latest **1.23** from arm64/linux with Go Modules)
+* Golang (I've used latest **1.24** from arm64/linux with Go Modules)
 
 ## Installation/How to use it
 
-* wget https://go.dev/dl/go1.23.3.linux-arm64.tar.gz
-* tar -xvf go1.23.3.linux-arm64.tar.gz
+* wget https://go.dev/dl/go1.24.5.linux-arm64.tar.gz
+* tar -xvf go1.24.5.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 * **git clone** the repository
