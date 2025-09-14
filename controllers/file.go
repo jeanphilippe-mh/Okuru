@@ -202,14 +202,12 @@ func DownloadFile(context echo.Context) error {
  	return context.Attachment(filePathName, safeFileName+".zip")
 }
 
-
 // getZipMethod decides which ZIP compression method to use based on environment variables.
 // Supported values for OKURU_ZIP_COMPRESSION:
 // - "store"   -> zip.Store (no compression, fastest)
 // - "deflate" -> zip.Deflate (standard compression)
 // - "auto"    -> use deflate if file size < threshold, otherwise store
-// Threshold is defined in OKURU_ZIP_AUTO_THRESHOLD_MB (default 100 MB).
-// Default fallback is zip.Store.
+// Threshold is defined in OKURU_ZIP_AUTO_THRESHOLD_MB (default 100 MB) and default fallback is zip.Store.
 func getZipMethod(filePath string) uint16 {
 	mode := strings.ToLower(os.Getenv("OKURU_ZIP_COMPRESSION"))
 	switch mode {
@@ -218,7 +216,7 @@ func getZipMethod(filePath string) uint16 {
 	case "deflate":
 		return zip.Deflate
 	case "auto":
-		// default threshold = 100 MB
+		// Default threshold = 100 MB
 		thresholdMB := 100
 		if v := strings.TrimSpace(os.Getenv("OKURU_ZIP_AUTO_THRESHOLD_MB")); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
