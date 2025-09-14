@@ -202,6 +202,46 @@ func DownloadFile(context echo.Context) error {
  	return context.Attachment(filePathName, safeFileName+".zip")
 }
 
+
+// getZipMethod decides which ZIP compression method to use based on environment variables.
+// Supported values for OKURU_ZIP_COMPRESSION:
+// - "store"   -> zip.Store (no compression, fastest)
+// - "deflate" -> zip.Deflate (standard compression)
+// - "auto"    -> use deflate if file size < threshold, otherwise store
+// Threshold is defined in OKURU_ZIP_AUTO_THRESHOLD_MB (default 100 MB).
+// Default fallback is zip.Store.
+func getZipMethod(filePath string) uint16 {
+	mode := strings.ToLower(os.Getenv("OKURU_ZIP_COMPRESSION"))
+	switch mode {
+	case "store":
+		return zip.Store
+	case "deflate":
+		return zip.Deflate
+	case "auto":
+		// default threshold = 100 MB
+		thresholdMB := 100
+		if v := strings.TrimSpace(os.Getenv("OKURU_ZIP_AUTO_THRESHOLD_MB")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				thresholdMB = n
+			}
+		}
+		thresholdBytes := int64(thresholdMB) * 1024 * 1024
+
+		info, err := os.Stat(filePath)
+		if err != nil {
+			// If file stat fails, fallback to safe/fast mode
+			return zip.Store
+		}
+		if info.Size() >= thresholdBytes {
+			return zip.Store
+		}
+		return zip.Deflate
+	default:
+		// Fallback
+		return zip.Store
+	}
+}
+
 func AddFile(context echo.Context) error {
 	delete(DataContext, "errors")
 	// Retrieve the CSRF token
@@ -416,7 +456,7 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusOK, "index_file.html", DataContext)
 		}
 		header.Name = filepath.Base(filePath)
-		header.Method = zip.Deflate // Compression (or zip.Store for "no compression")
+		header.Method = getZipMethod(filePath)
 
 		writer, err := zw.CreateHeader(header)
 		if err != nil {
