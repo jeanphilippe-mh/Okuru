@@ -23,7 +23,7 @@ var (
 	DISCLAIMER      string
 	COPYRIGHT       string
 	FILEFOLDER      string
-	ZIP_COMPRESSION string
+	ZIP_COMPRESSION string 
 	ZIP_AUTO_THRESHOLD_MB string
 	MAXFILESIZE     string
 	MaxFileSize     int64
