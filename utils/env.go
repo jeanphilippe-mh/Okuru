@@ -23,6 +23,8 @@ var (
 	DISCLAIMER      string
 	COPYRIGHT       string
 	FILEFOLDER      string
+	ZIP_COMPRESSION string
+	ZIP_AUTO_THRESHOLD_MB string
 	MAXFILESIZE     string
 	MaxFileSize     int64
 	DataContext     pongo2.Context
@@ -68,6 +70,12 @@ func init() {
 	if FILEFOLDER = os.Getenv("OKURU_FILE_FOLDER"); FILEFOLDER == "" {
 		FILEFOLDER = "data/"
 	}
+	if ZIP_COMPRESSION = os.Getenv("OKURU_ZIP_COMPRESSION"); OKURU_ZIP_COMPRESSION == "" {
+		OKURU_ZIP_COMPRESSION = "store"
+	}
+	if ZIP_AUTO_THRESHOLD_MB = os.Getenv("OKURU_ZIP_AUTO_THRESHOLD_MB"); OKURU_ZIP_AUTO_THRESHOLD_MB == "" {
+		OKURU_ZIP_AUTO_THRESHOLD_MB = "100"
+	}
 	if MAXFILESIZE = os.Getenv("OKURU_MAX_FILE_SIZE"); MAXFILESIZE == "" {
 		MAXFILESIZE = "1024"
 	}
@@ -81,7 +89,7 @@ func init() {
 	MaxFileSize = MaxFileSize * 1024 * 1024 // bytes to megabytes
 
 	log.Debug("REDIS_HOST : %+v\n", REDIS_HOST)
-	/*println("")
+	println("")
 	log.Debug("REDIS_PASSWORD : %+v\n", REDIS_PASSWORD)*/
 	println("")
 	log.Debug("REDIS_PORT : %+v\n", REDIS_PORT)
@@ -96,7 +104,7 @@ func init() {
 	println("")
 	log.Debug("File folder : %+v\n", FILEFOLDER)
 	println("")
-	log.Debug("APP_PORt : %+v\n", APP_PORT)
+	log.Debug("APP_PORT : %+v\n", APP_PORT)
 	println("")
 	log.Debug("COPYRIGHT : %+v\n", COPYRIGHT)
 	println("")
@@ -105,6 +113,10 @@ func init() {
 	log.Debug("DISCLAIMER : %+v\n", DISCLAIMER)
 	println("")
 	log.Debug("APP_NAME : %+v\n", APP_NAME)
+	println("")
+	log.Debug("OKURU_ZIP_COMPRESSION : %+v\n", OKURU_ZIP_COMPRESSION)
+	println("")
+	log.Debug("OKURU_ZIP_AUTO_THRESHOLD_MB : %+v\n", OKURU_ZIP_AUTO_THRESHOLD_MB)
 
 	// Init data context that'll be passed to render to avoid creating it every time for those "global" variable
 	DataContext = pongo2.Context{
