@@ -90,7 +90,7 @@ func init() {
 
 	log.Debug("REDIS_HOST : %+v\n", REDIS_HOST)
 	println("")
-	log.Debug("REDIS_PASSWORD : %+v\n", REDIS_PASSWORD)*/
+	log.Debug("REDIS_PASSWORD : %+v\n", REDIS_PASSWORD)
 	println("")
 	log.Debug("REDIS_PORT : %+v\n", REDIS_PORT)
 	println("")
