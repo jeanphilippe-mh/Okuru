@@ -17,7 +17,7 @@ var (
 	REDIS_PREFIX    string
 	TOKEN_SEPARATOR string
 	NO_SSL          bool = false
-	APP_PORT        string 
+	APP_PORT        string
 	LOGO            string
 	APP_NAME        string
 	DISCLAIMER      string
