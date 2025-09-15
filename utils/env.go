@@ -70,11 +70,11 @@ func init() {
 	if FILEFOLDER = os.Getenv("OKURU_FILE_FOLDER"); FILEFOLDER == "" {
 		FILEFOLDER = "data/"
 	}
-	if ZIP_COMPRESSION = os.Getenv("OKURU_ZIP_COMPRESSION"); OKURU_ZIP_COMPRESSION == "" {
-		OKURU_ZIP_COMPRESSION = "store"
+	if ZIP_COMPRESSION = os.Getenv("OKURU_ZIP_COMPRESSION"); ZIP_COMPRESSION == "" {
+		ZIP_COMPRESSION = "store"
 	}
-	if ZIP_AUTO_THRESHOLD_MB = os.Getenv("OKURU_ZIP_AUTO_THRESHOLD_MB"); OKURU_ZIP_AUTO_THRESHOLD_MB == "" {
-		OKURU_ZIP_AUTO_THRESHOLD_MB = "100"
+	if ZIP_AUTO_THRESHOLD_MB = os.Getenv("OKURU_ZIP_AUTO_THRESHOLD_MB"); ZIP_AUTO_THRESHOLD_MB == "" {
+		ZIP_AUTO_THRESHOLD_MB = "100"
 	}
 	if MAXFILESIZE = os.Getenv("OKURU_MAX_FILE_SIZE"); MAXFILESIZE == "" {
 		MAXFILESIZE = "1024"
@@ -114,9 +114,9 @@ func init() {
 	println("")
 	log.Debug("APP_NAME : %+v\n", APP_NAME)
 	println("")
-	log.Debug("OKURU_ZIP_COMPRESSION : %+v\n", OKURU_ZIP_COMPRESSION)
+	log.Debug("ZIP_COMPRESSION : %+v\n", ZIP_COMPRESSION)
 	println("")
-	log.Debug("OKURU_ZIP_AUTO_THRESHOLD_MB : %+v\n", OKURU_ZIP_AUTO_THRESHOLD_MB)
+	log.Debug("ZIP_AUTO_THRESHOLD_MB : %+v\n", ZIP_AUTO_THRESHOLD_MB)
 
 	// Init data context that'll be passed to render to avoid creating it every time for those "global" variable
 	DataContext = pongo2.Context{
