@@ -3,12 +3,12 @@
 # Script variables
 CF_API_TOKEN="" # Add your Cloudflare API Token
 CF_ZONE_ID="" # Add your Cloudflare DNS zone ID
-SUBDOMAINS=(
-  "jeanphilippe.io"
-  "monportfolio.jeanphilippe.io"
-  "myportfolio.jeanphilippe.io"
-  "share.jeanphilippe.io"
-  "www.jeanphilippe.io"
+SUBDOMAINS=( # Add your domains names
+  ""
+  ""
+  ""
+  ""
+  ""
 )
 LOG_FILE="/var/log/letsencrypt/update_tlsa.log"
 TIMEOUT=30  # Timeout for API requests (in seconds)
