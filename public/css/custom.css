@@ -1,3 +1,7 @@
+html, body {
+    margin: 0;
+}
+
 html {
     position: relative;
     min-height: 100%;
@@ -101,4 +105,12 @@ footer {
   hr {
     border-top: 1px solid white;
   }
+}
+
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding-top: calc(var(--bs-navbar-padding-y, .5rem) + env(safe-area-inset-top));
+  background-clip: padding-box;
 }
