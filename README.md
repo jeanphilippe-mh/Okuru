@@ -63,6 +63,10 @@ You can configure the following via environment variables.
 
 **OKURU_FILE_FOLDER**: The folder that will be used to store the uploaded files. It can be a relative or an absolute path. It defaults to **data/**.
 
+**OKURU_ZIP_COMPRESSION**: The ZIP compression mode: store | deflate | auto. Default is store.
+
+**OKURU_ZIP_AUTO_THRESHOLD_MB**: The ZIP compression threshold (in MB) for 'auto' mode (default 100 if unset or invalid).
+
 ## Credits
 
 * [Pinterest's snappass](https://github.com/pinterest/snappass) for the original software and idea.
@@ -79,6 +83,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 
 
 
