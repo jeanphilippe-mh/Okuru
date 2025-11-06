@@ -12,98 +12,100 @@ import (
 )
 
 func Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	return context.Render(http.StatusOK, "set_password.html", DataContext)
+	viewData := NewViewData()
+	// Retrieve the CSRF token provided by the middleware.
+	if csrfToken := context.Get("csrf"); csrfToken != nil {
+		viewData["csrfToken"] = csrfToken
+	}
+	return context.Render(http.StatusOK, "set_password.html", viewData)
 }
 
 func SecurityIndex(context echo.Context) error {
-	delete(DataContext, "errors")
 	return context.File("public/.well-known/security.txt")
 }
 
 func PrivacyIndex(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusOK, "privacy.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusOK, "privacy.html", viewData)
 }
 
 func Error400Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusBadRequest, "400.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusBadRequest, "400.html", viewData)
 }
 
 func Error401Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusUnauthorized, "401.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusUnauthorized, "401.html", viewData)
 }
 
 func Error403Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusForbidden, "403.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusForbidden, "403.html", viewData)
 }
 
 func Error404Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusNotFound, "404.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusNotFound, "404.html", viewData)
 }
 
 func Error413Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusRequestEntityTooLarge, "413.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusRequestEntityTooLarge, "413.html", viewData)
 }
 
 func Error500Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusInternalServerError, "500.html", viewData)
 }
 
 func Error501Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusNotImplemented, "501.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusNotImplemented, "501.html", viewData)
 }
 
 func Error502Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusBadGateway, "502.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusBadGateway, "502.html", viewData)
 }
 
 func Error503Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusServiceUnavailable, "503.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusServiceUnavailable, "503.html", viewData)
 }
 
 func Error504Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusGatewayTimeout, "504.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusGatewayTimeout, "504.html", viewData)
 }
 
 func Error505Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", viewData)
 }
 
 func Error506Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", viewData)
 }
 
 func Error507Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusInsufficientStorage, "507.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusInsufficientStorage, "507.html", viewData)
 }
 
 func Error508Index(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusLoopDetected, "508.html", DataContext)
+	viewData := NewViewData()
+	return context.Render(http.StatusLoopDetected, "508.html", viewData)
 }
 
 func ReadIndex(context echo.Context) error {
-	delete(DataContext, "errors")
-	// Retrieve the CSRF token
-	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	viewData := NewViewData()
+	// Retrieve the CSRF token provided by the middleware.
+	if csrfToken := context.Get("csrf"); csrfToken != nil {
+		viewData["csrfToken"] = csrfToken
+	}
+
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 
@@ -123,7 +125,7 @@ func ReadIndex(context echo.Context) error {
 	err := GetPassword(p)
 	if err != nil {
 		log.Error("Error while retrieving password : %s\n")
-		return context.Render(http.StatusForbidden, "403.html", DataContext)
+		return context.Render(http.StatusForbidden, "403.html", viewData)
 	}
 
 	var (
@@ -138,21 +140,23 @@ func ReadIndex(context echo.Context) error {
 		deletableURL = GetBaseUrl(context) + "/remove/" + p.PasswordKey
 	}
 
-	DataContext["p"] = p
-	DataContext["ttl"] = GetTTLText(p.TTL)
-	DataContext["ttlViews"] = GetViewsText(p.Views)
-	DataContext["dlViews"] = GetDownloadsText(p.Views)
-	DataContext["deletableText"] = deletableText
-	DataContext["deletableURL"] = deletableURL
+	viewData["p"] = p
+	viewData["ttl"] = GetTTLText(p.TTL)
+	viewData["ttlViews"] = GetViewsText(p.Views)
+	viewData["dlViews"] = GetDownloadsText(p.Views)
+	viewData["deletableText"] = deletableText
+	viewData["deletableURL"] = deletableURL
 
-	return context.Render(http.StatusOK, "password.html", DataContext)
+	return context.Render(http.StatusOK, "password.html", viewData)
 }
 
 func RevealPassword(context echo.Context) error {
-	// Retrieve the CSRF token
-	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	viewData := NewViewData()
+	// Retrieve the CSRF token provided by the middleware.
+	if csrfToken := context.Get("csrf"); csrfToken != nil {
+		viewData["csrfToken"] = csrfToken
+	}
+
 	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
@@ -179,11 +183,12 @@ func RevealPassword(context echo.Context) error {
 }
 
 func AddIndex(context echo.Context) error {
-	delete(DataContext, "errors")
-	// Retrieve the CSRF token
-	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	viewData := NewViewData()
+	// Retrieve the CSRF token provided by the middleware.
+	if csrfToken := context.Get("csrf"); csrfToken != nil {
+		viewData["csrfToken"] = csrfToken
+	}
+
 	var err error
 	p := new(Password)
 	p.Password = context.FormValue("password")
@@ -191,15 +196,15 @@ func AddIndex(context echo.Context) error {
 	p.TTL, err = strconv.Atoi(context.FormValue("ttl"))
 	if err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "set_password.html", DataContext)
+		viewData["errors"] = err.Error()
+		return context.Render(http.StatusOK, "set_password.html", viewData)
 	}
 
 	p.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
 	if err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "set_password.html", DataContext)
+		viewData["errors"] = err.Error()
+		return context.Render(http.StatusOK, "set_password.html", viewData)
 	}
 
 	p.Deletable = false
@@ -209,18 +214,18 @@ func AddIndex(context echo.Context) error {
 
 	if err := context.Validate(p); err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
-		return context.Render(http.StatusOK, "set_password.html", DataContext)
+		viewData["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
+		return context.Render(http.StatusOK, "set_password.html", viewData)
 	}
 
 	if p.Password == "" {
-		DataContext["errors"] = "No input was provided. Please fill the following field to generate a link"
-		return context.Render(http.StatusOK, "set_password.html", DataContext)
+		viewData["errors"] = "No input was provided. Please fill the following field to generate a link"
+		return context.Render(http.StatusOK, "set_password.html", viewData)
 	}
 
 	if p.TTL > 30 {
-		DataContext["errors"] = "TTL is too high"
-		return context.Render(http.StatusOK, "set_password.html", DataContext)
+		viewData["errors"] = "TTL is too high"
+		return context.Render(http.StatusOK, "set_password.html", viewData)
 	}
 
 	p.TTL = GetTtlSeconds(p.TTL)
@@ -228,8 +233,8 @@ func AddIndex(context echo.Context) error {
 	// Need to use err2 since it's not an error but an http error and it don't return nil otherwise.
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
 	if err2 != nil {
-		DataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
-		return context.Render(http.StatusOK, "set_password.html", DataContext)
+		viewData["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
+		return context.Render(http.StatusOK, "set_password.html", viewData)
 	}
 
 	var (
@@ -249,22 +254,23 @@ func AddIndex(context echo.Context) error {
 	p.Link = link
 	p.Password = ""
 
-	DataContext["p"] = p
-	DataContext["ttl"] = GetTTLText(p.TTL)
-	DataContext["ttlViews"] = GetViewsText(p.Views)
-	DataContext["dlViews"] = GetDownloadsText(p.Views)
-	DataContext["deletableText"] = deletableText
-	DataContext["deletableURL"] = deletableURL
+	viewData["p"] = p
+	viewData["ttl"] = GetTTLText(p.TTL)
+	viewData["ttlViews"] = GetViewsText(p.Views)
+	viewData["dlViews"] = GetDownloadsText(p.Views)
+	viewData["deletableText"] = deletableText
+	viewData["deletableURL"] = deletableURL
 
-	return context.Render(http.StatusOK, "confirm.html", DataContext)
+	return context.Render(http.StatusOK, "confirm.html", viewData)
 }
 
 func DeleteIndex(context echo.Context) error {
-	delete(DataContext, "errors")
-	// Retrieve the CSRF token
-	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	viewData := NewViewData()
+	// Retrieve the CSRF token provided by the middleware.
+	if csrfToken := context.Get("csrf"); csrfToken != nil {
+		viewData["csrfToken"] = csrfToken
+	}
+
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {
@@ -275,9 +281,9 @@ func DeleteIndex(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
-		return context.Render(status, "403.html", DataContext)
+		return context.Render(status, "403.html", viewData)
 	} else {
-		DataContext["type"] = "Password"
-		return context.Render(http.StatusOK, "removed.html", DataContext)
+		viewData["type"] = "Password"
+		return context.Render(http.StatusOK, "removed.html", viewData)
 	}
 }
