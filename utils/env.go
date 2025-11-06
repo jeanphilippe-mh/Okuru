@@ -1,33 +1,34 @@
 package utils
 
 import (
-	"github.com/flosch/pongo2"
-	"github.com/labstack/gommon/log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/flosch/pongo2"
+	"github.com/labstack/gommon/log"
 )
 
 var (
-	REDIS_HOST      string
-	REDIS_PASSWORD  string
-	REDIS_PORT      string
-	REDIS_DB        string
-	REDIS_PREFIX    string
-	TOKEN_SEPARATOR string
-	NO_SSL          bool = false
-	APP_PORT        string
-	LOGO            string
-	APP_NAME        string
-	DISCLAIMER      string
-	COPYRIGHT       string
-	FILEFOLDER      string
-	ZIP_COMPRESSION string
+	REDIS_HOST            string
+	REDIS_PASSWORD        string
+	REDIS_PORT            string
+	REDIS_DB              string
+	REDIS_PREFIX          string
+	TOKEN_SEPARATOR       string
+	NO_SSL                bool = false
+	APP_PORT              string
+	LOGO                  string
+	APP_NAME              string
+	DISCLAIMER            string
+	COPYRIGHT             string
+	FILEFOLDER            string
+	ZIP_COMPRESSION       string
 	ZIP_AUTO_THRESHOLD_MB string
-	MAXFILESIZE     string
-	MaxFileSize     int64
-	DataContext     pongo2.Context
+	MAXFILESIZE           string
+	MaxFileSize           int64
+	baseViewContext       pongo2.Context
 )
 
 func init() {
@@ -49,8 +50,13 @@ func init() {
 	if TOKEN_SEPARATOR = os.Getenv("OKURU_TOKEN_SEPARATOR"); TOKEN_SEPARATOR == "" {
 		TOKEN_SEPARATOR = "~"
 	}
-	if NoSslEnv := os.Getenv("NO_SSL"); NoSslEnv == "" {
-		NO_SSL = false
+	if noSSLEnv := os.Getenv("NO_SSL"); noSSLEnv != "" {
+		parsed, err := strconv.ParseBool(noSSLEnv)
+		if err != nil {
+			log.Warnf("invalid NO_SSL value %q, defaulting to false", noSSLEnv)
+		} else {
+			NO_SSL = parsed
+		}
 	}
 	if APP_PORT = os.Getenv("OKURU_APP_PORT"); APP_PORT == "" {
 		APP_PORT = "4000"
@@ -88,41 +94,40 @@ func init() {
 	}
 	MaxFileSize = MaxFileSize * 1024 * 1024 // bytes to megabytes
 
-	log.Debug("REDIS_HOST : %+v\n", REDIS_HOST)
-	println("")
-	log.Debug("REDIS_PASSWORD : %+v\n", REDIS_PASSWORD)
-	println("")
-	log.Debug("REDIS_PORT : %+v\n", REDIS_PORT)
-	println("")
-	log.Debug("REDIS_DB : %+v\n", REDIS_DB)
-	println("")
-	log.Debug("REDIS_PREFIX : %+v\n", REDIS_PREFIX)
-	println("")
-	log.Debug("TOKEN_SEPARATOR : %+v\n", TOKEN_SEPARATOR)
-	println("")
-	log.Debug("NO_SSL : %+v\n", NO_SSL)
-	println("")
-	log.Debug("File folder : %+v\n", FILEFOLDER)
-	println("")
-	log.Debug("APP_PORT : %+v\n", APP_PORT)
-	println("")
-	log.Debug("COPYRIGHT : %+v\n", COPYRIGHT)
-	println("")
-	log.Debug("LOGO : %+v\n", LOGO)
-	println("")
-	log.Debug("DISCLAIMER : %+v\n", DISCLAIMER)
-	println("")
-	log.Debug("APP_NAME : %+v\n", APP_NAME)
-	println("")
-	log.Debug("ZIP_COMPRESSION : %+v\n", ZIP_COMPRESSION)
-	println("")
-	log.Debug("ZIP_AUTO_THRESHOLD_MB : %+v\n", ZIP_AUTO_THRESHOLD_MB)
+	log.Debugf("REDIS_HOST : %+v", REDIS_HOST)
+	if REDIS_PASSWORD != "" {
+		log.Debug("REDIS_PASSWORD is set")
+	} else {
+		log.Debug("REDIS_PASSWORD is empty")
+	}
+	log.Debugf("REDIS_PORT : %+v", REDIS_PORT)
+	log.Debugf("REDIS_DB : %+v", REDIS_DB)
+	log.Debugf("REDIS_PREFIX : %+v", REDIS_PREFIX)
+	log.Debugf("TOKEN_SEPARATOR : %+v", TOKEN_SEPARATOR)
+	log.Debugf("NO_SSL : %+v", NO_SSL)
+	log.Debugf("File folder : %+v", FILEFOLDER)
+	log.Debugf("APP_PORT : %+v", APP_PORT)
+	log.Debugf("COPYRIGHT : %+v", COPYRIGHT)
+	log.Debugf("LOGO : %+v", LOGO)
+	log.Debugf("DISCLAIMER : %+v", DISCLAIMER)
+	log.Debugf("APP_NAME : %+v", APP_NAME)
+	log.Debugf("ZIP_COMPRESSION : %+v", ZIP_COMPRESSION)
+	log.Debugf("ZIP_AUTO_THRESHOLD_MB : %+v", ZIP_AUTO_THRESHOLD_MB)
 
 	// Init data context that'll be passed to render to avoid creating it every time for those "global" variable
-	DataContext = pongo2.Context{
+	baseViewContext = pongo2.Context{
 		"logo":       LOGO,
 		"APP_NAME":   APP_NAME,
-		"disclaimer": "<p>" + strings.Replace(DISCLAIMER, "\\n", "<br>", -1) + "<p>",
+		"disclaimer": "<p>" + strings.Replace(DISCLAIMER, "\n", "<br>", -1) + "<p>",
 		"copyright":  "<p>" + COPYRIGHT + "<p>",
 	}
+}
+
+// NewViewData returns a fresh copy of the base template context for each request.
+func NewViewData() pongo2.Context {
+	ctx := make(pongo2.Context, len(baseViewContext))
+	for k, v := range baseViewContext {
+		ctx[k] = v
+	}
+	return ctx
 }

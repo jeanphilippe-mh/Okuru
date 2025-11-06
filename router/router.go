@@ -1,11 +1,11 @@
 package router
 
 import (
-	"net/http"
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/routes"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -29,7 +29,7 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 }
 
 func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
-	var ctx pongo2.Context
+	ctx := pongo2.Context{}
 	var t *pongo2.Template
 	var err error
 
@@ -43,12 +43,11 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Cont
 	}
 
 	if data != nil {
-		var ok bool
-		ctx, ok = data.(pongo2.Context)
-
+		providedCtx, ok := data.(pongo2.Context)
 		if !ok {
 			return errors.New("no pongo2.Context data was passed")
 		}
+		ctx = providedCtx
 	}
 
 	if r.Debug {
@@ -88,7 +87,7 @@ func New() *echo.Echo {
 	// Middleware BodyLimit
 	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
 	e.Use(middleware.BodyLimit("1024M"))
-	
+
 	// Middleware Logger
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
@@ -102,14 +101,14 @@ func New() *echo.Echo {
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowMethods: []string{echo.GET, echo.HEAD, echo.OPTIONS, echo.POST, echo.DELETE},
 	}))
-	
+
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		TokenLength:	32,
+		TokenLength:    32,
 		TokenLookup:    "form:_csrf",
-		CookieSecure:	true,
-		CookieHTTPOnly:	true,
-		CookieSameSite:	http.SameSiteStrictMode,
+		CookieSecure:   true,
+		CookieHTTPOnly: true,
+		CookieSameSite: http.SameSiteStrictMode,
 	}))
 
 	// Middleware Static
