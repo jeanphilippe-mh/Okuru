@@ -7,6 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
+	"log/slog"
+	"time"
 	"path/filepath"
 
 	"github.com/flosch/pongo2"
@@ -89,13 +91,56 @@ func New() *echo.Echo {
 	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
 	e.Use(middleware.BodyLimit("1024M"))
 	
-	// Middleware Logger
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: `{"time":"${time_rfc3339_nano}","remote_ip":"${remote_ip}","host":"${host}",` +
-			`"method":"${method}","uri":"${uri}","status":${status},"error":"${error}",` +
-			`"latency_human":"${latency_human}","bytes_in":${bytes_in},` +
-			`"bytes_out":${bytes_out}` +
-			`"user_agent":${user_agent}}` + "\n",
+	// Middleware RequestLogger (for Echo 4.14+)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	var mu sync.Mutex
+
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+	HandleError: true,
+
+	LogLatency:       true,
+	LogRemoteIP:      true,
+	LogHost:          true,
+	LogMethod:        true,
+	LogURI:           true,
+	LogStatus:        true,
+	LogError:         true,
+	LogContentLength: true,
+	LogResponseSize:  true,
+	LogUserAgent:     true,
+
+	LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+		errMsg := ""
+		if v.Error != nil {
+			errMsg = v.Error.Error()
+		}
+
+		var bytesIn int64
+		if v.ContentLength != "" {
+			if n, err := strconv.ParseInt(v.ContentLength, 10, 64); err == nil && n >= 0 {
+				bytesIn = n
+			}
+		}
+
+		line := map[string]any{
+			"time":          v.StartTime.UTC().Format(time.RFC3339Nano),
+			"remote_ip":     v.RemoteIP,
+			"host":          v.Host,
+			"method":        v.Method,
+			"uri":           v.URI,
+			"status":        v.Status,
+			"error":         errMsg,
+			"latency_human": v.Latency.String(),
+			"bytes_in":      bytesIn,
+			"bytes_out":     v.ResponseSize,
+			"user_agent":    v.UserAgent,
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		return enc.Encode(line)
+	},
 	}))
 
 	// Middleware CORS
