@@ -92,9 +92,10 @@ func New() *echo.Echo {
 	e.Use(middleware.BodyLimit("1024M"))
 	
 	// Middleware RequestLogger (for Echo 4.14+)
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	var mu sync.Mutex
+	slogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	Level: slog.LevelInfo,
+	})
+	slogger := slog.New(slogHandler)
 
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 	HandleError: true,
@@ -116,30 +117,20 @@ func New() *echo.Echo {
 			errMsg = v.Error.Error()
 		}
 
-		var bytesIn int64
-		if v.ContentLength != "" {
-			if n, err := strconv.ParseInt(v.ContentLength, 10, 64); err == nil && n >= 0 {
-				bytesIn = n
-			}
-		}
-
-		line := map[string]any{
-			"time":          v.StartTime.UTC().Format(time.RFC3339Nano),
-			"remote_ip":     v.RemoteIP,
-			"host":          v.Host,
-			"method":        v.Method,
-			"uri":           v.URI,
-			"status":        v.Status,
-			"error":         errMsg,
-			"latency_human": v.Latency.String(),
-			"bytes_in":      bytesIn,
-			"bytes_out":     v.ResponseSize,
-			"user_agent":    v.UserAgent,
-		}
-
-		mu.Lock()
-		defer mu.Unlock()
-		return enc.Encode(line)
+		slogger.LogAttrs(c.Request().Context(), slog.LevelInfo, "http_request",
+			slog.String("time", v.StartTime.UTC().Format(time.RFC3339Nano)),
+			slog.String("remote_ip", v.RemoteIP),
+			slog.String("host", v.Host),
+			slog.String("method", v.Method),
+			slog.String("uri", v.URI),
+			slog.Int("status", v.Status),
+			slog.String("error", errMsg),
+			slog.String("latency_human", v.Latency.String()),
+			slog.String("bytes_in", v.ContentLength),
+			slog.Int64("bytes_out", v.ResponseSize),
+			slog.String("user_agent", v.UserAgent),
+		)
+		return nil
 	},
 	}))
 
