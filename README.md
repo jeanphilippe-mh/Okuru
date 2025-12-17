@@ -14,12 +14,12 @@ This means that even if someone has access to the Redis store, the passwords are
 
 * You can use **Debian 13** "Trixie" (https://www.debian.org/CD/http-ftp/).
 * Redis package with **notify-keyspace-events KEA** set on redis.conf.
-* Golang (I've used latest **1.25** from arm64/linux with Go Modules)
+* Golang (I've used latest **1.25.5** from arm64/linux with Go Modules)
 
 ## Installation/How to use it
 
-* wget https://go.dev/dl/go1.25.1.linux-arm64.tar.gz
-* tar -xvf go1.25.1.linux-arm64.tar.gz
+* wget https://go.dev/dl/go1.25.5.linux-arm64.tar.gz
+* tar -xvf go1.25.5.linux-arm64.tar.gz
 * mv go /usr/local
 * echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 * **git clone** the repository
@@ -83,6 +83,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 
 
 
