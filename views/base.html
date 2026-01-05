@@ -68,24 +68,25 @@
 </nav>   
 
 <div class="container">
-{% block content %}{% endblock %}
-<hr />
-<footer>
-{% if(disclaimer) %}
-{% autoescape off %}
-{{ disclaimer }}
-{% endautoescape %}
-{% endif %}
-{% if(copyright) %}
-{% autoescape off %}
-{{ copyright }}
-{% endautoescape %}
-{% endif %}
-</footer>
-</div>
-<script async src=/scripts/bootstrap.min.js></script>
-{% block js %}{% endblock %}
+ <main id="main-content" class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="container">
+    <hr />
+    {% if(disclaimer) %}
+    {% autoescape off %}
+    {{ disclaimer }}
+    {% endautoescape %}
+    {% endif %}
+    {% if(copyright) %}
+    {% autoescape off %}
+    {{ copyright }}
+    {% endautoescape %}
+    {% endif %}
+  </footer>
+
+  <script async src=/scripts/bootstrap.min.js></script>
+  {% block js %}{% endblock %}
 </body>
 </html>
-
-
