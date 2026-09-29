@@ -133,11 +133,6 @@ func New() *echo.Echo {
 		return nil
 	},
 	}))
-
-	// Middleware CORS
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowMethods: []string{echo.GET, echo.HEAD, echo.OPTIONS, echo.POST, echo.DELETE},
-	}))
 	
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
