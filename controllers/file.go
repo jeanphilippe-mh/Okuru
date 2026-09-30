@@ -258,6 +258,13 @@ func getZipMethod(filePath string) uint16 {
 }
 
 func AddFile(context echo.Context) error {
+	defer func() {
+		if form := context.Request().MultipartForm; form != nil {
+			if err := form.RemoveAll(); err != nil {
+				log.WithError(err).Error("Failed to remove multipart temporary files")
+			}
+		}
+	}()
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token

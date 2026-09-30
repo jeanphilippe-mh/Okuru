@@ -37,6 +37,12 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	REDIS_PREFIX = "test_multi_"
 	FILEFOLDER = t.TempDir()
 	MaxFileSize = 1024
+	spillDir, err := os.MkdirTemp("", "okuru-multipart-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(spillDir) })
+	t.Setenv("TMPDIR", spillDir)
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	writer.WriteField("ttl", "1")
@@ -55,6 +61,18 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	e.Validator = uploadValidator{}
 	req := httptest.NewRequest("POST", "/file", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	// Force even this small request to spill to disk, then verify its location.
+	if err := req.ParseMultipartForm(1); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { req.MultipartForm.RemoveAll() })
+	spillFiles, err := os.ReadDir(spillDir)
+	if err != nil || len(spillFiles) == 0 {
+		t.Fatalf("multipart files not stored in the configured temporary directory: %v, %v", spillFiles, err)
+	}
+	if os.TempDir() != spillDir {
+		t.Fatalf("unexpected temporary directory: %s", os.TempDir())
+	}
 	rec := httptest.NewRecorder()
 	if err := AddFile(e.NewContext(req, rec)); err != nil {
 		t.Fatal(err)
@@ -85,5 +103,9 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	entries, err := os.ReadDir(FILEFOLDER)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("temporary directory retained: %v", entries)
+	}
+	spillFiles, err = os.ReadDir(spillDir)
+	if err != nil || len(spillFiles) != 0 {
+		t.Fatalf("multipart temporary files retained: %v, %v", spillFiles, err)
 	}
 }

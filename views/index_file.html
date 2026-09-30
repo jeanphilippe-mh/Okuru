@@ -16,9 +16,8 @@
             <div class="col">
                 <div class="form-group">
                     <label for="files"><b>File(s)</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
-                    <input type="file" id="files" name="files" class="form-control-file" multiple data-max-size="{{ maxFileSize }}" aria-describedby="file-selection-help" />
-                    <small id="file-selection-help">Select one or more files. Choose again to add more files.</small>
-                    <ul id="selected-files" aria-live="polite"></ul>
+                    <input type="file" id="files" name="files" class="form-control-file" multiple required aria-describedby="file-selection-help" />
+                    <small id="file-selection-help">Select all files together (Command-click on macOS or Ctrl-click on Windows). Choosing again replaces the selection.</small>
                 </div>
                 <br>
                 <div class="form-group">
@@ -37,14 +36,144 @@
             <div class="col">
                 <div class="form-group">
                     <label for="ttl"><b>Duration</b></label><br>
-                    <input type="range" id="ttl" name="ttl" min="1" max="30" step="1" value="1"><br>
-                    <span id="ttl-value">1 hour</span>
+                    <select id="ttl" name="ttl" class="form-select">
+                        <option value="1">1 hour</option>
+                        <option value="2">2 hours</option>
+                        <option value="3">3 hours</option>
+                        <option value="4">4 hours</option>
+                        <option value="5">5 hours</option>
+                        <option value="6">6 hours</option>
+                        <option value="7">7 hours</option>
+                        <option value="8">8 hours</option>
+                        <option value="9">9 hours</option>
+                        <option value="10">10 hours</option>
+                        <option value="11">11 hours</option>
+                        <option value="12">12 hours</option>
+                        <option value="13">13 hours</option>
+                        <option value="14">14 hours</option>
+                        <option value="15">15 hours</option>
+                        <option value="16">16 hours</option>
+                        <option value="17">17 hours</option>
+                        <option value="18">18 hours</option>
+                        <option value="19">19 hours</option>
+                        <option value="20">20 hours</option>
+                        <option value="21">21 hours</option>
+                        <option value="22">22 hours</option>
+                        <option value="23">23 hours</option>
+                        <option value="24">24 hours</option>
+                        <option value="25">2 days</option>
+                        <option value="26">3 days</option>
+                        <option value="27">4 days</option>
+                        <option value="28">5 days</option>
+                        <option value="29">6 days</option>
+                        <option value="30">7 days</option>
+                    </select>
                 </div>
                 <br>
                 <div class="form-group">
                     <label for="ttlViews"><b>Views</b></label><br>
-                    <input type="range" id="ttlViews" name="ttlViews" min="1" max="100" step="1" value="1"><br>
-                    <span id="ttlViews-value">1 view</span>
+                    <select id="ttlViews" name="ttlViews" class="form-select">
+                        <option value="1">1 view</option>
+                        <option value="2">2 views</option>
+                        <option value="3">3 views</option>
+                        <option value="4">4 views</option>
+                        <option value="5">5 views</option>
+                        <option value="6">6 views</option>
+                        <option value="7">7 views</option>
+                        <option value="8">8 views</option>
+                        <option value="9">9 views</option>
+                        <option value="10">10 views</option>
+                        <option value="11">11 views</option>
+                        <option value="12">12 views</option>
+                        <option value="13">13 views</option>
+                        <option value="14">14 views</option>
+                        <option value="15">15 views</option>
+                        <option value="16">16 views</option>
+                        <option value="17">17 views</option>
+                        <option value="18">18 views</option>
+                        <option value="19">19 views</option>
+                        <option value="20">20 views</option>
+                        <option value="21">21 views</option>
+                        <option value="22">22 views</option>
+                        <option value="23">23 views</option>
+                        <option value="24">24 views</option>
+                        <option value="25">25 views</option>
+                        <option value="26">26 views</option>
+                        <option value="27">27 views</option>
+                        <option value="28">28 views</option>
+                        <option value="29">29 views</option>
+                        <option value="30">30 views</option>
+                        <option value="31">31 views</option>
+                        <option value="32">32 views</option>
+                        <option value="33">33 views</option>
+                        <option value="34">34 views</option>
+                        <option value="35">35 views</option>
+                        <option value="36">36 views</option>
+                        <option value="37">37 views</option>
+                        <option value="38">38 views</option>
+                        <option value="39">39 views</option>
+                        <option value="40">40 views</option>
+                        <option value="41">41 views</option>
+                        <option value="42">42 views</option>
+                        <option value="43">43 views</option>
+                        <option value="44">44 views</option>
+                        <option value="45">45 views</option>
+                        <option value="46">46 views</option>
+                        <option value="47">47 views</option>
+                        <option value="48">48 views</option>
+                        <option value="49">49 views</option>
+                        <option value="50">50 views</option>
+                        <option value="51">51 views</option>
+                        <option value="52">52 views</option>
+                        <option value="53">53 views</option>
+                        <option value="54">54 views</option>
+                        <option value="55">55 views</option>
+                        <option value="56">56 views</option>
+                        <option value="57">57 views</option>
+                        <option value="58">58 views</option>
+                        <option value="59">59 views</option>
+                        <option value="60">60 views</option>
+                        <option value="61">61 views</option>
+                        <option value="62">62 views</option>
+                        <option value="63">63 views</option>
+                        <option value="64">64 views</option>
+                        <option value="65">65 views</option>
+                        <option value="66">66 views</option>
+                        <option value="67">67 views</option>
+                        <option value="68">68 views</option>
+                        <option value="69">69 views</option>
+                        <option value="70">70 views</option>
+                        <option value="71">71 views</option>
+                        <option value="72">72 views</option>
+                        <option value="73">73 views</option>
+                        <option value="74">74 views</option>
+                        <option value="75">75 views</option>
+                        <option value="76">76 views</option>
+                        <option value="77">77 views</option>
+                        <option value="78">78 views</option>
+                        <option value="79">79 views</option>
+                        <option value="80">80 views</option>
+                        <option value="81">81 views</option>
+                        <option value="82">82 views</option>
+                        <option value="83">83 views</option>
+                        <option value="84">84 views</option>
+                        <option value="85">85 views</option>
+                        <option value="86">86 views</option>
+                        <option value="87">87 views</option>
+                        <option value="88">88 views</option>
+                        <option value="89">89 views</option>
+                        <option value="90">90 views</option>
+                        <option value="91">91 views</option>
+                        <option value="92">92 views</option>
+                        <option value="93">93 views</option>
+                        <option value="94">94 views</option>
+                        <option value="95">95 views</option>
+                        <option value="96">96 views</option>
+                        <option value="97">97 views</option>
+                        <option value="98">98 views</option>
+                        <option value="99">99 views</option>
+                        <option value="100">100 views</option>
+                    </select>
                 </div>
                 <br>
                 <div class="form-group">
@@ -57,6 +186,3 @@
 </section>
 {% endblock %}
 
-{% block js %}
-<script src="/scripts/file-upload.js" defer></script>
-{% endblock %}
