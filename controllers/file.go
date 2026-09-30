@@ -258,6 +258,13 @@ func getZipMethod(filePath string) uint16 {
 }
 
 func AddFile(context echo.Context) error {
+	defer func() {
+		if form := context.Request().MultipartForm; form != nil {
+			if err := form.RemoveAll(); err != nil {
+				log.WithError(err).Error("Failed to remove multipart temporary files")
+			}
+		}
+	}()
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token
@@ -358,6 +365,14 @@ func AddFile(context echo.Context) error {
 	// Proceed with file operations for each file.
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
 	folderPathName := FILEFOLDER + "/" + folderName + "/"
+	// Create the shared upload directory once, not once per file.
+	err = os.Mkdir(folderPathName, 0700)
+	if err != nil {
+		dataContext["errors"] = "There was a problem during the file processing, please try again"
+		return context.Render(http.StatusInternalServerError, "index_file.html", dataContext)
+	}
+	defer os.RemoveAll(folderPathName)
+	seenNames := make(map[string]bool)
 	for _, file := range files {
 
 		// Security: Sanitize the file name in helper function to prevent path traversal attacks.
@@ -373,13 +388,12 @@ func AddFile(context echo.Context) error {
 			return context.Render(http.StatusUnauthorized, "index_file.html", dataContext)
 		}
 
-		// If all file names are sanitized successfully, create the folder.
-		err = os.Mkdir(folderPathName, os.ModePerm)
-		if err != nil {
-			log.Error("AddFile Error while mkdir : %+v\n", err)
-			dataContext["errors"] = "There was a problem during the file processing, please try again"
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
+		// Avoid silently overwriting different files with the same archive name.
+		if seenNames[cleanFileName] {
+			dataContext["errors"] = "Files must have different names. Please rename duplicate files."
+			return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
 		}
+		seenNames[cleanFileName] = true
 
 		/*File upload start*/
 
