@@ -1,15 +1,15 @@
 package router
 
 import (
-	"net/http"
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/routes"
 	log "github.com/sirupsen/logrus"
 	"io"
-	"os"
 	"log/slog"
-	"time"
+	"net/http"
+	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flosch/pongo2"
 	"github.com/labstack/echo/v4"
@@ -39,10 +39,12 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Cont
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = pongo2.DefaultLoader.SetBaseDir(filepath.Dir(ex) + "/views")
+	loader, err := pongo2.NewLocalFileSystemLoader(filepath.Dir(ex) + "/views")
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	templates := pongo2.NewSet("request", loader)
 
 	if data != nil {
 		var ok bool
@@ -54,9 +56,9 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Cont
 	}
 
 	if r.Debug {
-		t, err = pongo2.FromFile(name)
+		t, err = templates.FromFile(name)
 	} else {
-		t, err = pongo2.FromCache(name)
+		t, err = templates.FromCache(name)
 	}
 
 	// Add some static values
@@ -90,57 +92,57 @@ func New() *echo.Echo {
 	// Middleware BodyLimit
 	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
 	e.Use(middleware.BodyLimit("1024M"))
-	
+
 	// Middleware RequestLogger (for Echo 4.14+)
 	slogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-	Level: slog.LevelInfo,
+		Level: slog.LevelInfo,
 	})
 	slogger := slog.New(slogHandler)
 
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-	HandleError: true,
+		HandleError: true,
 
-	LogLatency:       true,
-	LogRemoteIP:      true,
-	LogHost:          true,
-	LogMethod:        true,
-	LogURI:           true,
-	LogStatus:        true,
-	LogError:         true,
-	LogContentLength: true,
-	LogResponseSize:  true,
-	LogUserAgent:     true,
+		LogLatency:       true,
+		LogRemoteIP:      true,
+		LogHost:          true,
+		LogMethod:        true,
+		LogURI:           true,
+		LogStatus:        true,
+		LogError:         true,
+		LogContentLength: true,
+		LogResponseSize:  true,
+		LogUserAgent:     true,
 
-	LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
-		errMsg := ""
-		if v.Error != nil {
-			errMsg = v.Error.Error()
-		}
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			errMsg := ""
+			if v.Error != nil {
+				errMsg = v.Error.Error()
+			}
 
-		slogger.LogAttrs(c.Request().Context(), slog.LevelInfo, "http_request",
-			slog.String("time", v.StartTime.UTC().Format(time.RFC3339Nano)),
-			slog.String("remote_ip", v.RemoteIP),
-			slog.String("host", v.Host),
-			slog.String("method", v.Method),
-			slog.String("uri", v.URI),
-			slog.Int("status", v.Status),
-			slog.String("error", errMsg),
-			slog.String("latency_human", v.Latency.String()),
-			slog.String("bytes_in", v.ContentLength),
-			slog.Int64("bytes_out", v.ResponseSize),
-			slog.String("user_agent", v.UserAgent),
-		)
-		return nil
-	},
+			slogger.LogAttrs(c.Request().Context(), slog.LevelInfo, "http_request",
+				slog.String("time", v.StartTime.UTC().Format(time.RFC3339Nano)),
+				slog.String("remote_ip", v.RemoteIP),
+				slog.String("host", v.Host),
+				slog.String("method", v.Method),
+				slog.String("uri", v.URI),
+				slog.Int("status", v.Status),
+				slog.String("error", errMsg),
+				slog.String("latency_human", v.Latency.String()),
+				slog.String("bytes_in", v.ContentLength),
+				slog.Int64("bytes_out", v.ResponseSize),
+				slog.String("user_agent", v.UserAgent),
+			)
+			return nil
+		},
 	}))
-	
+
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		TokenLength:	32,
+		TokenLength:    32,
 		TokenLookup:    "form:_csrf",
-		CookieSecure:	true,
-		CookieHTTPOnly:	true,
-		CookieSameSite:	http.SameSiteStrictMode,
+		CookieSecure:   true,
+		CookieHTTPOnly: true,
+		CookieSameSite: http.SameSiteStrictMode,
 	}))
 
 	// Middleware Static
