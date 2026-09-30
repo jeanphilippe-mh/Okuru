@@ -169,8 +169,7 @@ func ReadFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "file.html", dataContext)
 }
 
-// archiveNameFromToken reconstructs a filename from a canonical UUID rather than
-// carrying user-supplied path components into the filesystem operation.
+// ArchiveNameFromToken reconstructs a filename from a canonical UUID rather than carrying user-supplied path components into the filesystem operation.
 func archiveNameFromToken(token string) (string, error) {
 	storageKey, decryptionKey, err := ParseToken(token)
 	if err != nil || decryptionKey == "" {
