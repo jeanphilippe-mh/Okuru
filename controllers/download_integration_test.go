@@ -12,7 +12,6 @@ import (
 	"testing"
 )
 
-// Regression testing for Download file feature.
 func TestDownloadArchiveIntegration(t *testing.T) {
 	addr := os.Getenv("OKURU_TEST_REDIS_ADDR")
 	if addr == "" {
