@@ -58,14 +58,14 @@ func CreatePassword(context echo.Context) (err error) {
 	if p.Views == 0 {
 		p.Views = 1
 	}
-	if p.Views > 100 {
-		return context.JSON(http.StatusBadRequest, "Views too high (max 100)")
-	}
 	if p.TTL == 0 {
 		p.TTL = 3600
 	}
-	if p.TTL > 604800 {
-		return context.JSON(http.StatusBadRequest, "TTL too high (max 604800 seconds)")
+	if p.Password == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "password is required")
+	}
+	if err := ValidateAPILimits(p.TTL, p.Views); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
