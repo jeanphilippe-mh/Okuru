@@ -197,9 +197,9 @@ func DownloadFile(context echo.Context) error {
 		return context.NoContent(http.StatusNotFound)
 	}
 
-	err = RetrieveFilePassword(f)
-	if err != nil {
-		log.Error("%+v\n", err)
+	retrieveErr := RetrieveFilePassword(f)
+	if retrieveErr != nil {
+		log.Error("File metadata retrieval failed")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 
