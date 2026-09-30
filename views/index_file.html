@@ -6,7 +6,7 @@
         <h2>Set Secret</h2>
     </div>
     <div>
-        <p><span>{% if (errors) %}&#128683{{ errors }}{% endif %}</span> </p>
+        <p><span id="file-errors" role="alert">{% if (errors) %}&#128683{{ errors }}{% endif %}</span> </p>
     </div>
 <form id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->
@@ -16,7 +16,9 @@
             <div class="col">
                 <div class="form-group">
                     <label for="files"><b>File(s)</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
-                    <input type="file" id="files" name="files" class="form-control-file" multiple />
+                    <input type="file" id="files" name="files" class="form-control-file" multiple data-max-size="{{ maxFileSize }}" aria-describedby="file-selection-help" />
+                    <small id="file-selection-help">Select one or more files. Choose again to add more files.</small>
+                    <ul id="selected-files" aria-live="polite"></ul>
                 </div>
                 <br>
                 <div class="form-group">
@@ -56,82 +58,5 @@
 {% endblock %}
 
 {% block js %}
-<script type="text/javascript" src="scripts/purify.min.js"></script>
-<script type="application/javascript">
-(function() {
-  // Check for Trusted Types Browser support and create a dedicated Policy if available, otherwise use DOMPurify.
-  const sanitizeHTML = (function() {
-    if (window.trustedTypes && trustedTypes.createPolicy) {
-      const policy = trustedTypes.createPolicy('myPolicy', {
-        createHTML: (string) => DOMPurify.sanitize(string)
-      });
-      // Return the Trusted Type object directly.
-      return (string) => policy.createHTML(string);
-    }
-    return (string) => DOMPurify.sanitize(string);
-  })();
-
-  // DOM elements.
-  const rangeTtl = document.getElementById('ttl'),
-        rangeTtlValue = document.getElementById('ttl-value'),
-        rangeView = document.getElementById("ttlViews"),
-        rangeViewValue = document.getElementById("ttlViews-value"),
-        myFiles = document.getElementById('files'),
-        fileForm = document.getElementById("file_create"),
-        errorSpan = document.querySelector("p > span");
-
-  // Max file size in bytes configuration.
-  const maxsizeBytes = {{ maxFileSize }};
-
-  // File Size current state.
-  let isFileSizeOK = true;
-
-  // Update the TTL display based on the range input.
-  rangeTtl.oninput = function() {
-    const hours = parseInt(rangeTtl.value);
-    const text = hours === 1 ? "1 hour" : (hours <= 24 ? `${hours} hours` : `${hours - 23} days`);
-    rangeTtlValue.innerHTML = sanitizeHTML(text);
-  };
-
-  // Update the Views display based on the range input.
-  rangeView.oninput = function() {
-    const views = parseInt(rangeView.value);
-    const text = views === 1 ? "1 view" : `${views} views`;
-    rangeViewValue.innerHTML = sanitizeHTML(text);
-  };
-
-  // Check the file size when a new file is selected.
-  myFiles.addEventListener('change', function() {
-    const files = Array.from(myFiles.files);
-    const oversizedFiles = files.filter(file => file.size > maxsizeBytes);
-    const totalSize = files.reduce((acc, file) => acc + file.size, 0);
-
-    if (oversizedFiles.length) {
-      const fileWord = oversizedFiles.length === 1 ? 'file' : 'files';
-      const fileList = oversizedFiles.map(f => `&bull; ${f.name} (<b>${Math.floor(f.size / 1024 / 1024)}mb</b>)`).join('<br>');
-      errorSpan.innerHTML = sanitizeHTML(`&#128683; The following ${fileWord} exceed the max size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>:<br>${fileList}`);
-      isFileSizeOK = false;
-    } else if (totalSize > maxsizeBytes) {
-      errorSpan.innerHTML = sanitizeHTML(`&#128683; The combined size of selected files (${Math.floor(totalSize / 1024 / 1024)}mb) exceeds the max allowed size of <b>${Math.floor(maxsizeBytes / 1024 / 1024)}mb</b>`);
-      isFileSizeOK = false;
-    } else {
-      errorSpan.innerHTML = sanitizeHTML("");
-      isFileSizeOK = true;
-    }
-
-    // Reload the page after 5 seconds if there's an error.
-    if (!isFileSizeOK) {
-      setTimeout(() => {
-        window.location.replace(window.location.href);
-      }, 5000);
-    }
-  });
-
-  fileForm.addEventListener("submit", function(e) {
-    if (!isFileSizeOK) {
-      e.preventDefault();
-    }
-  });
-})();
-</script>
+<script src="/scripts/file-upload.js" defer></script>
 {% endblock %}
