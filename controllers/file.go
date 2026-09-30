@@ -151,7 +151,6 @@ func ReadFile(context echo.Context) error {
 	} else {
 		deletableText = "deletable"
 		deletableURL = GetBaseUrl(context) + "/file/remove/" + f.FileKey
-		println("deletableURL : ", deletableURL)
 	}
 
 	dataContext["f"] = f
