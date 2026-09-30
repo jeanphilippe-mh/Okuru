@@ -106,7 +106,7 @@ func New() *echo.Echo {
 		LogRemoteIP:      true,
 		LogHost:          true,
 		LogMethod:        true,
-		LogURI:           true,
+		LogURI:           false,
 		LogStatus:        true,
 		LogError:         true,
 		LogContentLength: true,
@@ -116,7 +116,7 @@ func New() *echo.Echo {
 		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
 			errMsg := ""
 			if v.Error != nil {
-				errMsg = v.Error.Error()
+				errMsg = safeLogError(v.Error)
 			}
 
 			slogger.LogAttrs(c.Request().Context(), slog.LevelInfo, "http_request",
@@ -124,7 +124,7 @@ func New() *echo.Echo {
 				slog.String("remote_ip", v.RemoteIP),
 				slog.String("host", v.Host),
 				slog.String("method", v.Method),
-				slog.String("uri", v.URI),
+				slog.String("route", safeLogRoute(c)),
 				slog.Int("status", v.Status),
 				slog.String("error", errMsg),
 				slog.String("latency_human", v.Latency.String()),
