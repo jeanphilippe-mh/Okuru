@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
@@ -168,6 +169,20 @@ func ReadFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "file.html", dataContext)
 }
 
+// archiveNameFromToken reconstructs a filename from a canonical UUID rather than
+// carrying user-supplied path components into the filesystem operation.
+func archiveNameFromToken(token string) (string, error) {
+	storageKey, decryptionKey, err := ParseToken(token)
+	if err != nil || decryptionKey == "" {
+		return "", fmt.Errorf("invalid file token")
+	}
+	id, err := uuid.Parse(storageKey)
+	if err != nil || id.String() != storageKey {
+		return "", fmt.Errorf("invalid file identifier")
+	}
+	return id.String() + ".zip", nil
+}
+
 func DownloadFile(context echo.Context) error {
 	dataContext := NewDataContext()
 	// Retrieve the CSRF token
@@ -177,20 +192,12 @@ func DownloadFile(context echo.Context) error {
 	var passwordOk = true
 	f := new(File)
 	f.FileKey = context.Param("file_key")
-	if f.FileKey == "" {
+	archiveName, err := archiveNameFromToken(f.FileKey)
+	if err != nil {
 		return context.NoContent(http.StatusNotFound)
 	}
-	if strings.Contains(f.FileKey, "favicon.ico") {
-		return nil
-	}
-	if strings.Contains(f.FileKey, "robots.txt") {
-		return nil
-	}
-	if strings.Contains(f.FileKey, "sitemap.xml") {
-		return nil
-	}
 
-	err := RetrieveFilePassword(f)
+	err = RetrieveFilePassword(f)
 	if err != nil {
 		log.Error("%+v\n", err)
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
@@ -209,13 +216,8 @@ func DownloadFile(context echo.Context) error {
 		return context.Render(http.StatusUnauthorized, "file.html", dataContext)
 	}
 
-	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
-
-	// Security: Ensure that the fileName does not contain path traversal sequences.
-	safeFileName := filepath.Base(fileName)
-
-	filePathName := filepath.Join(FILEFOLDER, safeFileName+".zip")
-	return context.Attachment(filePathName, safeFileName+".zip")
+	filePathName := filepath.Join(FILEFOLDER, archiveName)
+	return context.Attachment(filePathName, archiveName)
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.
