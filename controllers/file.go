@@ -18,90 +18,106 @@ import (
 )
 
 func IndexFile(context echo.Context) error {
-	delete(DataContext, "errors")
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
 	csrfToken := context.Get("csrf")
-	DataContext["maxFileSize"] = MaxFileSize
-	DataContext["maxFileSizeText"] = GetMaxFileSizeText()
-	DataContext["csrfToken"] = csrfToken
+	dataContext["maxFileSize"] = MaxFileSize
+	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
+	dataContext["csrfToken"] = csrfToken
 
-	return context.Render(http.StatusOK, "index_file.html", DataContext)
+	return context.Render(http.StatusOK, "index_file.html", dataContext)
 }
 
 func Error400File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusBadRequest, "400.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusBadRequest, "400.html", dataContext)
 }
 
 func Error401File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusUnauthorized, "401.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusUnauthorized, "401.html", dataContext)
 }
 
 func Error403File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusForbidden, "403.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusForbidden, "403.html", dataContext)
 }
 
 func Error404File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusNotFound, "404.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusNotFound, "404.html", dataContext)
 }
 
 func Error413File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusRequestEntityTooLarge, "413.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusRequestEntityTooLarge, "413.html", dataContext)
 }
 
 func Error500File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusInternalServerError, "500.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusInternalServerError, "500.html", dataContext)
 }
 
 func Error501File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusNotImplemented, "501.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusNotImplemented, "501.html", dataContext)
 }
 
 func Error502File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusBadGateway, "502.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusBadGateway, "502.html", dataContext)
 }
 
 func Error503File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusServiceUnavailable, "503.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusServiceUnavailable, "503.html", dataContext)
 }
 
 func Error504File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusGatewayTimeout, "504.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusGatewayTimeout, "504.html", dataContext)
 }
 
 func Error505File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", dataContext)
 }
 
 func Error506File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", dataContext)
 }
 
 func Error507File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusInsufficientStorage, "507.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusInsufficientStorage, "507.html", dataContext)
 }
 
 func Error508File(context echo.Context) error {
-	delete(DataContext, "errors")
-	return context.Render(http.StatusLoopDetected, "508.html", DataContext)
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	return context.Render(http.StatusLoopDetected, "508.html", dataContext)
 }
 
 func ReadFile(context echo.Context) error {
-	delete(DataContext, "errors")
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
+	dataContext["csrfToken"] = csrfToken
 
 	f := new(File)
 	f.FileKey = context.Param("file_key")
@@ -122,7 +138,7 @@ func ReadFile(context echo.Context) error {
 	err := GetFile(f)
 	if err != nil {
 		log.Error("Error while retrieving file : %s\n")
-		return context.Render(http.StatusForbidden, "403.html", DataContext)
+		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
 
 	var (
@@ -138,26 +154,27 @@ func ReadFile(context echo.Context) error {
 		println("deletableURL : ", deletableURL)
 	}
 
-	DataContext["f"] = f
-	DataContext["ttl"] = GetTTLText(f.TTL)
-	DataContext["dlViews"] = GetDownloadsText(f.Views)
-	DataContext["deletableText"] = deletableText
-	DataContext["deletableURL"] = deletableURL
+	dataContext["f"] = f
+	dataContext["ttl"] = GetTTLText(f.TTL)
+	dataContext["dlViews"] = GetDownloadsText(f.Views)
+	dataContext["deletableText"] = deletableText
+	dataContext["deletableURL"] = deletableURL
 
 	if f.PasswordProvided {
-		DataContext["passwordNeeded"] = true
+		dataContext["passwordNeeded"] = true
 	} else {
-		DataContext["passwordNeeded"] = false
+		dataContext["passwordNeeded"] = false
 	}
 
-	return context.Render(http.StatusOK, "file.html", DataContext)
+	return context.Render(http.StatusOK, "file.html", dataContext)
 }
 
 func DownloadFile(context echo.Context) error {
+	dataContext := NewDataContext()
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	dataContext["csrfToken"] = csrfToken
+
 	var passwordOk = true
 	f := new(File)
 	f.FileKey = context.Param("file_key")
@@ -177,7 +194,7 @@ func DownloadFile(context echo.Context) error {
 	err := RetrieveFilePassword(f)
 	if err != nil {
 		log.Error("%+v\n", err)
-		return context.Render(http.StatusNotFound, "404.html", DataContext)
+		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 
 	if f.PasswordProvided {
@@ -189,17 +206,17 @@ func DownloadFile(context echo.Context) error {
 
 	if !passwordOk {
 		// Security: This will cause a view counted if the user try to download the file with a wrong password.
-		DataContext["errors"] = "Forbidden. Wrong password provided"
-		return context.Render(http.StatusUnauthorized, "file.html", DataContext)
+		dataContext["errors"] = "Forbidden. Wrong password provided"
+		return context.Render(http.StatusUnauthorized, "file.html", dataContext)
 	}
-	
+
 	fileName := strings.Split(f.FileKey, TOKEN_SEPARATOR)[0]
 
- 	// Security: Ensure that the fileName does not contain path traversal sequences.
- 	safeFileName := filepath.Base(fileName)
+	// Security: Ensure that the fileName does not contain path traversal sequences.
+	safeFileName := filepath.Base(fileName)
 
- 	filePathName := filepath.Join(FILEFOLDER, safeFileName+".zip")
- 	return context.Attachment(filePathName, safeFileName+".zip")
+	filePathName := filepath.Join(FILEFOLDER, safeFileName+".zip")
+	return context.Attachment(filePathName, safeFileName+".zip")
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.
@@ -241,11 +258,12 @@ func getZipMethod(filePath string) uint16 {
 }
 
 func AddFile(context echo.Context) error {
-	delete(DataContext, "errors")
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	dataContext["csrfToken"] = csrfToken
+
 	var err error
 	f := new(File)
 	f.Password = context.FormValue("password")
@@ -253,15 +271,15 @@ func AddFile(context echo.Context) error {
 	f.TTL, err = strconv.Atoi(context.FormValue("ttl"))
 	if err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 
 	f.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
 	if err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 
 	f.Deletable = false
@@ -271,8 +289,8 @@ func AddFile(context echo.Context) error {
 
 	if err := context.Validate(f); err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 
 	if f.TTL > 30 {
@@ -280,8 +298,8 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = errorMessage
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 	f.TTL = GetTtlSeconds(f.TTL)
 
@@ -292,8 +310,8 @@ func AddFile(context echo.Context) error {
 		f.Password, err = GenerateRandomString(50)
 		if err != nil {
 			log.Error("%+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 	} else {
@@ -303,8 +321,8 @@ func AddFile(context echo.Context) error {
 		token, err := SetPassword(f.Password, f.TTL, f.Views, false)
 		if err != nil {
 			log.Error("%+v\n", err)
-			DataContext["errors"] = err.Message
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Message
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 		f.PasswordProvidedKey = strings.Split(token, TOKEN_SEPARATOR)[0]
 		passwordLink = GetBaseUrl(context) + "/" + token
@@ -315,8 +333,8 @@ func AddFile(context echo.Context) error {
 	form, err := context.MultipartForm()
 	if err != nil {
 		log.Error("%+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 	files := form.File["files"]
 
@@ -325,81 +343,81 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = errorMessage
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 
 	var fileList []string
 	var totalUploadedFileSize int64
-	
+
 	// Proceed with file operations for each file.
 	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
 	folderPathName := FILEFOLDER + "/" + folderName + "/"
 	for _, file := range files {
-		
+
 		// Security: Sanitize the file name in helper function to prevent path traversal attacks.
 		cleanFileName := sanitizeFileName(file.Filename)
 
 		// Security: Check if the sanitized file name is empty, which indicates a sanitization issue and prevent file creation in /data folder.
 		if cleanFileName == "" {
-    		errorMessage := "File name contains prohibited characters or is not valid"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
-    		return context.Render(http.StatusUnauthorized, "index_file.html", DataContext)
+			errorMessage := "File name contains prohibited characters or is not valid"
+			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
+			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
+			log.Error(escapederrorMessage)
+			dataContext["errors"] = errorMessage
+			return context.Render(http.StatusUnauthorized, "index_file.html", dataContext)
 		}
 
 		// If all file names are sanitized successfully, create the folder.
 		err = os.Mkdir(folderPathName, os.ModePerm)
 		if err != nil {
-		log.Error("AddFile Error while mkdir : %+v\n", err)
-		DataContext["errors"] = "There was a problem during the file processing, please try again"
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+			log.Error("AddFile Error while mkdir : %+v\n", err)
+			dataContext["errors"] = "There was a problem during the file processing, please try again"
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 		/*File upload start*/
-		
+
 		// Open and start file integration.
 		src, err := file.Open()
 		if err != nil {
 			log.Error("Error while opening file : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 		defer src.Close()
-		
+
 		if file.Size > MaxFileSize {
 			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
 			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 			log.Error(escapederrorMessage)
-			DataContext["errors"] = errorMessage
+			dataContext["errors"] = errorMessage
 			err := os.RemoveAll(folderPathName)
 			if err != nil {
 				log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
 			}
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 		totalUploadedFileSize += file.Size
-		
+
 		// Security: Secure the file path to prevent path traversal attacks
 		dstFile := filepath.Base(cleanFileName)
-		
+
 		// Destination
 		dst, err := os.Create(folderPathName + dstFile)
 		if err != nil {
 			log.Error("Error while creating file : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 		defer dst.Close()
 
 		// Copy
 		if _, err = io.Copy(dst, src); err != nil {
 			log.Error("Error while copying file : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 		fileList = append(fileList, folderPathName+dstFile)
@@ -410,20 +428,20 @@ func AddFile(context echo.Context) error {
 		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
 		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
 		log.Error(escapederrorMessage)
-		DataContext["errors"] = errorMessage
+		dataContext["errors"] = errorMessage
 		err := os.RemoveAll(folderPathName)
 		if err != nil {
 			log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
 		}
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 
 	zipPath := FILEFOLDER + "/" + folderName + ".zip"
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		log.Error("Error while creating zip file : %+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
 	defer zipFile.Close()
 
@@ -434,24 +452,24 @@ func AddFile(context echo.Context) error {
 		fileToZip, err := os.Open(filePath)
 		if err != nil {
 			log.Error("Error while opening file for zipping : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 		info, err := fileToZip.Stat()
 		if err != nil {
 			fileToZip.Close()
 			log.Error("Error while stating file for zipping : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
 			fileToZip.Close()
 			log.Error("Error creating zip header : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 		header.Name = filepath.Base(filePath)
 		header.Method = getZipMethod(filePath)
@@ -460,15 +478,15 @@ func AddFile(context echo.Context) error {
 		if err != nil {
 			fileToZip.Close()
 			log.Error("Error adding file to zip : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 		if _, err := io.Copy(writer, fileToZip); err != nil {
 			fileToZip.Close()
 			log.Error("Error copying file to zip : %+v\n", err)
-			DataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", DataContext)
+			dataContext["errors"] = err.Error()
+			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 		fileToZip.Close()
 	}
@@ -476,10 +494,10 @@ func AddFile(context echo.Context) error {
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
 		log.Error("Error while removing folder : %+v\n", err)
-		DataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", DataContext)
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
-	
+
 	/*File upload end*/
 
 	var (
@@ -499,23 +517,24 @@ func AddFile(context echo.Context) error {
 	f.Link = link
 	f.Password = ""
 
-	DataContext["f"] = f
-	DataContext["ttl"] = GetTTLText(f.TTL)
-	DataContext["ttlViews"] = GetViewsText(f.Views)
-	DataContext["dlViews"] = GetDownloadsText(f.Views)
-	DataContext["deletableText"] = deletableText
-	DataContext["deletableURL"] = deletableURL
-	DataContext["passwordLink"] = passwordLink
+	dataContext["f"] = f
+	dataContext["ttl"] = GetTTLText(f.TTL)
+	dataContext["ttlViews"] = GetViewsText(f.Views)
+	dataContext["dlViews"] = GetDownloadsText(f.Views)
+	dataContext["deletableText"] = deletableText
+	dataContext["deletableURL"] = deletableURL
+	dataContext["passwordLink"] = passwordLink
 
-	return context.Render(http.StatusOK, "confirm_file.html", DataContext)
+	return context.Render(http.StatusOK, "confirm_file.html", dataContext)
 }
 
 func DeleteFile(context echo.Context) error {
-	delete(DataContext, "errors")
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
-	DataContext["csrfToken"] = csrfToken
-	
+	dataContext["csrfToken"] = csrfToken
+
 	f := new(File)
 	f.FileKey = context.Param("file_key")
 	if f.FileKey == "" || strings.Contains(f.FileKey, "*") {
@@ -526,39 +545,39 @@ func DeleteFile(context echo.Context) error {
 	var status int
 	if err != nil {
 		status = err.Code
-		return context.Render(status, "403.html", DataContext)
+		return context.Render(status, "403.html", dataContext)
 	} else {
-		DataContext["type"] = "File"
-		return context.Render(http.StatusOK, "removed.html", DataContext)
+		dataContext["type"] = "File"
+		return context.Render(http.StatusOK, "removed.html", dataContext)
 	}
 }
 
 // Security: Helper function to call for sanitizing the file name.
 
 func sanitizeFileName(Filename string) string {
-	
-    // Replace newline characters to prevent path traversal attacks.
-    escapedFileName := strings.ReplaceAll(Filename, "\n", "")
-    escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
-    log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
-    checkFileName := filepath.Base(escapedFileName)
 
-    // Check for path traversal patterns.
-    if strings.Contains(checkFileName, "..") || strings.ContainsAny(checkFileName, "/\\") {
-        return ""
-    }
-	
-    // Check for valid length to prevent potential buffer overflow attacks.
-    if len(checkFileName) > 255 || len(checkFileName) < 1 {
-        return ""
-    }
+	// Replace newline characters to prevent path traversal attacks.
+	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
+	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
+	log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
+	checkFileName := filepath.Base(escapedFileName)
 
-    // Validate the file name to prevent path traversal attacks.
-    disallowedPattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
-    re := regexp.MustCompile(disallowedPattern)
-    if re.MatchString(checkFileName) {
-        return ""
-    }
+	// Check for path traversal patterns.
+	if strings.Contains(checkFileName, "..") || strings.ContainsAny(checkFileName, "/\\") {
+		return ""
+	}
 
-    return checkFileName
+	// Check for valid length to prevent potential buffer overflow attacks.
+	if len(checkFileName) > 255 || len(checkFileName) < 1 {
+		return ""
+	}
+
+	// Validate the file name to prevent path traversal attacks.
+	disallowedPattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
+	re := regexp.MustCompile(disallowedPattern)
+	if re.MatchString(checkFileName) {
+		return ""
+	}
+
+	return checkFileName
 }

@@ -10,24 +10,24 @@ import (
 )
 
 var (
-	REDIS_HOST      string
-	REDIS_PASSWORD  string
-	REDIS_PORT      string
-	REDIS_DB        string
-	REDIS_PREFIX    string
-	TOKEN_SEPARATOR string
-	NO_SSL          bool = false
-	APP_PORT        string
-	LOGO            string
-	APP_NAME        string
-	DISCLAIMER      string
-	COPYRIGHT       string
-	FILEFOLDER      string
-	ZIP_COMPRESSION string
+	REDIS_HOST            string
+	REDIS_PASSWORD        string
+	REDIS_PORT            string
+	REDIS_DB              string
+	REDIS_PREFIX          string
+	TOKEN_SEPARATOR       string
+	NO_SSL                bool = false
+	APP_PORT              string
+	LOGO                  string
+	APP_NAME              string
+	DISCLAIMER            string
+	COPYRIGHT             string
+	FILEFOLDER            string
+	ZIP_COMPRESSION       string
 	ZIP_AUTO_THRESHOLD_MB string
-	MAXFILESIZE     string
-	MaxFileSize     int64
-	DataContext     pongo2.Context
+	MAXFILESIZE           string
+	MaxFileSize           int64
+	baseDataContext       pongo2.Context
 )
 
 func init() {
@@ -119,10 +119,20 @@ func init() {
 	log.Debug("ZIP_AUTO_THRESHOLD_MB : %+v\n", ZIP_AUTO_THRESHOLD_MB)
 
 	// Init data context that'll be passed to render to avoid creating it every time for those "global" variable
-	DataContext = pongo2.Context{
+	baseDataContext = pongo2.Context{
 		"logo":       LOGO,
 		"APP_NAME":   APP_NAME,
 		"disclaimer": "<p>" + strings.Replace(DISCLAIMER, "\\n", "<br>", -1) + "<p>",
 		"copyright":  "<p>" + COPYRIGHT + "<p>",
 	}
+}
+
+// NewDataContext returns request-owned template data. The base contains only
+// immutable application settings; secrets and CSRF tokens belong to one request.
+func NewDataContext() pongo2.Context {
+	data := make(pongo2.Context, len(baseDataContext))
+	for key, value := range baseDataContext {
+		data[key] = value
+	}
+	return data
 }
