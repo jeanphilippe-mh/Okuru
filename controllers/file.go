@@ -271,17 +271,22 @@ func AddFile(context echo.Context) error {
 	if err != nil {
 		log.Error("%+v\n", err)
 		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
+		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
 	}
 
 	f.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
 	if err != nil {
 		log.Error("%+v\n", err)
 		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
+		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
 	}
 
 	f.Deletable = false
+	if err := ValidateWebLimits(f.TTL, f.Views); err != nil {
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
+	}
+
 	if context.FormValue("deletable") == "on" {
 		f.Deletable = true
 	}

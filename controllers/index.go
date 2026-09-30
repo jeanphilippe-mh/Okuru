@@ -212,17 +212,22 @@ func AddIndex(context echo.Context) error {
 	if err != nil {
 		log.Error("%+v\n", err)
 		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "set_password.html", dataContext)
+		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 
 	p.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
 	if err != nil {
 		log.Error("%+v\n", err)
 		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "set_password.html", dataContext)
+		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 
 	p.Deletable = false
+	if err := ValidateWebLimits(p.TTL, p.Views); err != nil {
+		dataContext["errors"] = err.Error()
+		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
+	}
+
 	if context.FormValue("deletable") == "on" {
 		p.Deletable = true
 	}
