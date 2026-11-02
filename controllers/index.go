@@ -140,7 +140,7 @@ func ReadIndex(context echo.Context) error {
 
 	err := GetPassword(p)
 	if err != nil {
-		log.Error("Error while retrieving password : %s\n")
+		log.Error("Secret metadata retrieval failed")
 		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
 
@@ -190,7 +190,7 @@ func RevealPassword(context echo.Context) error {
 
 	err := RetrievePassword(p)
 	if err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		return context.NoContent(http.StatusNotFound)
 	}
 
@@ -210,14 +210,14 @@ func AddIndex(context echo.Context) error {
 
 	p.TTL, err = strconv.Atoi(context.FormValue("ttl"))
 	if err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 
 	p.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
 	if err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
@@ -233,7 +233,7 @@ func AddIndex(context echo.Context) error {
 	}
 
 	if err := context.Validate(p); err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
 		return context.Render(http.StatusOK, "set_password.html", dataContext)
 	}

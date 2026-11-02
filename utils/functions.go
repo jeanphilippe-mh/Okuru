@@ -126,13 +126,13 @@ func Encrypt(password string) ([]byte, string, error) {
 	var k fernet.Key
 	err := k.Generate()
 	if err != nil {
-		log.Error("Encrypt() Generate err : %+v\n", err)
+		log.Errorf("Encrypt() Generate err : %+v\n", err)
 		return nil, "", err
 	}
 
 	tok, err := fernet.EncryptAndSign([]byte(password), &k)
 	if err != nil {
-		log.Error("Encrypt() EncryptAndSign err : %+v\n", err)
+		log.Errorf("Encrypt() EncryptAndSign err : %+v\n", err)
 		return nil, "", err
 	}
 
@@ -191,13 +191,13 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 		"views_count", 0,
 		"deletable", deletable)
 	if err != nil {
-		log.Error("SetPassword() Redis err set : %+v\n", err)
+		log.Errorf("SetPassword() Redis err set : %+v\n", err)
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	_, err = c.Do("EXPIRE", REDIS_PREFIX+storageKey.String(), ttl)
 	if err != nil {
-		log.Error("SetPassword() Redis err expire : %+v\n", err)
+		log.Errorf("SetPassword() Redis err expire : %+v\n", err)
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -272,13 +272,13 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
 	if err != nil {
-		log.Error("GetPassword() Redis err set : %+v\n", err)
+		log.Errorf("GetPassword() Redis err set : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	err = redis.ScanStruct(v, p)
 	if err != nil {
-		log.Error("GetPassword() Redis err scan struct : %+v\n", err)
+		log.Errorf("GetPassword() Redis err scan struct : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -295,7 +295,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 
 	p.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+storageKey))
 	if err != nil {
-		log.Error("GetPassword() Redis err GET views count TTL : %+v\n", err)
+		log.Errorf("GetPassword() Redis err GET views count TTL : %+v\n", err)
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 	p.Views = vcLeft
@@ -327,13 +327,13 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
 	if err != nil {
-		log.Error("RemovePassword() Redis err set : %+v\n", err)
+		log.Errorf("RemovePassword() Redis err set : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	err = redis.ScanStruct(v, p)
 	if err != nil {
-		log.Error("RemovePassword() Redis err scan struct : %+v\n", err)
+		log.Errorf("RemovePassword() Redis err scan struct : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -343,7 +343,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 	_, err = c.Do("DEL", REDIS_PREFIX+storageKey)
 	if err != nil {
-		log.Error("DeletePassword() Redis err : %+v\n", err)
+		log.Errorf("DeletePassword() Redis err : %+v\n", err)
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
@@ -373,7 +373,7 @@ func CleanFileWatch() {
 		switch v := psc.Receive().(type) {
 
 		case redis.Message:
-			log.Debug("Message from Redis %s %s \n", string(v.Data), v.Channel)
+			log.Debugf("Message from Redis %s %s \n", string(v.Data), v.Channel)
 			keyName := string(v.Data)
 			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
 			if strings.Contains(keyName, "_") {
@@ -384,7 +384,7 @@ func CleanFileWatch() {
 			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
 
 		case redis.Subscription:
-			log.Debug("Message from Redis subscription is OK : %s %s\n", v.Channel, v.Kind, v.Count)
+			log.Debugf("Redis subscription: channel=%s kind=%s count=%d\n", v.Channel, v.Kind, v.Count)
 		}
 	}
 }
@@ -393,7 +393,7 @@ func CleanFile(fileName string) {
 	// Replace newline characters to prevent path traversal attacks
 	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
 	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
-	log.Debug("CleanFile fileName : %s\n", escapedfileName)
+	log.Debugf("CleanFile fileName : %s\n", escapedfileName)
 
 	// Validate the file name to prevent path traversal attacks
 	fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
@@ -430,7 +430,7 @@ func CleanFile(fileName string) {
 	// Delete the file
 	err := os.Remove(filePathName)
 	if err != nil {
-		log.Error("CleanFile: deleting file error : %+v\n", err)
+		log.Errorf("CleanFile: deleting file error : %+v\n", err)
 	}
 }
 
@@ -486,13 +486,13 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 		"provided_key", providedKey)
 
 	if err != nil {
-		log.Error("SetPassword() Redis err set : %+v\n", err)
+		log.Errorf("SetPassword() Redis err set : %+v\n", err)
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	_, err = c.Do("EXPIRE", REDIS_PREFIX+"file_"+storageKey.String(), ttl)
 	if err != nil {
-		log.Error("SetPassword() Redis err expire : %+v\n", err)
+		log.Errorf("SetPassword() Redis err expire : %+v\n", err)
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -610,13 +610,13 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+"file_"+storageKey))
 	if err != nil {
-		log.Error("RemoveFile() Redis err set : %+v\n", err)
+		log.Errorf("RemoveFile() Redis err set : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	err = redis.ScanStruct(v, f)
 	if err != nil {
-		log.Error("RemoveFile() Redis err scan struct : %+v\n", err)
+		log.Errorf("RemoveFile() Redis err scan struct : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -626,14 +626,14 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 
 	_, err = c.Do("DEL", REDIS_PREFIX+"file_"+storageKey)
 	if err != nil {
-		log.Error("DeleteFile() Redis err : %+v\n", err)
+		log.Errorf("DeleteFile() Redis err : %+v\n", err)
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	if f.PasswordProvided {
 		_, err = c.Do("DEL", REDIS_PREFIX+f.PasswordProvidedKey)
 		if err != nil {
-			log.Error("DeletePassword() Redis err : %+v\n", err)
+			log.Errorf("DeletePassword() Redis err : %+v\n", err)
 			return echo.NewHTTPError(http.StatusNotFound)
 		}
 	}

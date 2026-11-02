@@ -138,7 +138,7 @@ func ReadFile(context echo.Context) error {
 
 	err := GetFile(f)
 	if err != nil {
-		log.Error("Error while retrieving file : %s\n")
+		log.Error("File metadata retrieval failed")
 		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
 
@@ -277,14 +277,14 @@ func AddFile(context echo.Context) error {
 
 	f.TTL, err = strconv.Atoi(context.FormValue("ttl"))
 	if err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
 	}
 
 	f.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
 	if err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
 	}
@@ -300,7 +300,7 @@ func AddFile(context echo.Context) error {
 	}
 
 	if err := context.Validate(f); err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
@@ -321,7 +321,7 @@ func AddFile(context echo.Context) error {
 	if f.Password == "" {
 		f.Password, err = GenerateRandomString(50)
 		if err != nil {
-			log.Error("%+v\n", err)
+			log.Errorf("%+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -332,7 +332,7 @@ func AddFile(context echo.Context) error {
 		// Security: Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
 		token, err := SetPassword(f.Password, f.TTL, f.Views, false)
 		if err != nil {
-			log.Error("%+v\n", err)
+			log.Errorf("%+v\n", err)
 			dataContext["errors"] = err.Message
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -344,7 +344,7 @@ func AddFile(context echo.Context) error {
 
 	form, err := context.MultipartForm()
 	if err != nil {
-		log.Error("%+v\n", err)
+		log.Errorf("%+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
@@ -400,7 +400,7 @@ func AddFile(context echo.Context) error {
 		// Open and start file integration.
 		src, err := file.Open()
 		if err != nil {
-			log.Error("Error while opening file : %+v\n", err)
+			log.Errorf("Error while opening file : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -414,7 +414,7 @@ func AddFile(context echo.Context) error {
 			dataContext["errors"] = errorMessage
 			err := os.RemoveAll(folderPathName)
 			if err != nil {
-				log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
+				log.Errorf("Failed to remove directory %s, %+v\n", folderPathName, err)
 			}
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -426,7 +426,7 @@ func AddFile(context echo.Context) error {
 		// Destination
 		dst, err := os.Create(folderPathName + dstFile)
 		if err != nil {
-			log.Error("Error while creating file : %+v\n", err)
+			log.Errorf("Error while creating file : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -434,7 +434,7 @@ func AddFile(context echo.Context) error {
 
 		// Copy
 		if _, err = io.Copy(dst, src); err != nil {
-			log.Error("Error while copying file : %+v\n", err)
+			log.Errorf("Error while copying file : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -450,7 +450,7 @@ func AddFile(context echo.Context) error {
 		dataContext["errors"] = errorMessage
 		err := os.RemoveAll(folderPathName)
 		if err != nil {
-			log.Error("Failed to remove directory %s, %+v\n", folderPathName, err)
+			log.Errorf("Failed to remove directory %s, %+v\n", folderPathName, err)
 		}
 		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
@@ -458,7 +458,7 @@ func AddFile(context echo.Context) error {
 	zipPath := FILEFOLDER + "/" + folderName + ".zip"
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
-		log.Error("Error while creating zip file : %+v\n", err)
+		log.Errorf("Error while creating zip file : %+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
@@ -470,7 +470,7 @@ func AddFile(context echo.Context) error {
 	for _, filePath := range fileList {
 		fileToZip, err := os.Open(filePath)
 		if err != nil {
-			log.Error("Error while opening file for zipping : %+v\n", err)
+			log.Errorf("Error while opening file for zipping : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -478,7 +478,7 @@ func AddFile(context echo.Context) error {
 		info, err := fileToZip.Stat()
 		if err != nil {
 			fileToZip.Close()
-			log.Error("Error while stating file for zipping : %+v\n", err)
+			log.Errorf("Error while stating file for zipping : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -486,7 +486,7 @@ func AddFile(context echo.Context) error {
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
 			fileToZip.Close()
-			log.Error("Error creating zip header : %+v\n", err)
+			log.Errorf("Error creating zip header : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -496,14 +496,14 @@ func AddFile(context echo.Context) error {
 		writer, err := zw.CreateHeader(header)
 		if err != nil {
 			fileToZip.Close()
-			log.Error("Error adding file to zip : %+v\n", err)
+			log.Errorf("Error adding file to zip : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
 
 		if _, err := io.Copy(writer, fileToZip); err != nil {
 			fileToZip.Close()
-			log.Error("Error copying file to zip : %+v\n", err)
+			log.Errorf("Error copying file to zip : %+v\n", err)
 			dataContext["errors"] = err.Error()
 			return context.Render(http.StatusOK, "index_file.html", dataContext)
 		}
@@ -512,7 +512,7 @@ func AddFile(context echo.Context) error {
 
 	err = os.RemoveAll(folderPathName)
 	if err != nil {
-		log.Error("Error while removing folder : %+v\n", err)
+		log.Errorf("Error while removing folder : %+v\n", err)
 		dataContext["errors"] = err.Error()
 		return context.Render(http.StatusOK, "index_file.html", dataContext)
 	}
@@ -578,7 +578,7 @@ func sanitizeFileName(Filename string) string {
 	// Replace newline characters to prevent path traversal attacks.
 	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
 	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
-	log.Debug("CleanFolderName folderName : %s\n", escapedFileName)
+	log.Debugf("CleanFolderName folderName : %s\n", escapedFileName)
 	checkFileName := filepath.Base(escapedFileName)
 
 	// Check for path traversal patterns.
