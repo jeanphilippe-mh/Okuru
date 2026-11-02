@@ -350,44 +350,6 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	return nil
 }
 
-/**
- * Subscribe to Redis and create a goroutine to check when a key expire then clean the associated file.
- */
-func CleanFileWatch() {
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	println("\n/ Subscribe to Redis has been started. A periodic check will clean associated file when a File Key expire /\n")
-
-	if !Ping(c) {
-		log.Printf("Error: Can't open Redis pool")
-	}
-
-	psc := redis.PubSubConn{Conn: c}
-
-	if err := psc.PSubscribe("__keyevent@*__:expired"); err != nil {
-		log.Printf("Error from subscribe Redis expired keys events : %s", err)
-	}
-
-	for {
-		switch v := psc.Receive().(type) {
-
-		case redis.Message:
-			log.Debug("Message from Redis %s %s \n", string(v.Data), v.Channel)
-			keyName := string(v.Data)
-			keyName = strings.ReplaceAll(keyName, REDIS_PREFIX+"file_", "")
-			if strings.Contains(keyName, "_") {
-				return
-			}
-
-			CleanFile(keyName)
-			println("\n/ File key expired from Redis and associated file has been deleted from data folder /\n")
-
-		case redis.Subscription:
-			log.Debug("Message from Redis subscription is OK : %s %s\n", v.Channel, v.Kind, v.Count)
-		}
-	}
-}
 
 func CleanFile(fileName string) {
 	// Replace newline characters to prevent path traversal attacks
