@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"github.com/google/uuid"
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
@@ -12,13 +13,24 @@ import (
  * Print help for API usage in a readable way for bash/curl call.
  */
 func HelpPassword(context echo.Context) error {
-	help := `Generate a password share link with the following parameters:
-password : (required), the password
-ttl: (optional) number seconds, min: 300, max: 604800, default: 3600 (one hour)
-views: (optional) number between 1 and 100
-deletable: (optional) boolean (false, true), default: false
-For example with the following command:
-curl -X POST -H "Content-Type:application/json" -d '{"password":"password-here","ttl":seconds, "views":views, "deletable": true}' ` + GetBaseUrl(context) + "/api/v1"
+	if token, ok := context.Get("csrf").(string); ok {
+		context.Response().Header().Set("X-CSRF-Token", token)
+	}
+	help := `Generate a password share link:
+password: required string
+ttl: seconds, min 300, max 604800; omitted/zero defaults to 3600
+views: min 1, max 100; omitted/zero defaults to 1
+deletable: boolean, default false
+
+First GET this endpoint. Retain the response cookie and X-CSRF-Token header.
+Send both back with POST or DELETE. For JSON use Content-Type: application/json.
+Example POST body: {"password":"password-here","ttl":3600,"views":1,"deletable":true}
+
+GET /api/v1/<token> reveals the password and consumes one attempt.
+DELETE /api/v1/<token> deletes a deletable secret after key and CSRF validation.
+See docs/api.md for complete examples.
+Endpoint: ` + GetBaseUrl(context) + "/api/v1"
+
 	return context.String(http.StatusOK, help)
 }
 
@@ -29,12 +41,18 @@ func ReadPassword(context echo.Context) error {
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" {
-		return context.NoContent(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
-	err := GetPassword(p)
+	// Secret retrieval cannot select file metadata through its identifier.
+	id, key, parseErr := ParseToken(p.PasswordKey)
+	canonical, uuidErr := uuid.Parse(id)
+	if parseErr != nil || uuidErr != nil || canonical.String() != id || key == "" {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	err := RetrievePassword(p)
 	if err != nil {
-		return context.NoContent(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	// Empty var so json response don't have them.
@@ -47,30 +65,28 @@ func ReadPassword(context echo.Context) error {
  * From a give password, return link.
  */
 func CreatePassword(context echo.Context) (err error) {
-	p := new(Password)
-	if err := context.Bind(p); err != nil {
-		return context.NoContent(http.StatusBadRequest)
+	// Bind only creation fields; internal storage fields are never client input.
+	input := new(createPasswordRequest)
+	if err := context.Bind(input); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	if err := context.Validate(p); err != nil {
-		return context.NoContent(http.StatusBadRequest)
+	if input.Views == 0 {
+		input.Views = 1
 	}
-
-	if p.Views == 0 {
-		p.Views = 1
+	if input.TTL == 0 {
+		input.TTL = 3600
 	}
-	if p.TTL == 0 {
-		p.TTL = 3600
+	if input.Password == "" {
+		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	if p.Password == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "password is required")
+	if err := ValidateAPILimits(input.TTL, input.Views); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	if err := ValidateAPILimits(p.TTL, p.Views); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
+	p := &Password{Password: input.Password, TTL: input.TTL, Views: input.Views, Deletable: input.Deletable}
 
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
 	if err2 != nil {
-		return context.JSON(http.StatusInternalServerError, "A problem occured during the processus. Please contact the administrator of the website")
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	baseUrl := GetBaseUrl(context) + "/"
@@ -93,7 +109,7 @@ func DeletePassword(context echo.Context) error {
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {
-		return context.NoContent(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	err := RemovePassword(p)
@@ -103,5 +119,17 @@ func DeletePassword(context echo.Context) error {
 	} else {
 		status = http.StatusOK
 	}
+	if status >= 400 {
+		return echo.NewHTTPError(status)
+	}
 	return context.NoContent(status)
+}
+
+// The form tags deliberately omit JSON's ",omitempty" option: Echo treats
+// form tag values as literal field names.
+type createPasswordRequest struct {
+	Password  string `json:"password" form:"password"`
+	TTL       int    `json:"ttl" form:"ttl"`
+	Views     int    `json:"views" form:"views"`
+	Deletable bool   `json:"deletable" form:"deletable"`
 }

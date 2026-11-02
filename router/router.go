@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/flosch/pongo2"
@@ -139,7 +140,7 @@ func New() *echo.Echo {
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLength:    32,
-		TokenLookup:    "form:_csrf",
+		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
 		CookieSecure:   true,
 		CookieHTTPOnly: true,
 		CookieSameSite: http.SameSiteStrictMode,
@@ -148,6 +149,11 @@ func New() *echo.Echo {
 	// Middleware Static
 	publicfolder := filepath.Dir(ex) + "/public"
 	e.Use(middleware.StaticWithConfig(middleware.StaticConfig{
+		// API errors must not enter the HTML5 fallback or become filesystem errors.
+		Skipper: func(c echo.Context) bool {
+			path := c.Request().URL.Path
+			return path == "/api" || strings.HasPrefix(path, "/api/")
+		},
 		Root:   publicfolder,
 		HTML5:  true,
 		Browse: false,
