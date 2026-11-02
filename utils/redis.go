@@ -52,7 +52,7 @@ func Ping(c redis.Conn) bool {
 		return false
 	}
 
-	log.Info("PING Response = %s\n", pong)
+	log.Infof("PING Response = %s\n", pong)
 	// Output: PONG
 
 	if pong == "PONG" {
@@ -104,14 +104,14 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 				return
 
 			case redis.Message:
-				log.Debug("Message from redis %s %s \n", string(v.Data), v.Channel)
+				log.Debugf("Message from redis %s %s \n", string(v.Data), v.Channel)
 				if err := onMessage(v.Channel, v.Data); err != nil {
 					done <- err
 					return
 				}
 
 			case redis.Subscription:
-				log.Debug("Message from redis subscription ok : %s %s\n", v.Channel, v.Kind, v.Count)
+				log.Debugf("Redis subscription: channel=%s kind=%s count=%d\n", v.Channel, v.Kind, v.Count)
 				switch v.Count {
 				case len(channels):
 					// Notify application when all channels are subscribed.

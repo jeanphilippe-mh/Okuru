@@ -70,7 +70,7 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Cont
 
 	// return t.ExecuteWriter(ctx, w)
 	result := t.ExecuteWriter(ctx, w)
-	log.Debug("%+v\n", result)
+	log.Debugf("%+v\n", result)
 	return result
 }
 
