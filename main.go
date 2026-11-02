@@ -54,7 +54,6 @@ func init() {
 		log.SetLevel(log.WarnLevel)
 	}
 
-	go CleanFileWatch()
 }
 
 const (
@@ -75,6 +74,10 @@ ____________________________________O/_______
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
+
+	cleanupContext, stopCleanup := context.WithCancel(context.Background())
+	defer stopCleanup()
+	go RunFileCleanup(cleanupContext)
 
 	e := router.New()
 

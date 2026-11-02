@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <div class="pb-2 mt-4 mb-2 border-bottom"><h2>Delete Secret</h2></div>
+    <p>Confirm permanent deletion of this secret and any associated archive.</p>
+    <form method="POST" action="{{ deleteAction }}">
+        <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+        <button type="submit" class="btn btn-danger">Delete permanently</button>
+        <a href="/" class="btn btn-secondary">Cancel</a>
+    </form>
+</section>
+{% endblock %}
