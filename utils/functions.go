@@ -111,10 +111,16 @@ func GetMaxFileSizeText() string {
  */
 func ParseToken(token string) (string, string, error) {
 	tokenFragments := strings.Split(token, TOKEN_SEPARATOR)
-	if len(tokenFragments) != 2 {
-		return "", "", errors.New("not enough token fragments")
+	if len(tokenFragments) != 2 || tokenFragments[1] == "" {
+		return "", "", errors.New("invalid token")
 	}
-	return tokenFragments[0], tokenFragments[1], nil
+	// Identifiers never contain resource prefixes. In particular a password
+	// route must not accept file_<UUID> and read file metadata from Redis.
+	id, err := uuid.Parse(tokenFragments[0])
+	if err != nil || id.String() != tokenFragments[0] {
+		return "", "", errors.New("invalid token identifier")
+	}
+	return id.String(), tokenFragments[1], nil
 }
 
 /*
@@ -205,15 +211,6 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 }
 
 func RetrievePassword(p *models.Password) *echo.HTTPError {
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	println("\n/ Password has been retrieved by a viewver /\n")
-
-	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
 	storageKey, decryptionKey, err := ParseToken(p.PasswordKey)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
@@ -221,6 +218,14 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	println("\n/ Password has been retrieved by a viewver /\n")
+
+	if !Ping(c) {
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	record, remaining, ttl, err := consumeAttempt(c, REDIS_PREFIX+storageKey, true)
@@ -252,15 +257,6 @@ Source: https://gist.github.com/pohzipohzi/a202f8fb7cc30e33176dd97a9def5aac.
 Source: https://www.alexedwards.net/blog/working-with-redis.
 */
 func GetPassword(p *models.Password) *echo.HTTPError {
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	println("\n/ Password key was called from Redis and Secret page has been returned to a viewver /\n")
-
-	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
 	storageKey, decryptionKey, err := ParseToken(p.PasswordKey)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
@@ -268,6 +264,14 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	println("\n/ Password key was called from Redis and Secret page has been returned to a viewver /\n")
+
+	if !Ping(c) {
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
@@ -284,6 +288,10 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 
 	if len(p.Token) == 0 {
 		log.Error("Empty token")
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+
+	if _, err := Decrypt(p.Token, decryptionKey, 0); err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
@@ -307,6 +315,14 @@ func GetPassword(p *models.Password) *echo.HTTPError {
  * Remove a password from the Redis store. If an error occur we return a not found.
  */
 func RemovePassword(p *models.Password) *echo.HTTPError {
+	storageKey, decryptionKey, err := ParseToken(p.PasswordKey)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+
+	if storageKey == "" {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
@@ -314,15 +330,6 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
-	storageKey, _, err := ParseToken(p.PasswordKey)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
-
-	if storageKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
@@ -335,6 +342,10 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	if err != nil {
 		log.Error("RemovePassword() Redis err scan struct : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+
+	if _, err := Decrypt(p.Token, decryptionKey, 0); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	if !p.Deletable {
@@ -500,15 +511,6 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 }
 
 func RetrieveFilePassword(f *models.File) *echo.HTTPError {
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	println("\n/ File has been downloaded by a viewver/\n")
-
-	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
 	storageKey, decryptionKey, err := ParseToken(f.FileKey)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
@@ -516,6 +518,14 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	println("\n/ File has been downloaded by a viewver/\n")
+
+	if !Ping(c) {
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	// Keep exhausted file metadata until expiry so the last response can
@@ -543,16 +553,12 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	return nil
 }
 
-func GetFile(f *models.File) *echo.HTTPError {
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	println("\n/ File key was called from Redis and Secret File page has been returned to a viewver /\n")
+func GetFile(f *models.File) *echo.HTTPError { return getFile(f, true) }
 
-	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
-	}
+// An exhausted but unexpired archive may still be deleted with its valid key.
+func GetFileForDeletion(f *models.File) *echo.HTTPError { return getFile(f, false) }
 
+func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(f.FileKey)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound)
@@ -560,6 +566,14 @@ func GetFile(f *models.File) *echo.HTTPError {
 
 	if decryptionKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	println("\n/ File key was called from Redis and Secret File page has been returned to a viewver /\n")
+
+	if !Ping(c) {
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	// Preview is read-only: it must not reserve and then undo a download.
@@ -570,7 +584,7 @@ func GetFile(f *models.File) *echo.HTTPError {
 	if err = redis.ScanStruct(record, f); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
-	if len(f.Token) == 0 || f.ViewsCount >= f.Views {
+	if len(f.Token) == 0 || (requireDownloads && f.ViewsCount >= f.Views) {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
 	f.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+"file_"+storageKey))
@@ -590,6 +604,14 @@ func GetFile(f *models.File) *echo.HTTPError {
 }
 
 func RemoveFile(f *models.File) *echo.HTTPError {
+	storageKey, decryptionKey, err := ParseToken(f.FileKey)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+
+	if storageKey == "" {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
@@ -597,15 +619,6 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
-	storageKey, _, err := ParseToken(f.FileKey)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
-
-	if storageKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+"file_"+storageKey))
@@ -618,6 +631,10 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	if err != nil {
 		log.Error("RemoveFile() Redis err scan struct : %+v\n", err)
 		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+
+	if _, err := Decrypt(f.Token, decryptionKey, 0); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
 	}
 
 	if !f.Deletable {
