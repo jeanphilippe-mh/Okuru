@@ -31,6 +31,7 @@ func ConfigureErrorHandler(e *echo.Echo, viewDir string) {
 		}
 		path := c.Request().URL.Path
 		if path == "/api" || strings.HasPrefix(path, "/api/") {
+			c.Response().Header().Set("Cache-Control", "no-store")
 			_ = c.JSON(code, map[string]string{"error": http.StatusText(code)})
 			return
 		}
