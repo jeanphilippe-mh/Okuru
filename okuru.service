@@ -2,6 +2,11 @@
 Description=Okuru
 
 [Service]
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
 Type=simple
 WorkingDirectory=/home/freebox/Okuru
 EnvironmentFile=/home/freebox/Okuru/.env
