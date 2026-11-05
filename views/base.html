@@ -4,45 +4,33 @@
     <title>{{ APP_NAME }}</title>
     <meta charset="utf-8">
 
-    <meta name="description" content="Welcome to my Snappass!">
-    <meta name="author" lang="fr" content="Jean-Philippe MENCH">
+    <meta name="description" content="Share passwords and files securely with temporary links.">
+    <meta name="author" content="Jean-Philippe MENCH">
     <meta name="publisher" content="Jean-Philippe MENCH">
-    <meta name="keywords" content="IT Manager, Tech, Snappass">
-    <meta property="og:title" content="Snappass 🔐">
-    <meta property="og:description" content="Welcome to my Snappass!">
+    <meta property="og:title" content="Snappass — Secure sharing">
+    <meta property="og:description" content="Share passwords and files securely with temporary links.">
     <meta property="og:type" content="website">
-    <meta property="og:image" content="https://share.jeanphilippe.io/images/Snappass.png">
-    <meta property="og:image:secure_url" content="https://share.jeanphilippe.io/images/Snappass.png">
-    <meta property="og:image:type" content="image/png">
-    <meta property="og:image:width" content="1024">
-    <meta property="og:image:height" content="1024">
-    <meta property="og:image:alt" content="Welcome to my Snappass!">
+    <meta property="og:locale" content="en_US">
     <meta property="og:url" content="https://share.jeanphilippe.io/">
-    <meta property="og:url:secure" content="https://share.jeanphilippe.io/">
+    <meta property="og:image" content="https://share.jeanphilippe.io/images/okuru-preview-en@2x.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="2400">
+    <meta property="og:image:height" content="1260">
+    <meta property="og:image:alt" content="Snappass — secure sharing of passwords and files">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Snappass — Secure sharing">
+    <meta name="twitter:description" content="Share passwords and files securely with temporary links.">
+    <meta name="twitter:image" content="https://share.jeanphilippe.io/images/okuru-preview-en@2x.png">
+    <meta name="twitter:image:alt" content="Snappass — secure sharing of passwords and files">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#212529" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#212529" media="(prefers-color-scheme: dark)">
     <meta name="theme-color" content="#212529">
-    <meta name="msapplication-navbutton-color" content="#343a40">
     <meta name="robots" content="none, nosnippet, noarchive, notranslate, noimageindex">
-    <meta name="apple-mobile-web-app-title" content="Snappass 🔐">
-    <meta name="application-name" content="Snappass 🔐">
-    <meta name="msapplication-TileColor" content="#2b5797">
-    <meta name="msapplication-TileImage" content="/images/mstile-70x70.png">
-    <meta name="msapplication-TileImage" content="/images/mstile-144x144.png">
-    <meta name="msapplication-TileImage" content="/images/mstile-150x150.png">
-    <meta name="msapplication-TileImage" content="/images/mstile-310x150.png">
-    <meta name="msapplication-TileImage" content="/images/mstile-310x310.png">
+    <meta name="apple-mobile-web-app-title" content="Okuru">
+    <meta name="application-name" content="Okuru">
     <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="/images/android-chrome-192x192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/images/android-chrome-512x512.png">
-    <link rel="favicon" type="image/x-icon" href="/images/favicon.ico">
-    <link rel="shortcut icon" type="image/x-icon" href="/images/favicon.ico">
-    <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
-    <link rel="manifest" href="/images/site.webmanifest">
-    <link rel="mask-icon" href="/images/safari-pinned-tab.svg" color="#333333">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/css/bootstrap.min.css">
     <link rel="stylesheet" href="/css/all.min.css">
     <link rel="stylesheet" href="/css/custom.css">
@@ -55,7 +43,7 @@
         <span class="navbar-toggler-icon"></span>
     </button>
     <a class="navbar-brand" translate=no href="/"><h1>{{ APP_NAME }}</h1></a>
-    {% if(logo) %}<a class="navbar-brand" href="https://www.jeanphilippe.io/" rel="noopener noreferrer nofollow" target="_blank"><img src="/images/logo.png" width="45" height="45" alt="LinkedIn" srcset="/images/logo@2x.png 2x, /images/logo@3x.png 3x" alt="Logo" /></a>{% endif %}
+    {% if(logo) %}<a class="navbar-brand" href="https://www.jeanphilippe.io/" rel="noopener noreferrer nofollow" target="_blank"><img src="/images/logo.png" width="45" height="45" alt="Jean-Philippe Mench" srcset="/images/logo@2x.png 2x" /></a>{% endif %}
 
     <div class="collapse navbar-collapse" id="navbarNav">
       <ul class="navbar-nav">
@@ -86,7 +74,8 @@
     {% endif %}
   </footer>
 
-  <script async src=/scripts/bootstrap.min.js></script>
+  <script async src="/scripts/bootstrap.min.js"></script>
+  <script defer src="/scripts/service-worker-register.js"></script>
   {% block js %}{% endblock %}
 </body>
 </html>
