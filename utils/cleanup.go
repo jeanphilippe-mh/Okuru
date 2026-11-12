@@ -44,7 +44,7 @@ func runFileCleanup(ctx context.Context, interval time.Duration) {
 func cleanupConnection(ctx context.Context, timeout time.Duration) (redis.Conn, error) {
 	db, err := strconv.Atoi(REDIS_DB)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cleanup Redis database: %w", err)
+		return nil, fmt.Errorf("Invalid cleanup Redis database: %w", err)
 	}
 	opts := []redis.DialOption{redis.DialConnectTimeout(3 * time.Second), redis.DialReadTimeout(timeout), redis.DialWriteTimeout(3 * time.Second), redis.DialDatabase(db)}
 	if REDIS_PASSWORD != "" {
@@ -104,7 +104,7 @@ func reconcileArchivesWith(ctx context.Context, c redis.Conn, entries []os.DirEn
 }
 func removeExpiredArchive(c redis.Conn, id string) error {
 	if !canonicalArchiveID(id) {
-		return fmt.Errorf("invalid archive identifier")
+		return fmt.Errorf("Invalid archive identifier")
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {

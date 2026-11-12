@@ -467,7 +467,7 @@ func AddFile(context echo.Context) error {
 	dataContext["maxFileSize"] = MaxFileSize
 	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
 	fail := func(status int, message string) error {
-		dataContext["errors"] = message
+		dataContext["errors"] = displayError(message)
 		return context.Render(status, "index_file.html", dataContext)
 	}
 

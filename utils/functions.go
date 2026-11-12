@@ -111,13 +111,13 @@ func GetMaxFileSizeText() string {
 func ParseToken(token string) (string, string, error) {
 	tokenFragments := strings.Split(token, TOKEN_SEPARATOR)
 	if len(tokenFragments) != 2 || tokenFragments[1] == "" {
-		return "", "", errors.New("invalid token")
+		return "", "", errors.New("Invalid token")
 	}
 	// Identifiers never contain resource prefixes. In particular a password
 	// route must not accept file_<UUID> and read file metadata from Redis.
 	id, err := uuid.Parse(tokenFragments[0])
 	if err != nil || id.String() != tokenFragments[0] {
-		return "", "", errors.New("invalid token identifier")
+		return "", "", errors.New("Invalid token identifier")
 	}
 	return id.String(), tokenFragments[1], nil
 }
@@ -158,7 +158,7 @@ func Decrypt(password []byte, decryptionKey string, ttl int) (string, error) {
 	// not the token's maximum age, which would expire it halfway through.
 	message := fernet.VerifyAndDecrypt(password, 0, k)
 	if message == nil {
-		return "", errors.New("invalid encrypted token")
+		return "", errors.New("Invalid encrypted token")
 	}
 	return string(message), nil
 }
@@ -357,7 +357,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 func CleanFile(fileName string) error {
 	if !canonicalArchiveID(fileName) {
-		return errors.New("invalid archive identifier")
+		return errors.New("Invalid archive identifier")
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
@@ -373,7 +373,7 @@ func CleanFile(fileName string) error {
 		return err
 	}
 	if !info.Mode().IsRegular() {
-		return errors.New("archive is not a regular file")
+		return errors.New("Archive is not a regular file")
 	}
 	if err := os.Remove(filePathName); err != nil && !os.IsNotExist(err) {
 		return err
@@ -659,7 +659,7 @@ func deleteAuthenticatedFileMetadata(c redis.Conn, fileKey, passwordKey, session
 		return err
 	}
 	if n != 1 {
-		return errors.New("file metadata changed")
+		return errors.New("File metadata changed")
 	}
 	return nil
 }

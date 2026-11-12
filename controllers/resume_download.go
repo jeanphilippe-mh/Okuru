@@ -22,7 +22,7 @@ import (
 func downloadSessionCookiePrefix(token string) (string, error) {
 	id, _, err := ParseToken(token)
 	if err != nil {
-		return "", errors.New("invalid file link")
+		return "", errors.New("Invalid file link")
 	}
 	return "__Secure-okuru-dl-" + id + "-", nil
 }
@@ -73,7 +73,7 @@ func chooseDownloadCookie(c echo.Context, token string) (*http.Cookie, error) {
 			return cookie, nil
 		}
 	}
-	return nil, errors.New("download session is missing or ambiguous")
+	return nil, errors.New("Download session is missing or ambiguous")
 }
 
 // downloadArchive reads the stored file directly without staging plaintext.
@@ -90,7 +90,7 @@ type downloadArchive struct {
 func openDownloadArchive(c echo.Context, f *File, secret, name string) (*downloadArchive, error) {
 	if (f.ArchiveFormat == ArchiveFormatAgeUserPassword && !f.PasswordProvided) ||
 		(f.ArchiveFormat == ArchiveFormatAgeX25519 && f.PasswordProvided) {
-		return nil, errors.New("invalid archive metadata")
+		return nil, errors.New("Invalid archive metadata")
 	}
 	file, err := OpenStorageArchive(filepath.Join(FILEFOLDER, name))
 	if err != nil {
@@ -99,7 +99,7 @@ func openDownloadArchive(c echo.Context, f *File, secret, name string) (*downloa
 	closeOnError := func(err error) (*downloadArchive, error) { _ = file.Close(); return nil, err }
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		return closeOnError(errors.New("invalid archive"))
+		return closeOnError(errors.New("Invalid archive"))
 	}
 	var reader io.ReaderAt
 	var size int64
@@ -112,7 +112,7 @@ func openDownloadArchive(c echo.Context, f *File, secret, name string) (*downloa
 	case ArchiveFormatAgeX25519:
 		reader, size, err = DecryptArchiveIdentityReaderAt(c.Request().Context(), file, info.Size(), secret)
 	default:
-		return closeOnError(errors.New("unsupported archive format"))
+		return closeOnError(errors.New("Unsupported archive format"))
 	}
 	if err != nil {
 		return closeOnError(err)
@@ -139,7 +139,7 @@ func (a *downloadArchive) verifyUnchanged() error {
 	}
 	current, err := a.file.Stat()
 	if err != nil || !os.SameFile(a.info, current) || current.Size() != a.info.Size() || !current.ModTime().Equal(a.info.ModTime()) {
-		return errors.New("archive changed during download")
+		return errors.New("Archive changed during download")
 	}
 	return nil
 }
@@ -149,7 +149,7 @@ func (a *downloadArchive) verifyUnchanged() error {
 // either end. This costs a complete file read for each initial/resumed request.
 func legacyArchiveETag(file *os.File, size int64) (string, error) {
 	if size < 0 {
-		return "", errors.New("invalid archive size")
+		return "", errors.New("Invalid archive size")
 	}
 	h := sha256.New()
 	if _, err := io.CopyN(h, io.NewSectionReader(file, 0, size), size); err != nil {
@@ -163,7 +163,7 @@ func legacyArchiveETag(file *os.File, size int64) (string, error) {
 // transfer does not silently join two separately encrypted versions.
 func encryptedArchiveETag(file *os.File, size int64) (string, error) {
 	if size < 0 {
-		return "", errors.New("invalid archive size")
+		return "", errors.New("Invalid archive size")
 	}
 	h := sha256.New()
 	if _, err := fmt.Fprintf(h, "%d:", size); err != nil {
@@ -184,23 +184,23 @@ func encryptedArchiveETag(file *os.File, size int64) (string, error) {
 // rejects multiple ranges to bound work and amplification per continuation.
 func parseSingleByteRange(value string, size int64) (start, length int64, err error) {
 	if !strings.HasPrefix(value, "bytes=") || strings.Contains(value, ",") || size <= 0 {
-		return 0, 0, errors.New("invalid range")
+		return 0, 0, errors.New("Invalid range")
 	}
 	left, right, ok := strings.Cut(strings.TrimPrefix(value, "bytes="), "-")
 	if !ok || (left == "" && right == "") || strings.Contains(right, "-") {
-		return 0, 0, errors.New("invalid range")
+		return 0, 0, errors.New("Invalid range")
 	}
 	for _, part := range []string{left, right} {
 		for _, ch := range part {
 			if ch < '0' || ch > '9' {
-				return 0, 0, errors.New("invalid range")
+				return 0, 0, errors.New("Invalid range")
 			}
 		}
 	}
 	if left == "" {
 		n, e := strconv.ParseInt(right, 10, 64)
 		if e != nil || n <= 0 {
-			return 0, 0, errors.New("invalid range")
+			return 0, 0, errors.New("Invalid range")
 		}
 		if n > size {
 			n = size
@@ -209,13 +209,13 @@ func parseSingleByteRange(value string, size int64) (start, length int64, err er
 	}
 	start, err = strconv.ParseInt(left, 10, 64)
 	if err != nil || start < 0 || start >= size {
-		return 0, 0, errors.New("invalid range")
+		return 0, 0, errors.New("Invalid range")
 	}
 	end := size - 1
 	if right != "" {
 		end, err = strconv.ParseInt(right, 10, 64)
 		if err != nil || end < start {
-			return 0, 0, errors.New("invalid range")
+			return 0, 0, errors.New("Invalid range")
 		}
 		if end >= size {
 			end = size - 1

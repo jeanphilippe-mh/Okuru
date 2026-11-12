@@ -69,14 +69,14 @@ func stagingRoot(root string) (string, error) {
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || (stat.Uid != 0 && stat.Uid != uint32(os.Geteuid())) || !info.IsDir() || info.Mode().Perm()&0022 != 0 {
-		return "", errors.New("staging root is not a trusted directory")
+		return "", errors.New("Staging root is not a trusted directory")
 	}
 	return root, nil
 }
 
 func CreateLockedStagingDir(root, prefix string) (_ *LockedStagingDir, resultErr error) {
 	if !validStagingPrefix(prefix) {
-		return nil, errors.New("invalid staging prefix")
+		return nil, errors.New("Invalid staging prefix")
 	}
 	root, err := stagingRoot(root)
 	if err != nil {
@@ -251,7 +251,7 @@ func cleanupStaleStagingDir(dir string) error {
 		return nil
 	}
 	if err := removeStagingContents(dir); err != nil {
-		return fmt.Errorf("remove stale staging directory: %w", err)
+		return fmt.Errorf("Remove stale staging directory: %w", err)
 	}
 	return nil
 }
