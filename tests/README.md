@@ -4,16 +4,16 @@ This directory contains Okuru's Go tests, grouped by the source package they exe
 
 | Suite | Source package | Scope |
 | --- | --- | --- |
-| [root](_suites/root/README.md) | repository root | application HTTP timeout configuration |
-| [controllers](_suites/controllers/README.md) | `controllers` | sharing, uploads, downloads, archives, API and forms |
-| [router](_suites/router/README.md) | `router` | middleware, request limits, HTTP and end-to-end uploads |
-| [utils](_suites/utils/README.md) | `utils` | storage, encryption, Redis, tokens and platform-specific guards |
+| [root](go/root/README.md) | repository root | application HTTP timeout configuration |
+| [controllers](go/controllers/README.md) | `controllers` | sharing, uploads, downloads, archives, API and forms |
+| [router](go/router/README.md) | `router` | middleware, request limits, HTTP and end-to-end uploads |
+| [utils](go/utils/README.md) | `utils` | storage, encryption, Redis, tokens and platform-specific guards |
 | `upload-preflight.test.cjs` | browser upload form | selection validation, error handling and safe text rendering |
 | `branding.test.js` | public assets | preview metadata, icons and robots policy |
 | `service_worker.test.js` | service worker | registration, Trusted Types and cache behavior |
 | `apache_error_contract.py` | Apache configuration | local proxy and error response contract |
 
-The `_suites` directory keeps test source files outside production package directories. The test runner uses a temporary Go overlay to project those files into their original Go packages, so tests retain their package-private access and original working directories. Keep each Go test's original filename, including platform suffixes and build constraints. When adding or removing a Go test, update `tests/suites.manifest` as well; the runner refuses missing or unlisted tests and rejects Go tests discovered outside `tests/` in project source directories. It excludes common generated, dependency and hidden directories from that check.
+The `tests/go` directory keeps test source files outside production package directories. The `ignore ./tests/go` directive in `go.mod` prevents Go from treating these stored files as separate packages when expanding patterns such as `./...`; it does not delete the files or prevent direct file access. The test runner uses a temporary Go overlay to project those files into their original Go packages, so tests retain their package-private access and original working directories. Keep each Go test's original filename, including platform suffixes and build constraints. When adding or removing a Go test, update `tests/suites.manifest` as well; the runner refuses missing or unlisted tests and rejects Go tests discovered outside `tests/` in project source directories. It excludes common generated, dependency and hidden directories from that check.
 
 ## Running Go tests
 
@@ -33,7 +33,19 @@ go run ./tests/cmd/okurutest test -race
 go run ./tests/cmd/okurutest test -v '-run=TestUploadValidation' -- ./controllers
 ```
 
-Put package paths after `--`, and use `-flag=value` for flags taking a value. For example, `-- ./utils` runs the utility suite. Use the dedicated runner for `-run` or `-skip` filters, benchmarks, fuzzing, listing tests and coverage; the generic harness rejects these options instead of producing misleading results. Plain `go test -count=1 ./utils` or `go vet ./...` does not by itself include the Go tests stored under `_suites`.
+Put package paths after `--`, and use `-flag=value` for flags taking a value. For example, `-- ./utils` runs the utility suite. Use the dedicated runner for `-run` or `-skip` filters, benchmarks, fuzzing, listing tests and coverage; the generic harness rejects these options instead of producing misleading results. Plain `go test -count=1 ./utils` or `go vet ./...` does not by itself include the Go tests stored under `tests/go`.
+
+Module maintenance must also account for the projected tests: running plain `go mod tidy` does not load the ignored test files and can remove dependencies used only by those tests. Check module changes without writing files, or apply them explicitly, through the overlay-aware runner:
+
+```sh
+# Check without modifying go.mod or go.sum:
+go run ./tests/cmd/okurutest tidy -diff
+
+# Apply the required module changes:
+go run ./tests/cmd/okurutest tidy
+```
+
+The second command can modify `go.mod` and `go.sum`. Review those changes before committing them.
 
 Tests requiring Redis use `OKURU_TEST_REDIS_ADDR`; without it they are skipped. Use an isolated loopback-only Redis instance with no production data: some tests create and remove temporary users and keys. The CI workflow provides a disposable service. Tests also use temporary directories and some launch subprocesses. TLSA script tests require `bash` and `jq`.
 

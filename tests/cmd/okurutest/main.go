@@ -10,8 +10,8 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 || (os.Args[1] != "test" && os.Args[1] != "vet") {
-		fmt.Fprintln(os.Stderr, "Usage: go run ./tests/cmd/okurutest {test|vet} [Go flags]")
+	if len(os.Args) < 2 || (os.Args[1] != "test" && os.Args[1] != "vet" && os.Args[1] != "tidy") {
+		fmt.Fprintln(os.Stderr, "Usage: go run ./tests/cmd/okurutest {test|vet|tidy} [Go flags]")
 		os.Exit(2)
 	}
 	root, err := suite.FindRoot()

@@ -22,7 +22,7 @@ func FindRoot() (string, error) {
 	}
 	for {
 		_, modErr := os.Stat(filepath.Join(dir, "go.mod"))
-		st, suitesErr := os.Stat(filepath.Join(dir, "tests", "_suites"))
+		st, suitesErr := os.Stat(filepath.Join(dir, "tests", "go"))
 		if modErr == nil && suitesErr == nil && st.IsDir() {
 			return dir, nil
 		}
@@ -60,7 +60,7 @@ func Overlay(root string) (map[string]string, []string, error) {
 		return nil, nil, err
 	}
 
-	suites := filepath.Join(root, "tests", "_suites")
+	suites := filepath.Join(root, "tests", "go")
 	manifest, err := os.ReadFile(filepath.Join(root, "tests", "suites.manifest"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("Cannot read the test suite manifest: %w", err)
@@ -174,10 +174,10 @@ func Overlay(root string) (map[string]string, []string, error) {
 	return replacements, list, nil
 }
 
-// Run invokes go test or go vet with a temporary overlay. Individual package
-// paths avoid recursively executing the top-level harness.
+// Run invokes go test, go vet, or go mod tidy with a temporary overlay.
+// Individual test package paths avoid recursively executing the harness.
 func Run(root, command string, args []string, stdout, stderr io.Writer) error {
-	if command != "test" && command != "vet" {
+	if command != "test" && command != "vet" && command != "tidy" {
 		return fmt.Errorf("Unsupported Go command %q", command)
 	}
 	replace, packages, err := Overlay(root)
@@ -191,6 +191,9 @@ func Run(root, command string, args []string, stdout, stderr io.Writer) error {
 			continue
 		}
 		flags, selected = args[:i], args[i+1:]
+		if command == "tidy" {
+			return fmt.Errorf("Package selection is not supported for go mod tidy")
+		}
 		if len(selected) == 0 {
 			return fmt.Errorf("Specify at least one package after --")
 		}
@@ -215,6 +218,7 @@ func Run(root, command string, args []string, stdout, stderr io.Writer) error {
 		"-fuzztime": true, "-fuzzminimizetime": true, "-list": true, "-vet": true,
 		"-p": true, "-gcflags": true, "-ldflags": true, "-asmflags": true,
 		"-mod": true, "-modfile": true, "-o": true, "-exec": true, "-outputdir": true,
+		"-go": true, "-compat": true,
 	}
 	for _, arg := range flags {
 		if !strings.HasPrefix(arg, "-") {
@@ -243,7 +247,9 @@ func Run(root, command string, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	argv := []string{command, "-overlay", f.Name()}
-	if command == "vet" && len(selected) == 0 {
+	if command == "tidy" {
+		argv = []string{"mod", "tidy", "-overlay", f.Name()}
+	} else if command == "vet" && len(selected) == 0 {
 		argv = append(argv, "./...")
 	} else {
 		if command == "test" {

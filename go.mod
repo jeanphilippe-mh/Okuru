@@ -2,6 +2,8 @@ module github.com/jeanphilippe-mh/Okuru
 
 go 1.27.4
 
+ignore ./tests/go
+
 require (
 	filippo.io/age v1.3.2
 	github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611
