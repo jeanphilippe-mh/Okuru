@@ -213,7 +213,14 @@ func DownloadFile(context echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	retrieveErr := RetrieveFilePassword(f)
+	claim, retrieveErr := ClaimFileDownload(f)
+	if claim != nil {
+		defer func() {
+			if err := ReleaseFileDownloadClaim(claim); err != nil {
+				log.Error("Could not release download claim")
+			}
+		}()
+	}
 	if retrieveErr != nil {
 		log.Error("File metadata retrieval failed")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
@@ -259,11 +266,16 @@ func DownloadFile(context echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
-	defer archive.file.Close()
-	value, lifetime, err := CreateDownloadSession(f, secret, archive.size)
+	value, lifetime, session, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
 	if err != nil {
+		_ = archive.file.Close()
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
+	progress := &downloadProgress{session: session, representationOK: true}
+	defer func() {
+		_ = archive.file.Close()
+		progress.finish()
+	}()
 	cookieName, err := downloadSessionCookie(f.FileKey, value)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError)
@@ -284,13 +296,16 @@ func DownloadFile(context echo.Context) error {
 		h.Set(echo.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": archiveName}))
 		h.Set("ETag", archive.etag)
 		h.Set("Cache-Control", "private, no-store")
-		http.ServeContent(context.Response(), context.Request(), archiveName, info.ModTime(), archive.file)
-		if archive.verifyUnchanged() != nil {
+		writer := &responseWriteTracker{ResponseWriter: context.Response()}
+		http.ServeContent(writer, context.Request(), archiveName, info.ModTime(), archive.file)
+		unchanged := archive.verifyUnchanged() == nil
+		recordLegacyResponse(progress, writer, archive.size, unchanged, context.Request().Context().Err() == nil)
+		if !unchanged || writer.writeErr != nil {
 			panic(http.ErrAbortHandler)
 		}
 		return nil
 	}
-	return writeDownloadArchive(context, archive, archiveName, nil)
+	return writeDownloadArchive(context, archive, archiveName, nil, progress)
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.

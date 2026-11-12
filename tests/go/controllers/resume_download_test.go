@@ -101,32 +101,6 @@ func resumeFixture(t *testing.T, conn redis.Conn, format string, protected bool)
 	return e, token, password, plain
 }
 
-func initialResumeDownload(t *testing.T, conn redis.Conn, e *echo.Echo, token, password string) (*http.Cookie, []byte, string) {
-	t.Helper()
-	rec, err := downloadCompatibilityFile(t, e, token, password)
-	if err != nil || rec.Code != http.StatusOK {
-		t.Fatalf("initial download: %d %v", rec.Code, err)
-	}
-	if rec.Header().Get("Accept-Ranges") != "bytes" || rec.Header().Get("ETag") == "" {
-		t.Fatal("resume headers missing")
-	}
-	var cookie *http.Cookie
-	for _, item := range rec.Result().Cookies() {
-		name, err := downloadSessionCookie(token, item.Value)
-		if err == nil && item.Name == name {
-			cookie = item
-		}
-	}
-	if cookie == nil || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/file/"+token {
-		t.Fatalf("unsafe or missing download cookie: %#v", cookie)
-	}
-	id, _, _ := u.ParseToken(token)
-	digest := sha256.Sum256([]byte(cookie.Value))
-	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
-	t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
-	return cookie, rec.Body.Bytes(), rec.Header().Get("ETag")
-}
-
 func getResume(e *echo.Echo, token string, cookie *http.Cookie, rangeValue, validator string) (*httptest.ResponseRecorder, error) {
 	req := httptest.NewRequest(http.MethodGet, "/file/"+token, nil)
 	req.Header.Set("Range", rangeValue)
@@ -159,9 +133,9 @@ func TestResumeOneViewAndHistoricalLinks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, token, password, expected := resumeFixture(t, conn, tc.format, tc.protected)
-			cookie, initial, etag := initialResumeDownload(t, conn, e, token, password)
-			if !bytes.Equal(initial, expected) {
-				t.Fatal("initial ZIP changed")
+			cookie, initial, etag := interruptedSessionWithPassword(t, conn, e, token, 5, password)
+			if !bytes.Equal(initial, expected[:5]) {
+				t.Fatal("interrupted ZIP prefix changed")
 			}
 			second, _ := downloadCompatibilityFile(t, e, token, password)
 			if second.Code != http.StatusNotFound {
@@ -197,8 +171,8 @@ func TestHistoricalZipAllowsRangeOnInitialPost(t *testing.T) {
 
 func TestLegacyZipMiddleMutationChangesIfRangeValidator(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, original := resumeFixture(t, conn, "", false)
-	cookie, _, etag := initialResumeDownload(t, conn, e, token, password)
+	e, token, _, original := resumeFixture(t, conn, "", false)
+	cookie, _, etag := interruptedSession(t, conn, e, token, 5)
 	changed := bytes.Clone(original)
 	changed[len(changed)/2] ^= 1
 	name, err := archiveNameFromToken(token)
@@ -317,6 +291,10 @@ func TestInterruptedInitialDownloadResumesOneView(t *testing.T) {
 	digest := sha256.Sum256([]byte(cookie.Value))
 	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
 	t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
+	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+	if err != nil || count != 1 {
+		t.Fatalf("initial download did not consume exactly one view: %d %v", count, err)
+	}
 	rec, err := getResume(e, token, cookie, "bytes=11-", "")
 	if err != nil || rec.Code != http.StatusPartialContent {
 		t.Fatalf("continuation: %d %v", rec.Code, err)
@@ -325,15 +303,20 @@ func TestInterruptedInitialDownloadResumesOneView(t *testing.T) {
 	if !bytes.Equal(joined, plain) {
 		t.Fatal("resumed bytes do not reconstruct the original ZIP")
 	}
-	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
-	if err != nil || count != 1 {
-		t.Fatalf("continuation consumed another view: %d %v", count, err)
+	if exists, err := redis.Int(conn.Do("EXISTS", u.REDIS_PREFIX+"file_"+id)); err != nil || exists != 0 {
+		t.Fatalf("completed final view retained file metadata: %d %v", exists, err)
 	}
 }
 
 func interruptedSession(t *testing.T, conn redis.Conn, e *echo.Echo, token string, prefixLen int) (*http.Cookie, []byte, string) {
+	return interruptedSessionWithPassword(t, conn, e, token, prefixLen, "")
+}
+
+func interruptedSessionWithPassword(t *testing.T, conn redis.Conn, e *echo.Echo, token string, prefixLen int, password string) (*http.Cookie, []byte, string) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/file/"+token, nil)
+	form := url.Values{"password": {password}}
+	req := httptest.NewRequest(http.MethodPost, "/file/"+token, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", echo.MIMEApplicationForm)
 	recorder := httptest.NewRecorder()
 	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: prefixLen}
 	c := e.NewContext(req, writer)
@@ -354,7 +337,9 @@ func interruptedSession(t *testing.T, conn redis.Conn, e *echo.Echo, token strin
 			cookie = item
 		}
 	}
-	if cookie == nil || recorder.Body.Len() != prefixLen || recorder.Header().Get("ETag") == "" {
+	if cookie == nil || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode ||
+		cookie.Path != "/file/"+token || recorder.Body.Len() != prefixLen ||
+		recorder.Header().Get("ETag") == "" || recorder.Header().Get("Accept-Ranges") != "bytes" {
 		t.Fatal("interrupted session missing cookie, validator or bytes")
 	}
 	id, _, _ := u.ParseToken(token)
@@ -375,6 +360,10 @@ func TestTwoInterruptedSessionsForSameFileResumeIndependently(t *testing.T) {
 	second, prefix2, etag2 := interruptedSession(t, conn, e, token, 17)
 	if first.Name == second.Name || etag1 == etag2 {
 		t.Fatal("sessions for the same file collided")
+	}
+	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+	if err != nil || count != 2 {
+		t.Fatalf("unexpected view count before resuming: %d %v", count, err)
 	}
 	resume := func(offset int, validator string) (*httptest.ResponseRecorder, error) {
 		req := httptest.NewRequest(http.MethodGet, "/file/"+token, nil)
@@ -410,16 +399,15 @@ func TestTwoInterruptedSessionsForSameFileResumeIndependently(t *testing.T) {
 			t.Fatal("incorrect session continuation")
 		}
 	}
-	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
-	if err != nil || count != 2 {
-		t.Fatalf("unexpected view count: %d %v", count, err)
+	if exists, err := redis.Int(conn.Do("EXISTS", u.REDIS_PREFIX+"file_"+id)); err != nil || exists != 0 {
+		t.Fatalf("both completed views retained file metadata: %d %v", exists, err)
 	}
 }
 
 func TestResumeRefundsUnwrittenBytes(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	cookie, _, _ := initialResumeDownload(t, conn, e, token, password)
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie, prefix, _ := interruptedSession(t, conn, e, token, 5)
 	f := &models.File{FileKey: token}
 	_, session, httpErr := u.ResumeFileDownload(f, cookie.Value)
 	if httpErr != nil {
@@ -442,7 +430,7 @@ func TestResumeRefundsUnwrittenBytes(t *testing.T) {
 		_ = writeDownloadArchive(c, &downloadArchive{reader: bytes.NewReader(plain), size: int64(len(plain)), etag: `"test"`}, "test.zip", &downloadBudget{session: session, reserved: int64(len(plain))})
 	}()
 	rec, err := getResume(e, token, cookie, "bytes=5-", "")
-	if err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), plain[5:]) {
+	if err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(append(bytes.Clone(prefix), rec.Body.Bytes()...), plain) {
 		t.Fatalf("unused range was not refunded: status=%d error=%v", rec.Code, err)
 	}
 }
@@ -511,19 +499,20 @@ func TestPasswordV2ArchiveResumesWithoutRetainingPasswordUnderLink(t *testing.T)
 	passwordToken := tokenFromCompatibilityLink(t, renderer.data["passwordLink"].(string), "/")
 	passwordID, _, _ := u.ParseToken(passwordToken)
 	t.Cleanup(func() { _, _ = conn.Do("DEL", u.REDIS_PREFIX+passwordID) })
-	cookie, initial, etag := initialResumeDownload(t, conn, e, token, password)
-	rec, err := getResume(e, token, cookie, "bytes=3-11", etag)
-	if err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), initial[3:12]) {
+	cookie, prefix, etag := interruptedSessionWithPassword(t, conn, e, token, 3, password)
+	rec, err := getResume(e, token, cookie, "bytes=3-", etag)
+	if err != nil || rec.Code != http.StatusPartialContent {
 		t.Fatalf("password-protected resume: %d %v", rec.Code, err)
 	}
+	assertCompatibilityZIP(t, append(bytes.Clone(prefix), rec.Body.Bytes()...))
 }
 
 func TestResumeSessionsAreDistinctBoundedAndRevocable(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token1, password1, expected1 := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	_, token2, password2, expected2 := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	cookie1, _, etag1 := initialResumeDownload(t, conn, e, token1, password1)
-	cookie2, _, etag2 := initialResumeDownload(t, conn, e, token2, password2)
+	e, token1, _, expected1 := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	_, token2, _, expected2 := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie1, _, etag1 := interruptedSession(t, conn, e, token1, 11)
+	cookie2, _, etag2 := interruptedSession(t, conn, e, token2, 11)
 	if cookie1.Name == cookie2.Name || cookie1.Path == cookie2.Path {
 		t.Fatal("cookies collide")
 	}
@@ -555,8 +544,12 @@ func TestResumeSessionsAreDistinctBoundedAndRevocable(t *testing.T) {
 
 func TestResumeByteBudgetIsAtomic(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	cookie, _, _ := initialResumeDownload(t, conn, e, token, password)
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	id, _, _ := u.ParseToken(token)
+	if _, err := conn.Do("HSET", u.REDIS_PREFIX+"file_"+id, "views", 2); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _, _ := interruptedSession(t, conn, e, token, 5)
 	var wg sync.WaitGroup
 	codes := make(chan int, 2)
 	for i := 0; i < 2; i++ {
@@ -594,8 +587,8 @@ func TestResumeByteBudgetIsAtomic(t *testing.T) {
 func TestResumeSessionExpiry(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "1s")
-	e, token, password, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	cookie, _, _ := initialResumeDownload(t, conn, e, token, password)
+	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie, _, _ := interruptedSession(t, conn, e, token, 11)
 	time.Sleep(1200 * time.Millisecond)
 	if rec, _ := getResume(e, token, cookie, "bytes=0-1", ""); rec.Code != http.StatusNotFound {
 		t.Fatal("expired session remained usable")

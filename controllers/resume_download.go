@@ -230,6 +230,85 @@ type downloadBudget struct {
 	written  int64
 }
 
+// downloadProgress records only bytes handed to the response writer. It does
+// not claim that an upstream proxy delivered those bytes to the browser.
+type downloadProgress struct {
+	session                 *DownloadSession
+	start, written          int64
+	integrityOK, responseOK bool
+	representationOK        bool
+}
+
+func (p *downloadProgress) finish() {
+	if p == nil || p.session == nil {
+		return
+	}
+	if err := RecordDownloadProgress(p.session, p.start, p.written, p.integrityOK, p.responseOK); err != nil {
+		log.Error("Could not finalize download progress")
+	}
+}
+
+// responseWriteTracker captures errors that http.ServeContent does not return
+// and prevents a short write from being mistaken for a complete response.
+type responseWriteTracker struct {
+	http.ResponseWriter
+	status   int
+	written  int64
+	writeErr error
+}
+
+func (w *responseWriteTracker) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *responseWriteTracker) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(p)
+	w.written += int64(n)
+	if err != nil {
+		w.writeErr = errors.Join(w.writeErr, err)
+	} else if n != len(p) {
+		w.writeErr = errors.Join(w.writeErr, io.ErrShortWrite)
+	}
+	return n, err
+}
+
+// recordLegacyResponse accepts only a full response or a single, correctly
+// bounded Content-Range. Multi-range responses remain resumable until expiry.
+func recordLegacyResponse(p *downloadProgress, w *responseWriteTracker, size int64, unchanged, contextOK bool) {
+	if p == nil || !unchanged {
+		return
+	}
+	start, length := int64(0), size
+	if w.status == http.StatusPartialContent {
+		part, total, ok := strings.Cut(strings.TrimPrefix(w.Header().Get("Content-Range"), "bytes "), "/")
+		if !ok || total != strconv.FormatInt(size, 10) {
+			return
+		}
+		var err error
+		start, length, err = parseSingleByteRange("bytes="+part, size)
+		if err != nil {
+			return
+		}
+	} else if w.status != http.StatusOK {
+		return
+	}
+	if w.written > length {
+		return
+	}
+	p.start, p.written = start, w.written
+	p.responseOK = p.representationOK && w.writeErr == nil && w.written == length && contextOK
+	// When the final write reports both the full length and an error (or the
+	// request was canceled), its coverage is ambiguous. Do not let a later
+	// one-byte retry convert that failed response into a complete transfer.
+	p.integrityOK = p.representationOK && (p.responseOK || (w.writeErr != nil && w.written < length))
+}
+
 func (b *downloadBudget) finish() {
 	if b == nil {
 		return
@@ -239,7 +318,7 @@ func (b *downloadBudget) finish() {
 	}
 }
 
-func writeDownloadArchive(c echo.Context, a *downloadArchive, name string, budget *downloadBudget) error {
+func writeDownloadArchive(c echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress ...*downloadProgress) error {
 	start, length, status := int64(0), a.size, http.StatusOK
 	if budget != nil {
 		defer budget.finish()
@@ -273,11 +352,25 @@ func writeDownloadArchive(c echo.Context, a *downloadArchive, name string, budge
 	h.Set("ETag", a.etag)
 	h.Set(echo.HeaderContentLength, strconv.FormatInt(length, 10))
 	c.Response().WriteHeader(status)
-	written, err := io.CopyN(c.Response(), io.NewSectionReader(a.reader, start, length), length)
+	writer := &responseWriteTracker{ResponseWriter: c.Response(), status: status}
+	written, err := io.CopyN(writer, io.NewSectionReader(a.reader, start, length), length)
+	// CopyN may return nil after n bytes even if the final Write returned an
+	// error together with those bytes; that is not a successful response.
+	if err == nil && writer.writeErr != nil {
+		err = writer.writeErr
+	}
 	if budget != nil {
 		budget.written = written
 	}
-	if err != nil || a.verifyUnchanged() != nil {
+	integrityErr := a.verifyUnchanged()
+	if len(progress) > 0 && progress[0] != nil {
+		p := progress[0]
+		p.start, p.written = start, written
+		p.responseOK = p.representationOK && err == nil && integrityErr == nil && c.Request().Context().Err() == nil
+		p.integrityOK = p.representationOK && integrityErr == nil &&
+			(p.responseOK || (writer.writeErr != nil && written < length))
+	}
+	if err != nil || integrityErr != nil {
 		// A committed response must be interrupted when a chunk fails its
 		// authentication or the transport cannot finish the bytes promised.
 		panic(http.ErrAbortHandler)
@@ -306,10 +399,12 @@ func resumeDownload(c echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 	f := &File{FileKey: token}
-	secret, session, httpErr := ResumeFileDownload(f, cookie.Value)
+	secret, session, httpErr := ResumeTrackedFileDownload(f, cookie.Value)
 	if httpErr != nil {
 		return c.NoContent(http.StatusNotFound)
 	}
+	progress := &downloadProgress{session: session}
+	defer progress.finish()
 	_, length, err := parseSingleByteRange(value, session.Size())
 	if err != nil {
 		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", session.Size()))
@@ -332,7 +427,11 @@ func resumeDownload(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 	defer archive.file.Close()
+	progress.representationOK, err = VerifyDownloadRepresentation(session, archive.etag)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	}
 	archive.etag = sessionETag(archive.etag, cookie.Value)
 	handedOff = true
-	return writeDownloadArchive(c, archive, name, budget)
+	return writeDownloadArchive(c, archive, name, budget, progress)
 }
