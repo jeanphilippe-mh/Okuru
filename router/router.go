@@ -52,7 +52,7 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Cont
 		ctx, ok = data.(pongo2.Context)
 
 		if !ok {
-			return errors.New("no pongo2.Context data was passed")
+			return errors.New("No pongo2.Context data was passed")
 		}
 	}
 

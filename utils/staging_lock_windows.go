@@ -61,7 +61,7 @@ func trustedWindowsDirectory(path string) error {
 func trustedWindowsDirectoryAccess(path string, ancestor bool) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("staging directory is not trusted")
+		return errors.New("Staging directory is not trusted")
 	}
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -69,7 +69,7 @@ func trustedWindowsDirectoryAccess(path string, ancestor bool) error {
 	}
 	attrs, err := windows.GetFileAttributes(name)
 	if err != nil || attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return errors.New("staging directory is a reparse point")
+		return errors.New("Staging directory is a reparse point")
 	}
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
@@ -78,7 +78,7 @@ func trustedWindowsDirectoryAccess(path string, ancestor bool) error {
 	}
 	owner, _, err := sd.Owner()
 	if err != nil || owner == nil {
-		return errors.New("staging owner unavailable")
+		return errors.New("Staging owner unavailable")
 	}
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
@@ -88,11 +88,11 @@ func trustedWindowsDirectoryAccess(path string, ancestor bool) error {
 		return sid != nil && (sid.Equals(user.User.Sid) || sid.IsWellKnown(windows.WinLocalSystemSid) || sid.IsWellKnown(windows.WinBuiltinAdministratorsSid))
 	}
 	if !trusted(owner) {
-		return errors.New("staging owner is not trusted")
+		return errors.New("Staging owner is not trusted")
 	}
 	acl, _, err := sd.DACL()
 	if err != nil || acl == nil {
-		return errors.New("staging DACL is missing")
+		return errors.New("Staging DACL is missing")
 	}
 	var mutations uint32 = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | windows.FILE_WRITE_EA |
 		windows.FILE_WRITE_ATTRIBUTES | 0x40 | windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER |
@@ -108,7 +108,7 @@ func trustedWindowsDirectoryAccess(path string, ancestor bool) error {
 	for i := uint32(0); i < uint32(acl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(acl, i, &ace); err != nil || ace == nil {
-			return errors.New("staging DACL cannot be inspected")
+			return errors.New("Staging DACL cannot be inspected")
 		}
 		// Inherit-only entries do not grant access to this directory. Newly
 		// created staging and quota directories are validated independently.
@@ -122,11 +122,11 @@ func trustedWindowsDirectoryAccess(path string, ancestor bool) error {
 			if uint32(ace.Mask)&mutations != 0 {
 				sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
 				if !trusted(sid) {
-					return errors.New("staging DACL allows untrusted mutation")
+					return errors.New("Staging DACL allows untrusted mutation")
 				}
 			}
 		default:
-			return errors.New("staging DACL contains unsupported entries")
+			return errors.New("Staging DACL contains unsupported entries")
 		}
 	}
 	return nil
@@ -161,7 +161,7 @@ func trustedWindowsPathChain(path string) error {
 	ancestor := false
 	for {
 		if err := trustedWindowsDirectoryAccess(path, ancestor); err != nil {
-			return fmt.Errorf("untrusted staging path component: %w", err)
+			return fmt.Errorf("Untrusted staging path component: %w", err)
 		}
 		parent := filepath.Dir(path)
 		if parent == path {
@@ -189,14 +189,14 @@ func openSharedMarker(path string) (*os.File, error) {
 	if err = windows.GetFileInformationByHandle(h, &info); err != nil ||
 		info.FileAttributes&(windows.FILE_ATTRIBUTE_DIRECTORY|windows.FILE_ATTRIBUTE_REPARSE_POINT) != 0 || info.NumberOfLinks != 1 {
 		_ = windows.CloseHandle(h)
-		return nil, errors.New("invalid staging marker")
+		return nil, errors.New("Invalid staging marker")
 	}
 	return os.NewFile(uintptr(h), path), nil
 }
 
 func CreateLockedStagingDir(root, prefix string) (_ *LockedStagingDir, resultErr error) {
 	if !validStagingPrefix(prefix) {
-		return nil, errors.New("invalid staging prefix")
+		return nil, errors.New("Invalid staging prefix")
 	}
 	guard, err := AcquireStoragePathGuard(root)
 	if err != nil {
@@ -253,7 +253,7 @@ func CreateLockedStagingDir(root, prefix string) (_ *LockedStagingDir, resultErr
 	}()
 	locked, err := quotaTryLock(marker)
 	if err != nil || !locked {
-		return nil, errors.New("could not lock staging marker")
+		return nil, errors.New("Could not lock staging marker")
 	}
 	if _, err = io.WriteString(marker, stagingLockContents); err != nil {
 		return nil, err
@@ -392,7 +392,7 @@ func cleanupStaleWindowsStaging(dir string) error {
 		return nil
 	}
 	if err := removeLockedStaging(dir, marker, stageGuard); err != nil {
-		return fmt.Errorf("remove stale staging directory: %w", err)
+		return fmt.Errorf("Remove stale staging directory: %w", err)
 	}
 	return nil
 }

@@ -227,7 +227,7 @@ func AddIndex(context echo.Context) error {
 
 	p.Deletable = false
 	if err := ValidateWebLimits(p.TTL, p.Views); err != nil {
-		dataContext["errors"] = err.Error()
+		dataContext["errors"] = displayError(err.Error())
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 

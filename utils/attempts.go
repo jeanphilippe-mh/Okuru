@@ -40,7 +40,7 @@ return 1
 
 func createExpiringHash(c redis.Conn, key string, ttl int, fields ...interface{}) error {
 	if ttl <= 0 {
-		return errors.New("invalid record expiry")
+		return errors.New("Invalid record expiry")
 	}
 	args := append(redis.Args{}.Add(key, ttl), fields...)
 	_, err := createExpiringHashScript.Do(c, args...)

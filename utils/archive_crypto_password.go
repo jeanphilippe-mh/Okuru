@@ -11,8 +11,8 @@ import (
 // encrypted copy of the user's archive password. The archive is still age v1.
 const ArchiveFormatAgeUserPassword = "age-user-password-v2"
 
-var errArchivePasswordRequired = errors.New("archive password is required")
-var errArchiveIdentityRequired = errors.New("an archive identity is required for unprotected files")
+var errArchivePasswordRequired = errors.New("Archive password is required")
+var errArchiveIdentityRequired = errors.New("An archive identity is required for unprotected files")
 
 // fileMetadataSecret separates the file-link authenticator from the archive
 // password for new explicitly password-protected files. Legacy records still

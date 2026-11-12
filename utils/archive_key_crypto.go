@@ -28,7 +28,7 @@ func parseArchiveIdentity(secret string) (*age.X25519Identity, error) {
 	identity, err := age.ParseX25519Identity(secret)
 	if err != nil {
 		// Do not accidentally expose malformed secret material through an error.
-		return nil, errors.New("invalid archive identity")
+		return nil, errors.New("Invalid archive identity")
 	}
 	return identity, nil
 }

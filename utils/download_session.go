@@ -100,7 +100,7 @@ func downloadSessionSeconds() (int, error) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil || d < time.Second || d > 30*24*time.Hour {
-		return 0, errors.New("invalid download session timeout")
+		return 0, errors.New("Invalid download session timeout")
 	}
 	return int(d / time.Second), nil
 }
@@ -135,7 +135,7 @@ func validDownloadSessionCookie(value string) bool {
 func CreateDownloadSession(f *models.File, secret string, size int64) (string, int, error) {
 	id, _, err := ParseToken(f.FileKey)
 	if err != nil || len(f.Token) == 0 || len(secret) > MaxSecretBytes || size < 0 || size > maxExactSessionBytes {
-		return "", 0, errors.New("invalid download session")
+		return "", 0, errors.New("Invalid download session")
 	}
 	seconds, err := downloadSessionSeconds()
 	if err != nil {
@@ -143,18 +143,18 @@ func CreateDownloadSession(f *models.File, secret string, size int64) (string, i
 	}
 	var key fernet.Key
 	if err := key.Generate(); err != nil {
-		return "", 0, errors.New("cannot create download session")
+		return "", 0, errors.New("Cannot create download session")
 	}
 	ciphertext, err := fernet.EncryptAndSign([]byte(secret), &key)
 	if err != nil {
-		return "", 0, errors.New("cannot create download session")
+		return "", 0, errors.New("Cannot create download session")
 	}
 	cookie := key.Encode()
 	c := NewPool().Get()
 	defer c.Close()
 	duration, err := redis.Int(createDownloadSessionScript.Do(c, REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie), f.Token, ciphertext, seconds, size, downloadSessionDigest(cookie)))
 	if err != nil || duration < 1 {
-		return "", 0, errors.New("cannot create download session")
+		return "", 0, errors.New("Cannot create download session")
 	}
 	return cookie, duration, nil
 }

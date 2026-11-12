@@ -30,7 +30,7 @@ func AcquireStoragePathGuard(root string) (_ *StoragePathGuard, resultErr error)
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
-		return nil, errors.New("invalid storage path")
+		return nil, errors.New("Invalid storage path")
 	}
 	root = filepath.Clean(root)
 	if err := validateWindowsStoragePath(root); err != nil {
@@ -40,7 +40,7 @@ func AcquireStoragePathGuard(root string) (_ *StoragePathGuard, resultErr error)
 	// Restrict this implementation to drive-letter paths. Network shares,
 	// device namespaces and junctions need separate filesystem validation.
 	if len(volume) != 2 || volume[1] != ':' || !filepath.IsAbs(root) || strings.Contains(root[len(volume):], ":") {
-		return nil, errors.New("storage path must be on a local drive")
+		return nil, errors.New("Storage path must be on a local drive")
 	}
 	var paths []string
 	for current := root; ; current = filepath.Dir(current) {
@@ -62,7 +62,7 @@ func AcquireStoragePathGuard(root string) (_ *StoragePathGuard, resultErr error)
 			// The local drive root is the only component opened by absolute name.
 			name, nameErr := windows.UTF16PtrFromString(paths[i])
 			if nameErr != nil {
-				return nil, errors.New("invalid storage path")
+				return nil, errors.New("Invalid storage path")
 			}
 			h, err = windows.CreateFile(name, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES|windows.FILE_EXECUTE,
 				windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING,
@@ -72,7 +72,7 @@ func AcquireStoragePathGuard(root string) (_ *StoragePathGuard, resultErr error)
 			// directory handle, and fail closed on a reparse point.
 			name, nameErr := windows.NewNTUnicodeString(filepath.Base(paths[i]))
 			if nameErr != nil {
-				return nil, errors.New("invalid storage path")
+				return nil, errors.New("Invalid storage path")
 			}
 			attributes := windows.OBJECT_ATTRIBUTES{
 				RootDirectory: guard.handles[len(guard.handles)-1],
@@ -86,7 +86,7 @@ func AcquireStoragePathGuard(root string) (_ *StoragePathGuard, resultErr error)
 				windows.FILE_OPEN, windows.FILE_DIRECTORY_FILE|windows.FILE_OPEN_REPARSE_POINT|windows.FILE_SYNCHRONOUS_IO_NONALERT, 0, 0)
 		}
 		if err != nil {
-			return nil, errors.New("cannot anchor storage path")
+			return nil, errors.New("Cannot anchor storage path")
 		}
 		guard.handles = append(guard.handles, h)
 		if err := checkWindowsGuardHandle(h, i != 0); err != nil {
@@ -104,15 +104,15 @@ func AcquireStoragePathGuard(root string) (_ *StoragePathGuard, resultErr error)
 // drive-relative and UNC/device paths are rejected as ambiguous.
 func validateWindowsStoragePath(path string) error {
 	if path == "" || strings.HasPrefix(path, `\\`) || strings.HasPrefix(path, `//`) {
-		return errors.New("invalid storage path")
+		return errors.New("Invalid storage path")
 	}
 	volume := filepath.VolumeName(path)
 	if volume != "" && (len(volume) != 2 || volume[1] != ':' || !filepath.IsAbs(path)) {
-		return errors.New("invalid storage volume")
+		return errors.New("Invalid storage volume")
 	}
 	for _, component := range strings.FieldsFunc(path[len(volume):], func(r rune) bool { return r == '/' || r == '\\' }) {
 		if component != "." && component != ".." && !safeWindowsPathComponent(component) {
-			return errors.New("ambiguous storage path component")
+			return errors.New("Ambiguous storage path component")
 		}
 	}
 	return nil
@@ -125,13 +125,13 @@ func validateWindowsStoragePath(path string) error {
 func checkWindowsPathIdentity(path string, anchored windows.Handle) error {
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return errors.New("invalid storage path")
+		return errors.New("Invalid storage path")
 	}
 	h, err := windows.CreateFile(name, windows.FILE_READ_ATTRIBUTES,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
-		return errors.New("cannot verify storage path identity")
+		return errors.New("Cannot verify storage path identity")
 	}
 	defer windows.CloseHandle(h)
 	var a, b windows.ByHandleFileInformation
@@ -139,7 +139,7 @@ func checkWindowsPathIdentity(path string, anchored windows.Handle) error {
 		b.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || b.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 ||
 		a.VolumeSerialNumber != b.VolumeSerialNumber || a.FileIndexHigh != b.FileIndexHigh || a.FileIndexLow != b.FileIndexLow ||
 		(a.FileIndexHigh == 0 && a.FileIndexLow == 0) {
-		return errors.New("storage path resolves to a different object")
+		return errors.New("Storage path resolves to a different object")
 	}
 	return nil
 }
@@ -149,30 +149,30 @@ func checkWindowsGuardHandle(h windows.Handle, ancestor bool) error {
 	if err := windows.GetFileInformationByHandle(h, &info); err != nil ||
 		info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 ||
 		info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return errors.New("storage path component is not a trusted directory")
+		return errors.New("Storage path component is not a trusted directory")
 	}
 	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return errors.New("cannot inspect storage path security")
+		return errors.New("Cannot inspect storage path security")
 	}
 	owner, _, err := sd.Owner()
 	if err != nil || owner == nil {
-		return errors.New("storage path owner unavailable")
+		return errors.New("Storage path owner unavailable")
 	}
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
-		return errors.New("service identity unavailable")
+		return errors.New("Service identity unavailable")
 	}
 	trusted := func(sid *windows.SID) bool {
 		return sid != nil && (sid.Equals(user.User.Sid) || sid.IsWellKnown(windows.WinLocalSystemSid) || sid.IsWellKnown(windows.WinBuiltinAdministratorsSid))
 	}
 	if !trusted(owner) {
-		return errors.New("storage path owner is not trusted")
+		return errors.New("Storage path owner is not trusted")
 	}
 	acl, _, err := sd.DACL()
 	if err != nil || acl == nil {
-		return errors.New("storage path DACL unavailable")
+		return errors.New("Storage path DACL unavailable")
 	}
 	var mutations uint32 = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | windows.FILE_WRITE_EA |
 		windows.FILE_WRITE_ATTRIBUTES | 0x40 | windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER |
@@ -185,7 +185,7 @@ func checkWindowsGuardHandle(h windows.Handle, ancestor bool) error {
 	for i := uint32(0); i < uint32(acl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(acl, i, &ace); err != nil || ace == nil {
-			return errors.New("cannot inspect storage path DACL")
+			return errors.New("Cannot inspect storage path DACL")
 		}
 		if ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
 			continue
@@ -195,10 +195,10 @@ func checkWindowsGuardHandle(h windows.Handle, ancestor bool) error {
 			continue
 		case windows.ACCESS_ALLOWED_ACE_TYPE:
 			if uint32(ace.Mask)&mutations != 0 && !trusted((*windows.SID)(unsafe.Pointer(&ace.SidStart))) {
-				return errors.New("storage path allows untrusted mutation")
+				return errors.New("Storage path allows untrusted mutation")
 			}
 		default:
-			return errors.New("unsupported storage path DACL")
+			return errors.New("Unsupported storage path DACL")
 		}
 	}
 	return nil

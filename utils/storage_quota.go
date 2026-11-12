@@ -14,8 +14,8 @@ import (
 // Cooperating processes using the same storage root share reservations.
 // This remains an application admission budget, not a filesystem quota.
 var (
-	ErrStorageQuotaConfiguration = errors.New("invalid storage quota configuration")
-	ErrStorageCapacity           = errors.New("insufficient storage capacity")
+	ErrStorageQuotaConfiguration = errors.New("Invalid storage quota configuration")
+	ErrStorageCapacity           = errors.New("Insufficient storage capacity")
 )
 
 const (

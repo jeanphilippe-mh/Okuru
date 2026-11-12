@@ -22,7 +22,7 @@ func OpenStorageArchive(path string) (*os.File, error) {
 	defer guard.Close()
 	base := filepath.Base(path)
 	if !safeWindowsPathComponent(base) || strings.ContainsAny(base, `:\/`) {
-		return nil, errors.New("invalid archive name")
+		return nil, errors.New("Invalid archive name")
 	}
 	name, err := windows.NewNTUnicodeString(base)
 	if err != nil {
@@ -47,7 +47,7 @@ func OpenStorageArchive(path string) (*os.File, error) {
 	if err := windows.GetFileInformationByHandle(h, &info); err != nil || kindErr != nil || kind != windows.FILE_TYPE_DISK ||
 		info.FileAttributes&(windows.FILE_ATTRIBUTE_DIRECTORY|windows.FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
 		_ = windows.CloseHandle(h)
-		return nil, errors.New("archive is not a regular non-reparse file")
+		return nil, errors.New("Archive is not a regular non-reparse file")
 	}
 	return os.NewFile(uintptr(h), path), nil
 }

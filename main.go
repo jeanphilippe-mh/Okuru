@@ -76,7 +76,7 @@ func positiveDuration(name string, fallback time.Duration) (time.Duration, error
 	}
 	duration, err := time.ParseDuration(value)
 	if err != nil || duration <= 0 {
-		return 0, fmt.Errorf("invalid positive duration in %s", name)
+		return 0, fmt.Errorf("Invalid positive duration in %s", name)
 	}
 	return duration, nil
 }

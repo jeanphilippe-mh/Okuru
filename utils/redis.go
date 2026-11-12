@@ -50,7 +50,7 @@ func NewPool() *redis.Pool {
 		DialContext: func(ctx context.Context) (redis.Conn, error) {
 			db, err := strconv.Atoi(config.database)
 			if err != nil || db < 0 {
-				return nil, fmt.Errorf("invalid Redis database")
+				return nil, fmt.Errorf("Invalid Redis database")
 			}
 			opts := []redis.DialOption{
 				redis.DialConnectTimeout(3 * time.Second),

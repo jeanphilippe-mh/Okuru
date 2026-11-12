@@ -8,9 +8,9 @@ import (
 )
 
 func quotaTryLock(*os.File) (bool, error) {
-	return false, errors.New("interprocess quota locks are unsupported on this platform")
+	return false, errors.New("Interprocess quota locks are unsupported on this platform")
 }
 
 func quotaUnlock(*os.File) error {
-	return errors.New("interprocess quota locks are unsupported on this platform")
+	return errors.New("Interprocess quota locks are unsupported on this platform")
 }

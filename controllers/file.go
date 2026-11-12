@@ -465,7 +465,7 @@ func AddFile(context echo.Context) error {
 	delete(dataContext, "errors")
 	dataContext["csrfToken"] = context.Get("csrf")
 	fail := func(status int, message string) error {
-		dataContext["errors"] = message
+		dataContext["errors"] = displayError(message)
 		return context.Render(status, "index_file.html", dataContext)
 	}
 
