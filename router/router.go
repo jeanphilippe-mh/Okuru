@@ -76,6 +76,21 @@ func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Cont
 }
 
 func New() *echo.Echo {
+	return NewWithTimeouts(defaultIOIdleTimeout, 2*time.Hour, 2*time.Hour)
+}
+
+// NewWithTimeouts applies idle and absolute limits to each transfer. The
+// server-level timeouts are configured separately as a transport backstop.
+func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo.Echo {
+	if idleTimeout <= 0 {
+		idleTimeout = defaultIOIdleTimeout
+	}
+	if readTimeout <= 0 {
+		readTimeout = 2 * time.Hour
+	}
+	if writeTimeout <= 0 {
+		writeTimeout = 2 * time.Hour
+	}
 	renderer := Renderer{
 		Debug: true,
 	}
@@ -89,6 +104,9 @@ func New() *echo.Echo {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Protect parsing, including CSRF form extraction, before entering middleware.
+	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))
 
 	// Middleware BodyLimit
 	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
@@ -136,6 +154,10 @@ func New() *echo.Echo {
 			return nil
 		},
 	}))
+
+	// Parse multipart file bodies without writing plaintext, before CSRF's
+	// FormValue lookup can invoke the standard multipart parser.
+	e.Use(secureMultipart)
 
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{

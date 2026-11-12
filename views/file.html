@@ -32,7 +32,7 @@
     <br>
     <p>
         &#9989The file is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a> {% else %} {{ deletableText }} {% endif %} and up for <b>{{ ttl }}</b> / <b>{{ dlViews }} left</b>.
-        <br>After that it will be <u>permanently deleted</u> from the server and the URL will no longer work.
+        <br>The URL stops working after the allowed downloads or the time limit. The archive is removed after the time limit; cleanup can be delayed if storage or Redis is unavailable.
     </p>
 </section>
 {% endblock %}

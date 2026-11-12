@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/netutil"
 )
 
 var DebugLevel bool
@@ -31,16 +33,7 @@ func Flags() {
 	defer pflag.Parse()
 }
 
-func init() {
-	Flags()
-
-	pool := NewPool()
-	c := pool.Get()
-	defer c.Close()
-	if !Ping(c) {
-		log.Panic("Redis issue is detected")
-	}
-
+func configureLogging() {
 	// Log as JSON instead of the default ASCII formatter.
 	log.SetFormatter(&log.JSONFormatter{})
 
@@ -72,18 +65,81 @@ ____________________________________O/_______
 `
 )
 
+type httpTimeouts struct {
+	read, write, idle, transferIdle time.Duration
+}
+
+func positiveDuration(name string, fallback time.Duration) (time.Duration, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("invalid positive duration in %s", name)
+	}
+	return duration, nil
+}
+
+func loadHTTPTimeouts() (httpTimeouts, error) {
+	var result httpTimeouts
+	var err error
+	if result.read, err = positiveDuration("OKURU_HTTP_READ_TIMEOUT", 2*time.Hour); err != nil {
+		return result, err
+	}
+	if result.write, err = positiveDuration("OKURU_HTTP_WRITE_TIMEOUT", 2*time.Hour); err != nil {
+		return result, err
+	}
+	if result.idle, err = positiveDuration("OKURU_HTTP_IDLE_TIMEOUT", 90*time.Second); err != nil {
+		return result, err
+	}
+	if result.transferIdle, err = positiveDuration("OKURU_HTTP_TRANSFER_IDLE_TIMEOUT", 2*time.Minute); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 func main() {
+	Flags()
+	configureLogging()
+	if err := run(); err != nil {
+		log.Error(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	rand.Seed(time.Now().UnixNano())
+	timeouts, err := loadHTTPTimeouts()
+	if err != nil {
+		return err
+	}
+
+	pool := NewPool()
+	defer CloseRedisPool()
+	c := pool.Get()
+	redisReady := Ping(c)
+	_ = c.Close()
+	if !redisReady {
+		return fmt.Errorf("Redis is unavailable")
+	}
 
 	cleanupContext, stopCleanup := context.WithCancel(context.Background())
-	defer stopCleanup()
-	go RunFileCleanup(cleanupContext)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		RunFileCleanup(cleanupContext)
+	}()
+	defer func() {
+		stopCleanup()
+		<-cleanupDone
+	}()
 
-	e := router.New()
+	e := router.NewWithTimeouts(timeouts.transferIdle, timeouts.read, timeouts.write)
 
 	ex, err := os.Executable()
 	if err != nil {
-		e.Logger.Fatal(err)
+		return err
 	}
 	router.ConfigureErrorHandler(e, filepath.Join(filepath.Dir(ex), "views"))
 
@@ -99,33 +155,59 @@ func main() {
 	s := &http.Server{
 		Addr:              ":" + APP_PORT,
 		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       timeouts.read,
+		WriteTimeout:      timeouts.write,
+		IdleTimeout:       timeouts.idle,
+		MaxHeaderBytes:    32 << 10,
 		TLSConfig:         tlsConfig,
 		Handler:           e,
 	}
 
-	http2.ConfigureServer(s, &http2.Server{})
+	if err := http2.ConfigureServer(s, &http2.Server{
+		MaxConcurrentStreams: 32,
+		IdleTimeout:          timeouts.idle,
+		ReadIdleTimeout:      time.Minute,
+		PingTimeout:          15 * time.Second,
+		WriteByteTimeout:     timeouts.transferIdle,
+	}); err != nil {
+		return err
+	}
 
 	// Print the banner message to the log.
 	fmt.Printf(banner, version, website)
 
+	listener, err := net.Listen("tcp", s.Addr)
+	if err != nil {
+		return err
+	}
+	listener = netutil.LimitListener(listener, 128)
+	defer listener.Close()
+	serverDone := make(chan error, 1)
 	go func() {
 		fmt.Printf("Starting https server at %s\n", s.Addr)
-		err := s.ListenAndServeTLS(certFile, keyFile)
-		if err != nil && err != http.ErrServerClosed {
-			e.Logger.Fatal(err)
-		}
+		serverDone <- s.ServeTLS(listener, certFile, keyFile)
 	}()
 
 	// Wait for interrupt signal to gracefully shutdown the server with a 5 seconds timeout.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
+	defer signal.Stop(quit)
+	select {
+	case <-quit:
+	case err := <-serverDone:
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
 	fmt.Println("Shutting down server...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = s.Shutdown(ctx)
 	if err != nil {
-		e.Logger.Fatal(err)
+		_ = s.Close()
+		return err
 	}
 	fmt.Println("Server gracefully stopped")
+	return nil
 }

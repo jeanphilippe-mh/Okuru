@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -174,6 +173,12 @@ func Decrypt(password []byte, decryptionKey string, ttl int) (string, error) {
  * @return {string, error} token, error
  */
 func SetPassword(password string, ttl, views int, deletable bool) (string, *echo.HTTPError) {
+	if ttl <= 0 {
+		return "", echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if err := ValidateSecretLength(password); err != nil {
+		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge)
+	}
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
@@ -191,19 +196,13 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	_, err = c.Do("HMSET", REDIS_PREFIX+storageKey.String(),
+	err = createExpiringHash(c, REDIS_PREFIX+storageKey.String(), ttl,
 		"token", encryptedPassword,
 		"views", views,
 		"views_count", 0,
 		"deletable", deletable)
 	if err != nil {
-		log.Errorf("SetPassword() Redis err set : %+v\n", err)
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
-	_, err = c.Do("EXPIRE", REDIS_PREFIX+storageKey.String(), ttl)
-	if err != nil {
-		log.Errorf("SetPassword() Redis err expire : %+v\n", err)
+		log.Error("Could not create expiring password metadata")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -228,7 +227,7 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	record, remaining, ttl, err := consumeAttempt(c, REDIS_PREFIX+storageKey, true)
+	record, remaining, ttl, password, err := authenticateAndConsumeAttempt(c, REDIS_PREFIX+storageKey, decryptionKey, true)
 	if err == redis.ErrNil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -241,11 +240,6 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	p.Views = remaining
 	p.TTL = ttl
 
-	password, err := Decrypt(p.Token, decryptionKey, p.TTL)
-	if err != nil {
-		log.Error("Error while decrypting password")
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
 	p.Password = password
 
 	return nil
@@ -361,50 +355,30 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	return nil
 }
 
-
-func CleanFile(fileName string) {
-	// Replace newline characters to prevent path traversal attacks
-	escapedfileName := strings.ReplaceAll(fileName, "\n", "")
-	escapedfileName = strings.ReplaceAll(escapedfileName, "\r", "")
-	log.Debugf("CleanFile fileName : %s\n", escapedfileName)
-
-	// Validate the file name to prevent path traversal attacks
-	fileNamePattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
-	re := regexp.MustCompile(fileNamePattern)
-	cleanFileName := filepath.Base(escapedfileName)
-
-	if re.MatchString(cleanFileName) {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		return
+func CleanFile(fileName string) error {
+	if !canonicalArchiveID(fileName) {
+		return errors.New("invalid archive identifier")
 	}
-
-	if strings.Count(cleanFileName, ".") > 1 {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		return
-	}
-
-	if strings.ContainsAny(cleanFileName, "/\\") {
-		errorMessage := "File name contains prohibited characters"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		return
-	}
-
-	// Construct the file path to prevent path traversal attacks
-	filePathName := filepath.Join(FILEFOLDER, cleanFileName+".zip")
-
-	// Delete the file
-	err := os.Remove(filePathName)
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
-		log.Errorf("CleanFile: deleting file error : %+v\n", err)
+		return err
 	}
+	defer guard.Close()
+	filePathName := filepath.Join(FILEFOLDER, fileName+".zip")
+	info, err := os.Lstat(filePathName)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("archive is not a regular file")
+	}
+	if err := os.Remove(filePathName); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 /**
@@ -433,7 +407,33 @@ func GenerateRandomString(n int) (string, error) {
  * @param {boolean} deletable
  * @return {string} token
  */
-func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string) (string, *echo.HTTPError) { //done
+func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string, archiveFormat ...string) (string, *echo.HTTPError) { //done
+	if ttl <= 0 {
+		return "", echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if err := ValidateSecretLength(password); err != nil {
+		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge)
+	}
+	if len(archiveFormat) > 1 || (len(archiveFormat) == 1 && archiveFormat[0] != ArchiveFormatAge && archiveFormat[0] != ArchiveFormatAgeUserPassword && archiveFormat[0] != ArchiveFormatAgeX25519) {
+		return "", echo.NewHTTPError(http.StatusBadRequest)
+	}
+	format := ""
+	if len(archiveFormat) == 1 {
+		format = archiveFormat[0]
+	}
+	if format == ArchiveFormatAgeUserPassword && !canonicalArchiveID(providedKey) {
+		return "", echo.NewHTTPError(http.StatusBadRequest)
+	}
+	if format == ArchiveFormatAgeX25519 && providedKey != "" {
+		return "", echo.NewHTTPError(http.StatusBadRequest)
+	}
+	metadataSecret, err := fileMetadataSecret(password, provided, format)
+	if err != nil {
+		if errors.Is(err, errArchivePasswordRequired) || errors.Is(err, errArchiveIdentityRequired) {
+			return "", echo.NewHTTPError(http.StatusBadRequest)
+		}
+		return "", echo.NewHTTPError(http.StatusInternalServerError)
+	}
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
@@ -445,27 +445,22 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 
 	storageKey := uuid.New()
 
-	encryptedPassword, encryptionKey, err := Encrypt(password)
+	encryptedPassword, encryptionKey, err := Encrypt(metadataSecret)
 	if err != nil {
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	_, err = c.Do("HMSET", REDIS_PREFIX+"file_"+storageKey.String(),
+	err = createExpiringHash(c, REDIS_PREFIX+"file_"+storageKey.String(), ttl,
 		"token", encryptedPassword,
 		"views", views,
 		"views_count", 0,
 		"deletable", deletable,
 		"provided", provided,
-		"provided_key", providedKey)
+		"provided_key", providedKey,
+		"archive_format", format)
 
 	if err != nil {
-		log.Errorf("SetPassword() Redis err set : %+v\n", err)
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
-	}
-
-	_, err = c.Do("EXPIRE", REDIS_PREFIX+"file_"+storageKey.String(), ttl)
-	if err != nil {
-		log.Errorf("SetPassword() Redis err expire : %+v\n", err)
+		log.Error("Could not create expiring file metadata")
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
@@ -492,7 +487,7 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 
 	// Keep exhausted file metadata until expiry so the last response can
 	// stream its archive safely. Further reservations are rejected atomically.
-	record, remaining, ttl, err := consumeAttempt(c, REDIS_PREFIX+"file_"+storageKey, false)
+	record, remaining, ttl, password, err := authenticateAndConsumeAttempt(c, REDIS_PREFIX+"file_"+storageKey, decryptionKey, false)
 	if err == redis.ErrNil {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
@@ -505,11 +500,6 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	f.Views = remaining
 	f.TTL = ttl
 
-	password, err := Decrypt(f.Token, decryptionKey, f.TTL)
-	if err != nil {
-		log.Error("Error while decrypting password")
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
 	f.Password = password
 
 	return nil
@@ -574,10 +564,14 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	if storageKey == "" {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	defer guard.Close()
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key was removed from Redis and associated file has been deleted from data folder /\n")
 
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError)
@@ -603,21 +597,69 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
 
-	_, err = c.Do("DEL", REDIS_PREFIX+"file_"+storageKey)
-	if err != nil {
-		log.Errorf("DeleteFile() Redis err : %+v\n", err)
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
-
+	fileKey := REDIS_PREFIX + "file_" + storageKey
+	passwordKey := fileKey
 	if f.PasswordProvided {
-		_, err = c.Do("DEL", REDIS_PREFIX+f.PasswordProvidedKey)
-		if err != nil {
-			log.Errorf("DeletePassword() Redis err : %+v\n", err)
-			return echo.NewHTTPError(http.StatusNotFound)
+		if !canonicalArchiveID(f.PasswordProvidedKey) {
+			return echo.NewHTTPError(http.StatusInternalServerError)
 		}
+		passwordKey = REDIS_PREFIX + f.PasswordProvidedKey
+	}
+	if err := deleteAuthenticatedFileMetadata(c, fileKey, passwordKey, REDIS_PREFIX+"download_session_"+storageKey+"_", f.Token, f.PasswordProvidedKey, f.PasswordProvided); err != nil {
+		log.Error("Could not delete file metadata")
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	CleanFile(storageKey)
+	// The metadata is already gone. Reconciliation retries failed archive
+	// cleanup, but a failed removal must not be reported as complete.
+	if err := CleanFile(storageKey); err != nil {
+		log.Error("Could not remove archive")
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
 
+	return nil
+}
+
+// DEL checks authorization for all keys before changing any of them. The
+// script also ties deletion to the exact token and association authenticated.
+var deleteFileMetadataScript = redis.NewScript(2, `
+if redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return 0 end
+local deletable = redis.call('HGET', KEYS[1], 'deletable') or '0'
+if deletable ~= '1' and deletable ~= 'true' then return 0 end
+local provided = redis.call('HGET', KEYS[1], 'provided') or '0'
+if provided == 'true' then provided = '1' elseif provided == 'false' then provided = '0' end
+local associated = redis.call('HGET', KEYS[1], 'provided_key') or ''
+if provided ~= ARGV[2] or associated ~= ARGV[3] then return 0 end
+-- Validate the bounded index before deleting anything; never allow a corrupt
+-- record to redirect deletion to arbitrary Redis keys.
+local index = redis.call('HGET', KEYS[1], 'download_sessions') or ''
+if string.len(index) > 6500 then return redis.error_reply('invalid session index') end
+local keys = {KEYS[1], KEYS[2]}
+local rebuilt = ''
+for digest in string.gmatch(index, '([^,]+)') do
+    if string.len(digest) ~= 64 or string.find(digest, '[^0-9a-f]') then
+        return redis.error_reply('invalid session index')
+    end
+    rebuilt = rebuilt .. digest .. ','
+    keys[#keys + 1] = ARGV[4] .. digest
+end
+if rebuilt ~= index then return redis.error_reply('invalid session index') end
+-- A single DEL makes Redis check ACLs for every key before deleting any.
+redis.call('DEL', unpack(keys))
+return 1
+`)
+
+func deleteAuthenticatedFileMetadata(c redis.Conn, fileKey, passwordKey, sessionPrefix string, token []byte, associatedKey string, provided bool) error {
+	flag := "0"
+	if provided {
+		flag = "1"
+	}
+	n, err := redis.Int(deleteFileMetadataScript.Do(c, fileKey, passwordKey, token, flag, associatedKey, sessionPrefix))
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errors.New("file metadata changed")
+	}
 	return nil
 }

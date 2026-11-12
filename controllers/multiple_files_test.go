@@ -9,10 +9,25 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http/httptest"
+	"net/url"
+	"strings"
+
+	"github.com/flosch/pongo2"
+	"github.com/jeanphilippe-mh/Okuru/models"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+type captureUploadRenderer struct{ link string }
+
+func (r *captureUploadRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+	if name == "confirm_file.html" {
+		r.link = data.(pongo2.Context)["f"].(*models.File).Link
+	}
+	_, err := io.WriteString(w, name)
+	return err
+}
 
 type uploadValidator struct{}
 
@@ -57,19 +72,11 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	}
 	writer.Close()
 	e := echo.New()
-	e.Renderer = testRenderer{}
+	renderer := &captureUploadRenderer{}
+	e.Renderer = renderer
 	e.Validator = uploadValidator{}
 	req := httptest.NewRequest("POST", "/file", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	// Force even this small request to spill to disk, then verify its location.
-	if err := req.ParseMultipartForm(1); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { req.MultipartForm.RemoveAll() })
-	spillFiles, err := os.ReadDir(spillDir)
-	if err != nil || len(spillFiles) == 0 {
-		t.Fatalf("multipart files not stored in the configured temporary directory: %v, %v", spillFiles, err)
-	}
 	if os.TempDir() != spillDir {
 		t.Fatalf("unexpected temporary directory: %s", os.TempDir())
 	}
@@ -81,11 +88,45 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	if err != nil || len(archives) != 1 {
 		t.Fatalf("archives=%v error=%v status=%d", archives, err, rec.Code)
 	}
-	z, err := zip.OpenReader(archives[0])
+	ciphertext, err := os.ReadFile(archives[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer z.Close()
+	if !bytes.HasPrefix(ciphertext, []byte("age-encryption.org/v1\n")) {
+		t.Fatal("archive is not an age envelope")
+	}
+	for _, text := range expected {
+		if bytes.Contains(ciphertext, []byte(text)) {
+			t.Fatal("archive exposes file contents")
+		}
+	}
+	if _, err := zip.NewReader(bytes.NewReader(ciphertext), int64(len(ciphertext))); err == nil {
+		t.Fatal("stored archive is an unencrypted ZIP")
+	}
+	link, err := url.Parse(renderer.link)
+	if err != nil || !strings.HasPrefix(link.Path, "/file/") {
+		t.Fatalf("missing download link: %v", err)
+	}
+	token := strings.TrimPrefix(link.Path, "/file/")
+	name, err := archiveNameFromToken(token)
+	if err != nil || filepath.Base(archives[0]) != name {
+		t.Fatalf("download link does not match stored archive: %v", err)
+	}
+	key := strings.Split(token, TOKEN_SEPARATOR)[0]
+	t.Cleanup(func() { c := NewPool().Get(); defer c.Close(); _, _ = c.Do("DEL", "test_multi_file_"+key) })
+	downloadReq := httptest.NewRequest("POST", link.Path, nil)
+	downloadRec := httptest.NewRecorder()
+	ctx := e.NewContext(downloadReq, downloadRec)
+	ctx.SetParamNames("file_key")
+	ctx.SetParamValues(token)
+	if err := DownloadFile(ctx); err != nil || downloadRec.Code != 200 {
+		t.Fatalf("download failed: status=%d error=%v", downloadRec.Code, err)
+	}
+	plaintext := downloadRec.Body.Bytes()
+	z, err := zip.NewReader(bytes.NewReader(plaintext), int64(len(plaintext)))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(z.File) != 2 {
 		t.Fatalf("got %d entries", len(z.File))
 	}
@@ -104,7 +145,7 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("temporary directory retained: %v", entries)
 	}
-	spillFiles, err = os.ReadDir(spillDir)
+	spillFiles, err := os.ReadDir(spillDir)
 	if err != nil || len(spillFiles) != 0 {
 		t.Fatalf("multipart temporary files retained: %v, %v", spillFiles, err)
 	}

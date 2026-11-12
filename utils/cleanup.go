@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -60,6 +61,11 @@ func canonicalArchiveID(value string) bool {
 // and restarts. It only considers regular <canonical UUID>.zip files in data.
 // A Redis failure is never interpreted as an expired record.
 func CleanupExpiredArchives(ctx context.Context) error {
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
 	entries, err := os.ReadDir(FILEFOLDER)
 	if err != nil {
 		return err
@@ -74,9 +80,14 @@ func CleanupExpiredArchives(ctx context.Context) error {
 	return reconcileArchives(ctx, c, entries)
 }
 func reconcileArchives(ctx context.Context, c redis.Conn, entries []os.DirEntry) error {
+	return reconcileArchivesWith(ctx, c, entries, removeExpiredArchive)
+}
+
+func reconcileArchivesWith(ctx context.Context, c redis.Conn, entries []os.DirEntry, remove func(redis.Conn, string) error) error {
+	var failures error
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			return err
+			return errors.Join(failures, err)
 		}
 		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".zip") {
 			continue
@@ -85,16 +96,21 @@ func reconcileArchives(ctx context.Context, c redis.Conn, entries []os.DirEntry)
 		if !canonicalArchiveID(id) {
 			continue
 		}
-		if err := removeExpiredArchive(c, id); err != nil {
-			return err
+		if err := remove(c, id); err != nil {
+			failures = errors.Join(failures, err)
 		}
 	}
-	return nil
+	return failures
 }
 func removeExpiredArchive(c redis.Conn, id string) error {
 	if !canonicalArchiveID(id) {
 		return fmt.Errorf("invalid archive identifier")
 	}
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
 	exists, err := redis.Bool(c.Do("EXISTS", REDIS_PREFIX+"file_"+id))
 	if err != nil {
 		return err

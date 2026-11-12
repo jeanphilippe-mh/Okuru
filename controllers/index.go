@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
@@ -207,18 +206,22 @@ func AddIndex(context echo.Context) error {
 	var err error
 	p := new(Password)
 	p.Password = context.FormValue("password")
+	if err := ValidateSecretLength(p.Password); err != nil {
+		dataContext["errors"] = "Secret exceeds the maximum size"
+		return context.Render(http.StatusRequestEntityTooLarge, "set_password.html", dataContext)
+	}
 
-	p.TTL, err = strconv.Atoi(context.FormValue("ttl"))
+	p.TTL, err = ParseWebNumber(context.FormValue("ttl"))
 	if err != nil {
-		log.Errorf("%+v\n", err)
-		dataContext["errors"] = err.Error()
+		log.Warn("Invalid duration field")
+		dataContext["errors"] = "Invalid duration"
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 
-	p.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
+	p.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
 	if err != nil {
-		log.Errorf("%+v\n", err)
-		dataContext["errors"] = err.Error()
+		log.Warn("Invalid attempt count field")
+		dataContext["errors"] = "Invalid attempt count"
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 

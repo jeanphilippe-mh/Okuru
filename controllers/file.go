@@ -2,8 +2,12 @@ package controllers
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -114,6 +118,9 @@ func Error508File(context echo.Context) error {
 }
 
 func ReadFile(context echo.Context) error {
+	if context.Request().Header.Get("Range") != "" {
+		return resumeDownload(context)
+	}
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token
@@ -188,12 +195,23 @@ func DownloadFile(context echo.Context) error {
 	csrfToken := context.Get("csrf")
 	dataContext["csrfToken"] = csrfToken
 
-	var passwordOk = true
 	f := new(File)
 	f.FileKey = context.Param("file_key")
 	archiveName, err := archiveNameFromToken(f.FileKey)
 	if err != nil {
 		return context.NoContent(http.StatusNotFound)
+	}
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	defer guard.Close()
+	password := context.FormValue("password")
+	if err := ValidateSecretLength(password); err != nil {
+		return context.NoContent(http.StatusRequestEntityTooLarge)
+	}
+	if err := ValidateDownloadSessionTimeout(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
 	retrieveErr := RetrieveFilePassword(f)
@@ -202,30 +220,99 @@ func DownloadFile(context echo.Context) error {
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 
-	if f.PasswordProvided {
-		password := context.FormValue("password")
-		if password != f.Password {
-			passwordOk = false
+	wrongPassword := func() error {
+		// A wrong password consumes a view, including when the archive itself
+		// verifies the password instead of comparing stored metadata.
+		f.Password = ""
+		dataContext["f"] = f
+		dataContext["passwordNeeded"] = true
+		dataContext["ttl"] = GetTTLText(f.TTL)
+		dataContext["dlViews"] = GetDownloadsText(f.Views)
+		if f.Deletable {
+			dataContext["deletableText"] = "deletable"
+			dataContext["deletableURL"] = GetBaseUrl(context) + "/file/remove/" + f.FileKey
+		} else {
+			dataContext["deletableText"] = "not deletable"
 		}
-	}
-
-	if !passwordOk {
-		// Security: This will cause a view counted if the user try to download the file with a wrong password.
 		dataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", dataContext)
 	}
+	if f.PasswordProvided && f.ArchiveFormat != ArchiveFormatAgeUserPassword &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(f.Password)) != 1 {
+		return wrongPassword()
+	}
+	if f.PasswordProvided && f.ArchiveFormat == ArchiveFormatAgeUserPassword && password == "" {
+		return wrongPassword()
+	}
 
-	filePathName := filepath.Join(FILEFOLDER, archiveName)
-	return context.Attachment(filePathName, archiveName)
+	secret := f.Password
+	if f.ArchiveFormat == ArchiveFormatAgeUserPassword {
+		secret = password
+	} else if f.ArchiveFormat == "" {
+		// Legacy ZIPs do not need their former password retained in the
+		// continuation record: possession of the session proves the prior check.
+		secret = "legacy-unencrypted"
+	}
+	archive, err := openDownloadArchive(context, f, secret, archiveName)
+	if err != nil {
+		if f.ArchiveFormat == ArchiveFormatAgeUserPassword && IsArchivePasswordError(err) {
+			return wrongPassword()
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	defer archive.file.Close()
+	value, lifetime, err := CreateDownloadSession(f, secret, archive.size)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	cookieName, err := downloadSessionCookie(f.FileKey, value)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	context.SetCookie(&http.Cookie{
+		Name: cookieName, Value: value, Path: "/file/" + f.FileKey,
+		MaxAge: lifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
+	})
+	archive.etag = sessionETag(archive.etag, value)
+	if f.ArchiveFormat == "" {
+		// Preserve net/http's existing Range and conditional-request behavior
+		// for original unencrypted ZIPs, including authenticated POST ranges.
+		info, err := archive.file.Stat()
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError)
+		}
+		h := context.Response().Header()
+		h.Set(echo.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": archiveName}))
+		h.Set("ETag", archive.etag)
+		h.Set("Cache-Control", "private, no-store")
+		http.ServeContent(context.Response(), context.Request(), archiveName, info.ModTime(), archive.file)
+		if archive.verifyUnchanged() != nil {
+			panic(http.ErrAbortHandler)
+		}
+		return nil
+	}
+	return writeDownloadArchive(context, archive, archiveName, nil)
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.
 // Supported values for OKURU_ZIP_COMPRESSION:
+// After headers are committed, an authentication or transport error must abort
+// the HTTP stream so a truncated body is not mistaken for a complete ZIP.
+func streamDecryptedArchive(c echo.Context, plain io.Reader) error {
+	if err := c.Stream(http.StatusOK, "application/zip", plain); err != nil {
+		if c.Response().Committed {
+			panic(http.ErrAbortHandler)
+		}
+		return err
+	}
+	return nil
+}
+
 // - "store"   -> zip.Store (no compression, fastest)
 // - "deflate" -> zip.Deflate (standard compression)
 // - "auto"    -> use deflate if file size < threshold, otherwise store
 // Threshold is defined in OKURU_ZIP_AUTO_THRESHOLD_MB (default 100 MB) and default fallback is zip.Store.
-func getZipMethod(filePath string) uint16 {
+func getZipMethodForSize(size int64) uint16 {
 	mode := strings.ToLower(os.Getenv("OKURU_ZIP_COMPRESSION"))
 	switch mode {
 	case "store":
@@ -242,12 +329,7 @@ func getZipMethod(filePath string) uint16 {
 		}
 		thresholdBytes := int64(thresholdMB) * 1024 * 1024
 
-		info, err := os.Stat(filePath)
-		if err != nil {
-			// If file stat fails, fallback to safe/fast mode
-			return zip.Store
-		}
-		if info.Size() >= thresholdBytes {
+		if size >= thresholdBytes {
 			return zip.Store
 		}
 		return zip.Deflate
@@ -257,296 +339,269 @@ func getZipMethod(filePath string) uint16 {
 	}
 }
 
-func AddFile(context echo.Context) error {
+// maxUploadFiles bounds file descriptors and per-upload metadata.
+const maxUploadFiles = 100
+
+// validateUploadFiles runs before either Redis record is created.
+func validateUploadFiles(files []*SecureMultipartFile) ([]string, error) {
+	if len(files) == 0 {
+		return nil, errors.New("no files selected")
+	}
+	if len(files) > maxUploadFiles {
+		return nil, errors.New("too many files")
+	}
+	names := make([]string, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	var total int64
+	for _, file := range files {
+		if file == nil || file.Size < 0 || MaxFileSize <= 0 || file.Size > MaxFileSize-total {
+			return nil, errors.New("upload exceeds the maximum size")
+		}
+		name := sanitizeFileName(file.Filename)
+		if name == "" || name == "." || seen[name] {
+			return nil, errors.New("invalid or duplicate file name")
+		}
+		seen[name] = true
+		names = append(names, name)
+		total += file.Size
+	}
+	return names, nil
+}
+
+// writeEncryptedUploadArchive never creates a plaintext ZIP or staging copy.
+func writeEncryptedUploadArchive(ctx context.Context, path, password string, files []*SecureMultipartFile, names []string, format string) (resultErr error) {
+	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, out.Close()) }()
+	var encrypted io.WriteCloser
+	switch format {
+	case ArchiveFormatAge, ArchiveFormatAgeUserPassword:
+		encrypted, err = EncryptArchive(ctx, out, password)
+	case ArchiveFormatAgeX25519:
+		encrypted, err = EncryptArchiveWithIdentity(ctx, out, password)
+	default:
+		return errors.New("unsupported archive format")
+	}
+	if err != nil {
+		return err
+	}
 	defer func() {
-		if form := context.Request().MultipartForm; form != nil {
-			if err := form.RemoveAll(); err != nil {
-				log.WithError(err).Error("Failed to remove multipart temporary files")
-			}
+		resultErr = errors.Join(resultErr, encrypted.Close())
+		if resultErr == nil {
+			resultErr = out.Sync()
 		}
 	}()
-	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	// Retrieve the CSRF token
-	csrfToken := context.Get("csrf")
-	dataContext["csrfToken"] = csrfToken
-
-	var err error
-	f := new(File)
-	f.Password = context.FormValue("password")
-
-	f.TTL, err = strconv.Atoi(context.FormValue("ttl"))
-	if err != nil {
-		log.Errorf("%+v\n", err)
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
-	}
-
-	f.Views, err = strconv.Atoi(context.FormValue("ttlViews"))
-	if err != nil {
-		log.Errorf("%+v\n", err)
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
-	}
-
-	f.Deletable = false
-	if err := ValidateWebLimits(f.TTL, f.Views); err != nil {
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
-	}
-
-	if context.FormValue("deletable") == "on" {
-		f.Deletable = true
-	}
-
-	if err := context.Validate(f); err != nil {
-		log.Errorf("%+v\n", err)
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
-	}
-
-	if f.TTL > 30 {
-		errorMessage := "TTL is too high"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		dataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
-	}
-	f.TTL = GetTtlSeconds(f.TTL)
-
-	var provided = false
-	var passwordLink string
-
-	if f.Password == "" {
-		f.Password, err = GenerateRandomString(50)
+	zw := zip.NewWriter(encrypted)
+	defer func() { resultErr = errors.Join(resultErr, zw.Close()) }()
+	for i, file := range files {
+		in, err := file.Open()
 		if err != nil {
-			log.Errorf("%+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
+			return err
 		}
-
-	} else {
-		provided = true
-
-		// Security: Don't give the possibility to delete the password, it will be auto deleted if the file is deleted.
-		token, err := SetPassword(f.Password, f.TTL, f.Views, false)
-		if err != nil {
-			log.Errorf("%+v\n", err)
-			dataContext["errors"] = err.Message
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-		f.PasswordProvidedKey = strings.Split(token, TOKEN_SEPARATOR)[0]
-		passwordLink = GetBaseUrl(context) + "/" + token
-	}
-
-	token, err := SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey)
-
-	form, err := context.MultipartForm()
-	if err != nil {
-		log.Errorf("%+v\n", err)
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
-	}
-	files := form.File["files"]
-
-	if len(files) == 0 {
-		errorMessage := "No file was selected. Please provide a file to generate a link"
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		dataContext["errors"] = errorMessage
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
-	}
-
-	var fileList []string
-	var totalUploadedFileSize int64
-
-	// Proceed with file operations for each file.
-	folderName := strings.Split(token, TOKEN_SEPARATOR)[0]
-	folderPathName := FILEFOLDER + "/" + folderName + "/"
-	// Create the shared upload directory once, not once per file.
-	err = os.Mkdir(folderPathName, 0700)
-	if err != nil {
-		dataContext["errors"] = "There was a problem during the file processing, please try again"
-		return context.Render(http.StatusInternalServerError, "index_file.html", dataContext)
-	}
-	defer os.RemoveAll(folderPathName)
-	seenNames := make(map[string]bool)
-	for _, file := range files {
-
-		// Security: Sanitize the file name in helper function to prevent path traversal attacks.
-		cleanFileName := sanitizeFileName(file.Filename)
-
-		// Security: Check if the sanitized file name is empty, which indicates a sanitization issue and prevent file creation in /data folder.
-		if cleanFileName == "" {
-			errorMessage := "File name contains prohibited characters or is not valid"
-			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-			log.Error(escapederrorMessage)
-			dataContext["errors"] = errorMessage
-			return context.Render(http.StatusUnauthorized, "index_file.html", dataContext)
-		}
-
-		// Avoid silently overwriting different files with the same archive name.
-		if seenNames[cleanFileName] {
-			dataContext["errors"] = "Files must have different names. Please rename duplicate files."
-			return context.Render(http.StatusBadRequest, "index_file.html", dataContext)
-		}
-		seenNames[cleanFileName] = true
-
-		/*File upload start*/
-
-		// Open and start file integration.
-		src, err := file.Open()
-		if err != nil {
-			log.Errorf("Error while opening file : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-		defer src.Close()
-
-		if file.Size > MaxFileSize {
-			errorMessage := fmt.Sprintf("File %s is too big %d (%d mb max)", file.Filename, file.Size*1024*1024, MaxFileSize)
-			escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-			escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-			log.Error(escapederrorMessage)
-			dataContext["errors"] = errorMessage
-			err := os.RemoveAll(folderPathName)
-			if err != nil {
-				log.Errorf("Failed to remove directory %s, %+v\n", folderPathName, err)
-			}
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-		totalUploadedFileSize += file.Size
-
-		// Security: Secure the file path to prevent path traversal attacks
-		dstFile := filepath.Base(cleanFileName)
-
-		// Destination
-		dst, err := os.Create(folderPathName + dstFile)
-		if err != nil {
-			log.Errorf("Error while creating file : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-		defer dst.Close()
-
-		// Copy
-		if _, err = io.Copy(dst, src); err != nil {
-			log.Errorf("Error while copying file : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-
-		fileList = append(fileList, folderPathName+dstFile)
-	}
-
-	if totalUploadedFileSize > MaxFileSize {
-		errorMessage := fmt.Sprintf("Total upload size (%d) is greater than %d mb (max authorized)", totalUploadedFileSize, MaxFileSize)
-		escapederrorMessage := strings.ReplaceAll(errorMessage, "\n", "")
-		escapederrorMessage = strings.ReplaceAll(escapederrorMessage, "\r", "")
-		log.Error(escapederrorMessage)
-		dataContext["errors"] = errorMessage
-		err := os.RemoveAll(folderPathName)
-		if err != nil {
-			log.Errorf("Failed to remove directory %s, %+v\n", folderPathName, err)
-		}
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
-	}
-
-	zipPath := FILEFOLDER + "/" + folderName + ".zip"
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		log.Errorf("Error while creating zip file : %+v\n", err)
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
-	}
-	defer zipFile.Close()
-
-	zw := zip.NewWriter(zipFile)
-	defer zw.Close()
-
-	for _, filePath := range fileList {
-		fileToZip, err := os.Open(filePath)
-		if err != nil {
-			log.Errorf("Error while opening file for zipping : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-
-		info, err := fileToZip.Stat()
-		if err != nil {
-			fileToZip.Close()
-			log.Errorf("Error while stating file for zipping : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			fileToZip.Close()
-			log.Errorf("Error creating zip header : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
-		}
-		header.Name = filepath.Base(filePath)
-		header.Method = getZipMethod(filePath)
-
+		header := &zip.FileHeader{Name: names[i], Method: getZipMethodForSize(file.Size)}
+		header.SetMode(0600)
 		writer, err := zw.CreateHeader(header)
 		if err != nil {
-			fileToZip.Close()
-			log.Errorf("Error adding file to zip : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
+			return errors.Join(err, in.Close())
 		}
-
-		if _, err := io.Copy(writer, fileToZip); err != nil {
-			fileToZip.Close()
-			log.Errorf("Error copying file to zip : %+v\n", err)
-			dataContext["errors"] = err.Error()
-			return context.Render(http.StatusOK, "index_file.html", dataContext)
+		n, copyErr := io.Copy(writer, io.LimitReader(in, file.Size+1))
+		closeErr := in.Close()
+		if copyErr != nil || closeErr != nil {
+			return errors.Join(copyErr, closeErr)
 		}
-		fileToZip.Close()
+		if n != file.Size {
+			return errors.New("multipart file size changed")
+		}
 	}
+	return nil
+}
 
-	err = os.RemoveAll(folderPathName)
+// discardUnpublishedUpload removes only records created by this upload. If
+// Redis is unavailable, their configured TTL remains the fallback.
+func discardUnpublishedUpload(fileToken, passwordToken string) {
+	var keys []interface{}
+	if fileToken != "" {
+		if id, _, err := ParseToken(fileToken); err == nil {
+			keys = append(keys, REDIS_PREFIX+"file_"+id)
+		}
+	}
+	if passwordToken != "" {
+		if id, _, err := ParseToken(passwordToken); err == nil {
+			keys = append(keys, REDIS_PREFIX+id)
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	pool := NewPool()
+	c := pool.Get()
+	defer c.Close()
+	if _, err := c.Do("DEL", keys...); err != nil {
+		log.Error("Failed to remove unpublished upload metadata")
+	}
+}
+
+func AddFile(context echo.Context) error {
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
-		log.Errorf("Error while removing folder : %+v\n", err)
-		dataContext["errors"] = err.Error()
-		return context.Render(http.StatusOK, "index_file.html", dataContext)
+		return echo.NewHTTPError(http.StatusInternalServerError)
+	}
+	defer guard.Close()
+	form := GetSecureMultipart(context.Request())
+	if form == nil {
+		form, err = ParseSecureMultipart(context.Request(), FILEFOLDER, MaxFileSize, maxUploadFiles)
+		if err != nil {
+			return context.NoContent(http.StatusBadRequest)
+		}
+		defer func() {
+			if err := form.Close(); err != nil {
+				log.Error("Failed to remove encrypted multipart staging")
+			}
+		}()
+	}
+	dataContext := NewDataContext()
+	delete(dataContext, "errors")
+	dataContext["csrfToken"] = context.Get("csrf")
+	fail := func(status int, message string) error {
+		dataContext["errors"] = message
+		return context.Render(status, "index_file.html", dataContext)
 	}
 
-	/*File upload end*/
+	f := new(File)
+	f.Password = context.FormValue("password")
+	if err := ValidateSecretLength(f.Password); err != nil {
+		return fail(http.StatusRequestEntityTooLarge, "Password exceeds the maximum size")
+	}
+	f.TTL, err = ParseWebNumber(context.FormValue("ttl"))
+	if err != nil {
+		log.Warn("Invalid duration field")
+		return fail(http.StatusBadRequest, "Invalid duration")
+	}
+	f.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
+	if err != nil {
+		log.Warn("Invalid attempt count field")
+		return fail(http.StatusBadRequest, "Invalid attempt count")
+	}
+	if err := ValidateWebLimits(f.TTL, f.Views); err != nil {
+		return fail(http.StatusBadRequest, err.Error())
+	}
+	f.Deletable = context.FormValue("deletable") == "on"
+	if err := context.Validate(f); err != nil {
+		log.Warn("Invalid upload metadata")
+		return fail(http.StatusBadRequest, "Invalid upload metadata")
+	}
 
-	var (
-		deletableText,
-		deletableURL string
-	)
+	// Fields were parsed without plaintext disk spill before CSRF.
+	files := form.Files
+	names, err := validateUploadFiles(files)
+	if err != nil {
+		return fail(http.StatusBadRequest, err.Error())
+	}
 
-	baseUrl := GetBaseUrl(context) + "/file/"
-	if !f.Deletable {
-		deletableText = "not deletable"
-	} else {
+	// The temporary directory is excluded from UUID.zip reconciliation.
+	stage, err := CreateLockedStagingDir(FILEFOLDER, ".okuru-upload-")
+	if err != nil {
+		log.Error("Failed to prepare upload")
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	defer func() {
+		if err := stage.Close(); err != nil {
+			log.Error("Failed to remove upload temporary directory")
+		}
+	}()
+	provided := f.Password != ""
+	archiveFormat := ArchiveFormatAgeUserPassword
+	if !provided {
+		archiveFormat = ArchiveFormatAgeX25519
+		f.Password, err = GenerateArchiveIdentity()
+		if err != nil {
+			return fail(http.StatusInternalServerError, "There was a problem during file processing")
+		}
+	}
+	temporaryArchive := filepath.Join(stage.Path, "archive.tmp")
+	if err := writeEncryptedUploadArchive(context.Request().Context(), temporaryArchive, f.Password, files, names, archiveFormat); err != nil {
+		log.Error("Failed to create encrypted upload archive")
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	// Remove the encrypted upload staging before confirming success.
+	if err := form.Close(); err != nil {
+		log.Error("Failed to remove encrypted multipart staging")
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	f.TTL = GetTtlSeconds(f.TTL)
+	var passwordToken, fileToken, finalArchive string
+	published := false
+	defer func() {
+		if !published {
+			if finalArchive != "" {
+				if err := os.Remove(finalArchive); err != nil && !os.IsNotExist(err) {
+					log.Error("Failed to remove unpublished archive")
+				}
+			}
+			discardUnpublishedUpload(fileToken, passwordToken)
+		}
+	}()
+	if provided {
+		var httpErr *echo.HTTPError
+		passwordToken, httpErr = SetPassword(f.Password, f.TTL, f.Views, false)
+		if httpErr != nil {
+			return fail(http.StatusInternalServerError, "There was a problem during file processing")
+		}
+		f.PasswordProvidedKey, _, err = ParseToken(passwordToken)
+		if err != nil {
+			return fail(http.StatusInternalServerError, "There was a problem during file processing")
+		}
+	}
+	var httpErr *echo.HTTPError
+	fileToken, httpErr = SetFile(f.Password, f.TTL, f.Views, f.Deletable, provided, f.PasswordProvidedKey, archiveFormat)
+	if httpErr != nil {
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	archiveName, err := archiveNameFromToken(fileToken)
+	if err != nil {
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	candidateArchive := filepath.Join(FILEFOLDER, archiveName)
+	// A hard link atomically publishes on the same filesystem without ever
+	// overwriting an existing archive. Metadata already exists for cleanup.
+	if err := os.Link(temporaryArchive, candidateArchive); err != nil {
+		log.Error("Failed to publish upload archive")
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	finalArchive = candidateArchive
+	// Remove the temporary encrypted archive after publication.
+	if err := stage.Close(); err != nil {
+		log.Error("Failed to remove upload temporary directory")
+		return fail(http.StatusInternalServerError, "There was a problem during file processing")
+	}
+	baseURL := GetBaseUrl(context) + "/file/"
+	deletableText, deletableURL := "not deletable", ""
+	if f.Deletable {
 		deletableText = "deletable"
-		deletableURL = baseUrl + "remove/" + token
+		deletableURL = baseURL + "remove/" + fileToken
 	}
-	link := baseUrl + token
 	f.FileKey = ""
-	f.Link = link
+	f.Link = baseURL + fileToken
 	f.Password = ""
-
 	dataContext["f"] = f
 	dataContext["ttl"] = GetTTLText(f.TTL)
 	dataContext["ttlViews"] = GetViewsText(f.Views)
 	dataContext["dlViews"] = GetDownloadsText(f.Views)
 	dataContext["deletableText"] = deletableText
 	dataContext["deletableURL"] = deletableURL
-	dataContext["passwordLink"] = passwordLink
-
-	return context.Render(http.StatusOK, "confirm_file.html", dataContext)
+	if provided {
+		dataContext["passwordLink"] = GetBaseUrl(context) + "/" + passwordToken
+	} else {
+		dataContext["passwordLink"] = ""
+	}
+	if err := context.Render(http.StatusOK, "confirm_file.html", dataContext); err != nil {
+		return err
+	}
+	published = true
+	return nil
 }
-
 func DeleteFile(context echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
@@ -578,7 +633,6 @@ func sanitizeFileName(Filename string) string {
 	// Replace newline characters to prevent path traversal attacks.
 	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
 	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
-	log.Debugf("CleanFolderName folderName : %s\n", escapedFileName)
 	checkFileName := filepath.Base(escapedFileName)
 
 	// Check for path traversal patterns.

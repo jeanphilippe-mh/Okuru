@@ -1,6 +1,34 @@
 package utils
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+)
+
+// MaxSecretBytes bounds memory and Redis use independently of the upload limit.
+// The limit is measured in bytes so multibyte text cannot bypass it.
+const MaxSecretBytes = 32 << 10
+
+// MaxWebNumberBytes bounds fields before strconv can copy them into an error.
+const MaxWebNumberBytes = 16
+
+func ValidateSecretLength(secret string) error {
+	if len(secret) > MaxSecretBytes {
+		return errors.New("secret exceeds the maximum size")
+	}
+	return nil
+}
+
+func ParseWebNumber(value string) (int, error) {
+	if len(value) == 0 || len(value) > MaxWebNumberBytes {
+		return 0, errors.New("invalid number")
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, errors.New("invalid number")
+	}
+	return n, nil
+}
 
 func ValidateWebLimits(ttl, views int) error {
 	if ttl < 1 || ttl > 30 {
