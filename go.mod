@@ -7,10 +7,10 @@ require (
         github.com/flosch/pongo2 v0.0.0-20200913210552-0d938eb266f3
         github.com/gomodule/redigo v1.9.3
         github.com/google/uuid v1.6.0
-        github.com/labstack/echo/v4 v4.16.3
+        github.com/labstack/echo/v4 v4.16.4
         github.com/labstack/gommon v0.5.0
         github.com/sirupsen/logrus v1.10.2
-        github.com/spf13/pflag v1.0.10
+        github.com/spf13/pflag v1.1.0
         golang.org/x/net v0.62.0
         gopkg.in/go-playground/validator.v9 v9.31.0
 )
@@ -23,9 +23,9 @@ require (
         github.com/mattn/go-isatty v0.0.24 // indirect
         github.com/valyala/bytebufferpool v1.0.0 // indirect
         github.com/valyala/fasttemplate v1.2.2 // indirect
-        golang.org/x/crypto v0.58.0 // indirect
-        golang.org/x/sys v0.49.0 // indirect
-        golang.org/x/text v0.43.0 // indirect
+        golang.org/x/crypto v0.59.0 // indirect
+        golang.org/x/sys v0.50.0 // indirect
+        golang.org/x/text v0.44.0 // indirect
         golang.org/x/time v0.16.0 // indirect
         gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 )
