@@ -37,8 +37,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go mod verify
-      - run: go vet ./...
-      - run: go test -race -count=1 ./...
-      - run: node --test tests/upload-preflight.test.cjs
+      - run: go run ./tests/cmd/okurutest vet
+      - run: go run ./tests/cmd/okurutest test -race -count=1
+      - run: node --test tests/*.test.js tests/*.test.cjs
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
