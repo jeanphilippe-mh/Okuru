@@ -2,46 +2,86 @@ package utils
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
 	log "github.com/sirupsen/logrus"
 )
 
-// Source: https://medium.com/@gilcrest_65433/basic-redis-examples-with-go-a3348a12878e
+// Each process shares a bounded pool. Pool.Get fails immediately at capacity:
+// callers using Get rather than GetContext must never wait without a deadline.
+const redisMaxActive = 64
+
+type redisPoolConfig struct {
+	host, port, password, database string
+}
+
+var redisPoolState struct {
+	sync.Mutex
+	config redisPoolConfig
+	pool   *redis.Pool
+}
+
+// redisDialContext is a seam for deterministic tests; production uses Redigo.
+var redisDialContext = redis.DialContext
+
 func NewPool() *redis.Pool {
-	return &redis.Pool{
-		// Maximum number of idle connections in the pool.
-		MaxIdle: 80,
-		// max number of connections.
-		MaxActive: 12000,
-		// Dial is an application supplied function for creating and configuring a connection.
-		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial("tcp", REDIS_HOST+":"+REDIS_PORT)
-			if err != nil {
-				println("Error Redis Dial")
-				panic(err.Error())
+	config := redisPoolConfig{REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB}
+	redisPoolState.Lock()
+	defer redisPoolState.Unlock()
+	if redisPoolState.pool != nil && redisPoolState.config == config {
+		return redisPoolState.pool
+	}
+	// Tests and embedders may switch the configuration between uses. Closing
+	// the prior pool also ensures an idle connection cannot cross databases.
+	if redisPoolState.pool != nil {
+		_ = redisPoolState.pool.Close()
+	}
+	pool := &redis.Pool{
+		MaxIdle:         8,
+		MaxActive:       redisMaxActive,
+		Wait:            false,
+		IdleTimeout:     time.Minute,
+		MaxConnLifetime: time.Hour,
+		DialContext: func(ctx context.Context) (redis.Conn, error) {
+			db, err := strconv.Atoi(config.database)
+			if err != nil || db < 0 {
+				return nil, fmt.Errorf("invalid Redis database")
 			}
-			if REDIS_PASSWORD != "" {
-				_, err2 := c.Do("AUTH", REDIS_PASSWORD)
-				if err2 != nil {
-					println("Error Redis AUTH")
-					panic(err2)
-				}
+			opts := []redis.DialOption{
+				redis.DialConnectTimeout(3 * time.Second),
+				redis.DialReadTimeout(5 * time.Second),
+				redis.DialWriteTimeout(5 * time.Second),
+				redis.DialDatabase(db),
 			}
-			_, err3 := c.Do("SELECT", REDIS_DB)
-			if err3 != nil {
-				println("Error Redis DO SELECT")
-				panic(err3)
+			if config.password != "" {
+				opts = append(opts, redis.DialPassword(config.password))
 			}
-			_, err4 := c.Do("CONFIG", "SET", "notify-keyspace-events", "KEA")
-			if err4 != nil {
-				println("Error Redis CONFIG")
-				panic(err4)
-			}
-			return c, err
+			// Redigo closes the underlying connection on AUTH or SELECT failure.
+			return redisDialContext(ctx, "tcp", net.JoinHostPort(config.host, config.port), opts...)
 		},
 	}
+	redisPoolState.config = config
+	redisPoolState.pool = pool
+	return pool
+}
+
+// CloseRedisPool closes idle connections and marks borrowed ones for closing
+// when returned. It is safe to call even when no pool has been initialized.
+func CloseRedisPool() error {
+	redisPoolState.Lock()
+	defer redisPoolState.Unlock()
+	if redisPoolState.pool == nil {
+		return nil
+	}
+	err := redisPoolState.pool.Close()
+	redisPoolState.pool = nil
+	redisPoolState.config = redisPoolConfig{}
+	return err
 }
 
 // Ping tests connectivity for redis (PONG should be returned).
