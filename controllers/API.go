@@ -79,6 +79,9 @@ func CreatePassword(context echo.Context) (err error) {
 	if input.Password == "" {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
+	if err := ValidateSecretLength(input.Password); err != nil {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "secret exceeds the maximum size")
+	}
 	if err := ValidateAPILimits(input.TTL, input.Views); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}

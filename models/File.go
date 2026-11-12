@@ -2,6 +2,7 @@ package models
 
 // Security: to counter Bots and Scrappers in File.go.
 type File struct {
+	ArchiveFormat       string `redis:"archive_format,omitempty"`
 	Password            string `json:"password,omitempty" xml:"password,omitempty" form:"password,omitempty" query:"password,omitempty" redis:"password,omitempty"`
 	PasswordProvided    bool   `redis:"provided,omitempty"`
 	PasswordProvidedKey string `redis:"provided_key,omitempty"`
