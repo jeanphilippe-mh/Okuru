@@ -162,6 +162,41 @@ func TestSecureMultipartFailsClosedAndCleansUp(t *testing.T) {
 	}
 }
 
+func TestSecureMultipartRejectsInvalidNamesBeforeReadingContent(t *testing.T) {
+	for name, header := range map[string]string{
+		"invalid": "--boundary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"bad?.txt\"\r\n\r\n",
+		"duplicate": "--boundary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"FILE.txt\"\r\n\r\nfirst\r\n" +
+			"--boundary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"file.TXT\"\r\n\r\n",
+		"unicode duplicate": "--boundary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"É.txt\"\r\n\r\nfirst\r\n" +
+			"--boundary\r\nContent-Disposition: form-data; name=\"files\"; filename=\"é.txt\"\r\n\r\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			release := make(chan struct{})
+			t.Cleanup(func() { close(release) })
+			body := io.MultiReader(strings.NewReader(header), multipartBlockingTail{release: release})
+			r := httptest.NewRequest(http.MethodPost, "/file", body)
+			r.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+			result := make(chan error, 1)
+			go func() {
+				_, err := ParseSecureMultipart(r, root, 1024, 100)
+				result <- err
+			}()
+			select {
+			case err := <-result:
+				if !errors.Is(err, ErrSecureMultipartFilename) {
+					t.Fatalf("expected filename error, got %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("parser read or drained the rejected file body")
+			}
+			if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
+				t.Fatalf("rejected upload left staging: %v %v", entries, err)
+			}
+		})
+	}
+}
+
 type multipartBlockingTail struct{ release <-chan struct{} }
 
 func (b multipartBlockingTail) Read([]byte) (int, error) { <-b.release; return 0, io.EOF }
