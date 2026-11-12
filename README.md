@@ -20,7 +20,7 @@ New uploads are packaged as ZIP archives and encrypted at rest with **age**. The
 
 ## Requirements
 
-* You can use **Debian 13** "Trixie" (https://www.debian.org/CD/http-ftp/).
+* You can use **Debian 13** "Trixie" (https://www.debian.org/distrib/).
 * Redis package with **notify-keyspace-events KEA** set on redis.conf.
 * Golang (I've used latest **1.27.4** from arm64/linux with Go Modules)
 
