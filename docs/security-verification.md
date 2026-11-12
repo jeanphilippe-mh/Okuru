@@ -12,10 +12,14 @@ Recommended local checks:
 
 ```sh
 go mod verify
-go vet ./...
+go run ./tests/cmd/okurutest tidy -diff
+go run ./tests/cmd/okurutest vet
 # Supply an isolated Redis address to run integration tests rather than skip them:
-OKURU_TEST_REDIS_ADDR=127.0.0.1:6379 REDIS_HOST=127.0.0.1 REDIS_PORT=6379 go test -race -count=1 ./...
+OKURU_TEST_REDIS_ADDR=127.0.0.1:6379 REDIS_HOST=127.0.0.1 REDIS_PORT=6379 go run ./tests/cmd/okurutest test -race
+node --test tests/*.test.js tests/*.test.cjs
 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 ```
+
+The Go runner projects the centralized tests into their source packages, including for vet and module maintenance. A plain `go vet ./...` does not vet the projected test sources, and a plain `go mod tidy` can remove dependencies used only by those tests. Use the runner's `tidy -diff` to check without writing, or its `tidy` command to apply module changes. The equivalent general Go test entry point is `go test -race -count=1 ./...`; omitting `-count=1` intentionally fails the suite harness to prevent stale cached results. Package selection, benchmarks and coverage use the dedicated runner; see the [test suite guide](../tests/README.md).
 
 No runtime HTTP/2 denial-of-service exploit is required to validate the dependency fix, and none was attempted in production. Recheck before release: advisories and maintained versions change over time. A Go/toolchain rollback can reintroduce known vulnerabilities; use a forward fix instead.

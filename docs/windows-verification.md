@@ -10,7 +10,7 @@ From PowerShell, with the Go version specified in `go.mod` and the dependencies
 available, first run the local filesystem and interprocess tests:
 
 ```powershell
-go test -count=1 -v -run 'TestWindows|TestStorageGuard|TestQuotaMultiprocessAdmissionAndCrashRecovery' ./utils
+go run ./tests/cmd/okurutest test -v '-run=TestWindows|TestStorageGuard|TestQuotaMultiprocessAdmissionAndCrashRecovery' -- ./utils
 ```
 
 The tests create temporary directories, set test-only ACLs and start or terminate
@@ -44,9 +44,11 @@ short-lived test ACL users. Substitute its actual address below:
 
 ```powershell
 $env:OKURU_TEST_REDIS_ADDR = '127.0.0.1:53740'
-go test -p 1 -count=1 -timeout=8m ./...
+go run ./tests/cmd/okurutest test -p=1 -timeout=8m
 Remove-Item Env:OKURU_TEST_REDIS_ADDR
 ```
+
+The runner projects tests into their original Go packages. Put a package after `--`, as in the first example; running `go test` directly against `./utils` would omit the centralized tests. The general command `go test -count=1 ./...` runs the harness, but the explicit runner is preferable for platform-specific selection. Cross-compiling a harness with `-exec` does not execute it or validate the projected suite.
 
 Stop the disposable Redis instance afterwards. Record Windows version,
 architecture, filesystem, Go version, effective service identity and ACLs, and
