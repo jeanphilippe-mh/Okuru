@@ -28,11 +28,15 @@ func TestUploadValidationBoundsFilesBeforeStorage(t *testing.T) {
 	MaxFileSize = 10
 	t.Cleanup(func() { MaxFileSize = oldSize })
 	for name, files := range map[string][]*SecureMultipartFile{
-		"empty":         nil,
-		"too many":      make([]*SecureMultipartFile, maxUploadFiles+1),
-		"duplicate":     {{Filename: "same.txt", Size: 1}, {Filename: "same.txt", Size: 1}},
-		"combined size": {{Filename: "a.txt", Size: 6}, {Filename: "b.txt", Size: 5}},
-		"invalid name":  {{Filename: "..", Size: 1}},
+		"empty":                  nil,
+		"too many":               make([]*SecureMultipartFile, maxUploadFiles+1),
+		"duplicate":              {{Filename: "same.txt", Size: 1}, {Filename: "same.txt", Size: 1}},
+		"unicode duplicate":      {{Filename: "résumé.txt", Size: 1}, {Filename: "re\u0301sume\u0301.txt", Size: 1}},
+		"case duplicate":         {{Filename: "Report.txt", Size: 1}, {Filename: "report.TXT", Size: 1}},
+		"unicode case duplicate": {{Filename: "É.txt", Size: 1}, {Filename: "é.txt", Size: 1}},
+		"unicode fold expansion": {{Filename: "Straße.txt", Size: 1}, {Filename: "STRASSE.TXT", Size: 1}},
+		"combined size":          {{Filename: "a.txt", Size: 6}, {Filename: "b.txt", Size: 5}},
+		"invalid name":           {{Filename: "..", Size: 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := validateUploadFiles(files); err == nil {
@@ -42,6 +46,11 @@ func TestUploadValidationBoundsFilesBeforeStorage(t *testing.T) {
 	}
 	if _, err := validateUploadFiles([]*SecureMultipartFile{{Filename: "a.txt", Size: 5}, {Filename: "b.txt", Size: 5}}); err != nil {
 		t.Fatalf("valid files rejected: %v", err)
+	}
+	name := "re\u0301sume\u0301 + 🔐.txt"
+	names, err := validateUploadFiles([]*SecureMultipartFile{{Filename: name, Size: 1}})
+	if err != nil || len(names) != 1 || names[0] != name {
+		t.Fatalf("valid original name was not preserved: %q, %v", names, err)
 	}
 }
 

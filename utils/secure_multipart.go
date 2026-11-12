@@ -28,7 +28,7 @@ type SecureMultipartFile struct {
 
 func (f *SecureMultipartFile) Open() (io.ReadCloser, error) {
 	if f == nil || f.owner == nil {
-		return nil, errors.New("multipart file has no owner")
+		return nil, errors.New("Multipart file has no owner")
 	}
 	if err := f.owner.acquireReader(); err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func (f *SecureMultipart) Close() error {
 		return nil
 	}
 	if f.readers != 0 {
-		return errors.New("multipart readers are still open")
+		return errors.New("Multipart readers are still open")
 	}
 	if f.stage != nil {
 		if err := f.stage.Close(); err != nil {
@@ -112,7 +112,7 @@ func (f *SecureMultipart) acquireReader() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
-		return errors.New("multipart form is closed")
+		return errors.New("Multipart form is closed")
 	}
 	f.readers++
 	return nil
@@ -129,8 +129,9 @@ func GetSecureMultipart(r *http.Request) *SecureMultipart {
 	return f
 }
 
-var ErrSecureMultipart = errors.New("invalid multipart upload")
-var ErrSecureMultipartTooLarge = errors.New("multipart upload exceeds its limit")
+var ErrSecureMultipart = errors.New("Invalid multipart upload")
+var ErrSecureMultipartTooLarge = errors.New("Multipart upload exceeds its limit")
+var ErrSecureMultipartFilename = errors.New("Invalid or duplicate file name")
 
 // ParseSecureMultipart never invokes net/http's form parser, which would spill
 // plaintext to os.TempDir. It consumes the body once before CSRF extraction.
@@ -154,6 +155,7 @@ func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 		}
 	}()
 	values := make(url.Values)
+	seenNames := make(map[string]struct{})
 	var identity *age.X25519Identity
 	var total int64
 	var fieldBytes int64
@@ -192,6 +194,11 @@ func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 		if name != "files" || len(filename) > 255 || len(form.Files) >= maxFiles {
 			return nil, ErrSecureMultipart
 		}
+		key, valid := UploadFilenameKey(filename)
+		if _, duplicate := seenNames[key]; !valid || duplicate {
+			return nil, errors.Join(ErrSecureMultipart, ErrSecureMultipartFilename)
+		}
+		seenNames[key] = struct{}{}
 		if identity == nil {
 			identity, err = age.GenerateX25519Identity()
 			if err != nil {

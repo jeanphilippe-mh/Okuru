@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -180,11 +179,11 @@ func ReadFile(context echo.Context) error {
 func archiveNameFromToken(token string) (string, error) {
 	storageKey, decryptionKey, err := ParseToken(token)
 	if err != nil || decryptionKey == "" {
-		return "", fmt.Errorf("invalid file token")
+		return "", fmt.Errorf("Invalid file token")
 	}
 	id, err := uuid.Parse(storageKey)
 	if err != nil || id.String() != storageKey {
-		return "", fmt.Errorf("invalid file identifier")
+		return "", fmt.Errorf("Invalid file identifier")
 	}
 	return id.String() + ".zip", nil
 }
@@ -345,23 +344,24 @@ const maxUploadFiles = 100
 // validateUploadFiles runs before either Redis record is created.
 func validateUploadFiles(files []*SecureMultipartFile) ([]string, error) {
 	if len(files) == 0 {
-		return nil, errors.New("no files selected")
+		return nil, errors.New("No files selected")
 	}
 	if len(files) > maxUploadFiles {
-		return nil, errors.New("too many files")
+		return nil, errors.New("Too many files")
 	}
 	names := make([]string, 0, len(files))
 	seen := make(map[string]bool, len(files))
 	var total int64
 	for _, file := range files {
 		if file == nil || file.Size < 0 || MaxFileSize <= 0 || file.Size > MaxFileSize-total {
-			return nil, errors.New("upload exceeds the maximum size")
+			return nil, errors.New("Upload exceeds the maximum size")
 		}
-		name := sanitizeFileName(file.Filename)
-		if name == "" || name == "." || seen[name] {
-			return nil, errors.New("invalid or duplicate file name")
+		name := file.Filename
+		key, valid := UploadFilenameKey(name)
+		if !valid || seen[key] {
+			return nil, errors.New("Invalid or duplicate file name")
 		}
-		seen[name] = true
+		seen[key] = true
 		names = append(names, name)
 		total += file.Size
 	}
@@ -382,7 +382,7 @@ func writeEncryptedUploadArchive(ctx context.Context, path, password string, fil
 	case ArchiveFormatAgeX25519:
 		encrypted, err = EncryptArchiveWithIdentity(ctx, out, password)
 	default:
-		return errors.New("unsupported archive format")
+		return errors.New("Unsupported archive format")
 	}
 	if err != nil {
 		return err
@@ -412,7 +412,7 @@ func writeEncryptedUploadArchive(ctx context.Context, path, password string, fil
 			return errors.Join(copyErr, closeErr)
 		}
 		if n != file.Size {
-			return errors.New("multipart file size changed")
+			return errors.New("Multipart file size changed")
 		}
 	}
 	return nil
@@ -626,33 +626,4 @@ func DeleteFile(context echo.Context) error {
 		dataContext["type"] = "File"
 		return context.Render(http.StatusOK, "removed.html", dataContext)
 	}
-}
-
-// Security: Helper function to call for sanitizing the file name.
-
-func sanitizeFileName(Filename string) string {
-
-	// Replace newline characters to prevent path traversal attacks.
-	escapedFileName := strings.ReplaceAll(Filename, "\n", "")
-	escapedFileName = strings.ReplaceAll(escapedFileName, "\r", "")
-	checkFileName := filepath.Base(escapedFileName)
-
-	// Check for path traversal patterns.
-	if strings.Contains(checkFileName, "..") || strings.ContainsAny(checkFileName, "/\\") {
-		return ""
-	}
-
-	// Check for valid length to prevent potential buffer overflow attacks.
-	if len(checkFileName) > 255 || len(checkFileName) < 1 {
-		return ""
-	}
-
-	// Validate the file name to prevent path traversal attacks.
-	disallowedPattern := `([^\p{L}\s\d\-_~,;:\[\]\(\).'])`
-	re := regexp.MustCompile(disallowedPattern)
-	if re.MatchString(checkFileName) {
-		return ""
-	}
-
-	return checkFileName
 }
