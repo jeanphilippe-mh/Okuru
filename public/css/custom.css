@@ -74,6 +74,10 @@ footer {
     display: none;
 }
 
+.password-help {
+  color: #495057;
+}
+
 @media (prefers-color-scheme: light) {
   .site-title, body {
     color: #fff;
@@ -90,6 +94,9 @@ footer {
 }
 
 @media (prefers-color-scheme: dark) {
+  .password-help {
+    color: #adb5bd;
+  }
   .site-title, body {
     color: #fff;
   }

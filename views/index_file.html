@@ -6,7 +6,7 @@
         <h2>Set Secret</h2>
     </div>
     <div>
-        <p><span>{% if (errors) %}&#128683{{ errors }}{% endif %}</span> </p>
+        <p><span role="alert">{% if (errors) %}&#128683; {{ errors }}{% endif %}</span> </p>
     </div>
 <form id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->
@@ -24,8 +24,8 @@
                     <!-- Hidden Username Field for Accessibility-->
                     <input type="text" class="hidden-input" autocomplete="username" value="" />
                     <!-- Hidden Username Field for Accessibility-->
-                    <input type="password" id="password" name="password" minlength="8" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." autocomplete="new-password" />
-                    <small class="form-text text-muted">Use a long, unique, randomly generated password to protect the stored archive.</small>
+                    <input type="password" id="password" name="password" minlength="8" maxlength="255" autofocus="autofocus" class="form-control" placeholder="Password for the archive that will be created." autocomplete="new-password" aria-describedby="password-help" />
+                    <small id="password-help" class="form-text password-help">Use a long, unique, randomly generated password to protect the stored archive.</small>
                 </div>
                 <br>
                 <div class="form-group">

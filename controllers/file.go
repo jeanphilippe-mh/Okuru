@@ -464,6 +464,8 @@ func AddFile(context echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	dataContext["csrfToken"] = context.Get("csrf")
+	dataContext["maxFileSize"] = MaxFileSize
+	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
 	fail := func(status int, message string) error {
 		dataContext["errors"] = message
 		return context.Render(status, "index_file.html", dataContext)
