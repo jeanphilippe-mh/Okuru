@@ -137,6 +137,42 @@ func TestCleanupReconcilesOnlyExpiredManagedArchives(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupReconcilesAfterRealRedisExpiry(t *testing.T) {
+	c := cleanupTest(t)
+	id := uuid.NewString()
+	path := cleanupArchive(t, id)
+	key := REDIS_PREFIX + "file_" + id
+	if _, err := c.Do("HSET", key, "token", "synthetic", "views", 1, "views_count", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Do("EXPIRE", key, 30); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanupExpiredArchives(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("Unexpired archive was removed: %v", err)
+	}
+	if _, err := c.Do("PEXPIRE", key, 200); err != nil {
+		t.Fatal(err)
+	}
+	cleanupEventually(t, func() bool {
+		exists, err := redis.Bool(c.Do("EXISTS", key))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return !exists
+	})
+	if err := CleanupExpiredArchives(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Archive remained after its Redis record expired: %v", err)
+	}
+}
+
 func TestCleanupRetainsFilesWhenRedisFails(t *testing.T) {
 	cleanupTest(t)
 	path := cleanupArchive(t, uuid.NewString())

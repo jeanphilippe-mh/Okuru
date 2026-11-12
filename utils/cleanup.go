@@ -116,7 +116,23 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 		return err
 	}
 	if exists {
-		return nil
+		if strings.EqualFold(os.Getenv("OKURU_CLEANUP_DRY_RUN"), "true") {
+			return nil
+		}
+		// Completed downloads may have been waiting for a different session or
+		// Redis permissions. Recheck them during normal reconciliation.
+		token, err := redis.Bytes(c.Do("HGET", REDIS_PREFIX+"file_"+id, "token"))
+		if err == redis.ErrNil {
+			return nil
+		}
+		if err != nil {
+			// Preserve unrelated keys with the same name as before.
+			if strings.HasPrefix(err.Error(), "WRONGTYPE ") {
+				return nil
+			}
+			return err
+		}
+		return finalizeCompletedDownload(c, id, token)
 	}
 	path := filepath.Join(FILEFOLDER, id+".zip")
 	info, err := os.Lstat(path)

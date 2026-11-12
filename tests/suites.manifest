@@ -46,3 +46,4 @@ utils/token_security_test.go
 utils/upload_filename_test.go
 utils/validation_test.go
 utils/windows_path_component_test.go
+utils/file_completion_test.go
