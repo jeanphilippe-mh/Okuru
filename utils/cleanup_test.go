@@ -2,11 +2,14 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
+	"github.com/jeanphilippe-mh/Okuru/models"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -61,6 +64,48 @@ func cleanupEventually(t *testing.T, condition func() bool) {
 			t.Fatal("cleanup condition not reached")
 		case <-ticker.C:
 		}
+	}
+}
+
+func TestCleanFileReturnsRemovalErrors(t *testing.T) {
+	oldFolder := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = oldFolder })
+	id := uuid.NewString()
+	path := filepath.Join(FILEFOLDER, id+".zip")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanFile(id); err == nil {
+		t.Fatal("non-regular archive was treated as successfully removed")
+	}
+	if err := CleanFile("../outside"); err == nil {
+		t.Fatal("non-canonical archive identifier was accepted")
+	}
+	if err := CleanFile(uuid.NewString()); err != nil {
+		t.Fatalf("already absent archive should count as removed: %v", err)
+	}
+}
+
+func TestRemoveFileReportsArchiveRemovalFailure(t *testing.T) {
+	c := cleanupTest(t)
+	link, httpErr := SetFile("test-password", 60, 1, true, false, "")
+	if httpErr != nil {
+		t.Fatal(httpErr)
+	}
+	id := strings.Split(link, TOKEN_SEPARATOR)[0]
+	path := filepath.Join(FILEFOLDER, id+".zip")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveFile(&models.File{FileKey: link}); err == nil {
+		t.Fatal("removal failure was reported as success")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("test archive directory unexpectedly removed: %v", err)
+	}
+	if n, err := redis.Int(c.Do("EXISTS", REDIS_PREFIX+"file_"+id)); err != nil || n != 0 {
+		t.Fatalf("file metadata should be removed before reconciliation: %d, %v", n, err)
 	}
 }
 func TestCleanupReconcilesOnlyExpiredManagedArchives(t *testing.T) {
@@ -160,5 +205,91 @@ func TestCleanupDryRunPreservesExpiredArchives(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("dry-run removed archive")
+	}
+}
+
+// A local failure must not prevent later expired archives from being handled.
+func TestReconcileContinuesAfterLocalFailure(t *testing.T) {
+	old := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	defer func() { FILEFOLDER = old }()
+	first, second := uuid.NewString(), uuid.NewString()
+	if first > second {
+		first, second = second, first
+	}
+	firstPath, secondPath := cleanupArchive(t, first), cleanupArchive(t, second)
+	entries, err := os.ReadDir(FILEFOLDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("local removal failure")
+	err = reconcileArchivesWith(context.Background(), nil, entries, func(_ redis.Conn, id string) error {
+		if id == first {
+			return sentinel
+		}
+		return os.Remove(filepath.Join(FILEFOLDER, id+".zip"))
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("failure was not reported: %v", err)
+	}
+	if _, err := os.Stat(firstPath); err != nil {
+		t.Fatal("failed archive was removed")
+	}
+	if _, err := os.Stat(secondPath); !os.IsNotExist(err) {
+		t.Fatal("later archive was not removed")
+	}
+}
+
+func TestRemoveFileACLFailurePreservesBothRecordsAndArchive(t *testing.T) {
+	admin := cleanupTest(t)
+	secretLink, httpErr := SetPassword("test-password", 60, 1, false)
+	if httpErr != nil {
+		t.Fatal(httpErr)
+	}
+	secretID := strings.Split(secretLink, TOKEN_SEPARATOR)[0]
+	fileLink, httpErr := SetFile("test-password", 60, 1, true, true, secretID)
+	if httpErr != nil {
+		t.Fatal(httpErr)
+	}
+	fileID := strings.Split(fileLink, TOKEN_SEPARATOR)[0]
+	path := cleanupArchive(t, fileID)
+	fileKey, secretKey := REDIS_PREFIX+"file_"+fileID, REDIS_PREFIX+secretID
+	username := "okuru_delete_acl_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, err := admin.Do("ACL", "SETUSER", username, "on", ">temporary-test-password", "~"+fileKey, "+@all"); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Do("ACL", "DELUSER", username)
+	originalDial := redisDialContext
+	defer func() { CloseRedisPool(); redisDialContext = originalDial }()
+	CloseRedisPool()
+	redisDialContext = func(ctx context.Context, network, address string, options ...redis.DialOption) (redis.Conn, error) {
+		options = append(options, redis.DialUsername(username), redis.DialPassword("temporary-test-password"))
+		return redis.DialContext(ctx, network, address, options...)
+	}
+	if err := RemoveFile(&models.File{FileKey: fileLink}); err == nil {
+		t.Fatal("restricted delete succeeded")
+	}
+	for _, key := range []string{fileKey, secretKey} {
+		n, err := redis.Int(admin.Do("EXISTS", key))
+		if err != nil || n != 1 {
+			t.Fatalf("metadata lost after denied delete: %d %v", n, err)
+		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("archive lost after denied delete: %v", err)
+	}
+	CloseRedisPool()
+	redisDialContext = originalDial
+	if err := RemoveFile(&models.File{FileKey: fileLink}); err != nil {
+		t.Fatalf("authorized retry failed: %v", err)
+	}
+	for _, key := range []string{fileKey, secretKey} {
+		n, err := redis.Int(admin.Do("EXISTS", key))
+		if err != nil || n != 0 {
+			t.Fatalf("metadata retained after retry: %d %v", n, err)
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("archive retained after retry")
 	}
 }
