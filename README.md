@@ -10,6 +10,14 @@ It is rather sent as part of the password link.
 
 This means that even if someone has access to the Redis store, the passwords are still safe.
 
+### Passwords and text secrets
+
+Passwords and text secrets are encrypted and authenticated with **Fernet** before they are stored in Redis. Okuru generates a random Fernet key for each secret and includes it in the secret's link; the key is not stored in the Redis record. Someone with only the encrypted Redis record cannot decrypt the secret without the corresponding key. Redis still contains metadata such as the expiry time and view count.
+
+### Files
+
+New uploads are packaged as ZIP archives and encrypted at rest with **age**. The file stored on the server is an age-encrypted envelope, even though its filename ends in `.zip`; it cannot be inspected as an ordinary ZIP until Okuru decrypts it.
+
 ## Requirements
 
 * You can use **Debian 13** "Trixie" (https://www.debian.org/CD/http-ftp/).
