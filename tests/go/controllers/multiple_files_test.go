@@ -142,8 +142,8 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 		}
 	}
 	entries, err := os.ReadDir(FILEFOLDER)
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("temporary directory retained: %v", entries)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("archive or temporary directory retained after final download: %v", entries)
 	}
 	spillFiles, err := os.ReadDir(spillDir)
 	if err != nil || len(spillFiles) != 0 {

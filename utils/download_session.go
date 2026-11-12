@@ -17,7 +17,7 @@ import (
 // A session permits bounded continuation of one already reserved download.
 // It never outlives the file's metadata, and every continuation checks that
 // metadata again. The cookie is the only place containing the encryption key.
-const DownloadSessionLifetime = 4 * time.Hour
+const DownloadSessionLifetime = 5 * time.Minute
 const maxDownloadSessionRequests = 32
 const maxExactSessionBytes = int64(1 << 53)
 
@@ -27,12 +27,14 @@ if ttl < 1001 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return 0 e
 if redis.call('EXISTS', KEYS[2]) ~= 0 then return 0 end
 local index = redis.call('HGET', KEYS[1], 'download_sessions') or ''
 if string.len(index) >= 6500 then return redis.error_reply('session limit reached') end
-local duration = math.min(ttl - 1, tonumber(ARGV[3]) * 1000)
+-- Bound new continuations independently of their requested duration, and
+-- never allow a session to outlive the parent share.
+local duration = math.min(ttl - 1, tonumber(ARGV[3]) * 1000, 300000)
 local probe = redis.pcall('PEXPIRE', KEYS[2], duration)
 if type(probe) == 'table' and probe.err then return probe end
 local cleanup = redis.pcall('DEL', KEYS[2])
 if type(cleanup) == 'table' and cleanup.err then return cleanup end
-local created = redis.pcall('HSET', KEYS[2], 'secret', ARGV[2], 'requests', 0, 'used', 0, 'limit', ARGV[4])
+local created = redis.pcall('HSET', KEYS[2], 'secret', ARGV[2], 'requests', 0, 'used', 0, 'limit', ARGV[4], 'session_version', '2')
 if type(created) == 'table' and created.err then return created end
 local expiry = redis.pcall('PEXPIRE', KEYS[2], duration)
 if expiry ~= 1 then
@@ -51,6 +53,7 @@ var inspectDownloadSessionScript = redis.NewScript(2, `
 local ttl = redis.call('TTL', KEYS[1])
 if ttl < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return nil end
 if redis.call('TTL', KEYS[2]) < 0 then return nil end
+if redis.call('HGET', KEYS[2], 'session_version') ~= '2' then return nil end
 local secret = redis.call('HGET', KEYS[2], 'secret')
 local count = tonumber(redis.call('HGET', KEYS[2], 'requests'))
 local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
@@ -89,6 +92,9 @@ type DownloadSession struct {
 	fileKey, sessionKey string
 	token, encrypted    []byte
 	size                int64
+	archiveID           string
+	tracked             bool
+	progressField       string
 }
 
 func (s *DownloadSession) Size() int64 { return s.size }
@@ -99,8 +105,11 @@ func downloadSessionSeconds() (int, error) {
 		return int(DownloadSessionLifetime / time.Second), nil
 	}
 	d, err := time.ParseDuration(value)
-	if err != nil || d < time.Second || d > 30*24*time.Hour {
+	if err != nil || d < time.Second {
 		return 0, errors.New("Invalid download session timeout")
+	}
+	if d > DownloadSessionLifetime {
+		d = DownloadSessionLifetime
 	}
 	return int(d / time.Second), nil
 }
