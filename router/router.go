@@ -140,16 +140,16 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 
 			slogger.LogAttrs(c.Request().Context(), slog.LevelInfo, "http_request",
 				slog.String("time", v.StartTime.UTC().Format(time.RFC3339Nano)),
-				slog.String("remote_ip", v.RemoteIP),
-				slog.String("host", v.Host),
-				slog.String("method", v.Method),
+				slog.String("remote_ip", boundedLogText(v.RemoteIP, maxLoggedRemoteIPBytes)),
+				slog.String("host", boundedLogText(v.Host, maxLoggedHostBytes)),
+				slog.String("method", boundedLogText(v.Method, maxLoggedMethodBytes)),
 				slog.String("route", safeLogRoute(c)),
 				slog.Int("status", v.Status),
 				slog.String("error", errMsg),
 				slog.String("latency_human", v.Latency.String()),
-				slog.String("bytes_in", v.ContentLength),
+				slog.String("bytes_in", boundedLogText(v.ContentLength, maxLoggedLengthBytes)),
 				slog.Int64("bytes_out", v.ResponseSize),
-				slog.String("user_agent", v.UserAgent),
+				slog.String("user_agent", boundedLogText(v.UserAgent, maxLoggedUserAgentBytes)),
 			)
 			return nil
 		},
