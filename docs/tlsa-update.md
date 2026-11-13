@@ -8,7 +8,9 @@ The script needs a Cloudflare API token with DNS edit access restricted to the i
 
 Set the non-secret `CF_ZONE_ID` in the script or provide it through a persistent hook environment. A variable set only in an interactive shell is not automatically available to Certbot's scheduled process. `CF_API_TOKEN_FILE` can select another private token file; alternatively `CF_API_TOKEN` may supply a token in the environment, but do not set both. The script sends API requests directly and ignores HTTP proxy environment settings.
 
-The script requires Bash, OpenSSL, curl, jq, awk, GNU timeout and flock. It uses a private lock under `/run/lock/okuru-tlsa` and logs to `/var/log/letsencrypt/update_tlsa.log`. The user must be allowed to access its certificate files, lock directory and log. The production environment and these permissions have not been checked.
+The script requires Bash, OpenSSL, curl, jq, awk, GNU timeout and flock. It uses a private lock under `/run/lock/okuru-tlsa` and logs to `/var/log/letsencrypt/update_tlsa.log`. Normal runs display their progress and errors on stderr and write them as plain text to the log. A compatible interactive terminal receives coloured status messages; redirected output, `TERM=dumb`, and terminals with `NO_COLOR` set do not receive colour codes. `--log-tlsa` also displays certificate-check details. Dry-run and diagnostic output stays on the console. The user must be allowed to access the certificate files, lock directory and log. The production environment and these permissions have not been checked.
+
+If the log cannot be opened or a required progress message cannot be written, the update stops. A failure after a DNS request may nevertheless leave Cloudflare partially changed; inspect the records immediately. Closing a console pipe does not interrupt the update. The script and its tests do not prove that every possible storage, network or process failure can be recovered automatically.
 
 ## Review and validation
 
@@ -27,4 +29,4 @@ This is not a prepublished DANE key rollover: a Certbot deploy hook runs after r
 
 ## Local tests
 
-`python3 tests/tlsa/test_update_tlsa.py` runs offline tests with simulated Cloudflare and endpoint responses and temporary test certificates. It does not establish compatibility with the live account, the production Certbot/Apache configuration, the actual DNS delegation, or Linux filesystem and `flock` behavior when run on macOS.
+`python3 tests/tlsa/test_update_tlsa.py` and `python3 tests/tlsa/test_tlsa_terminal.py` run offline tests with simulated Cloudflare and endpoint responses and temporary test certificates. They do not establish compatibility with the live account, the production Certbot/Apache configuration, the actual DNS delegation, or Linux filesystem and `flock` behavior when run on macOS.
