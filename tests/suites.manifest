@@ -7,6 +7,7 @@ controllers/benchmark_rss_other_test.go
 controllers/display_error_test.go
 controllers/download_finalization_test.go
 controllers/download_integration_test.go
+controllers/file_creation_admission_test.go
 controllers/file_path_test.go
 controllers/multiple_files_test.go
 controllers/new_archive_compatibility_test.go
