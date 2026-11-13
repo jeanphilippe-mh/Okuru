@@ -51,6 +51,16 @@ Tests requiring Redis use `OKURU_TEST_REDIS_ADDR`; without it they are skipped. 
 
 Windows-specific tests must run on a real Windows system and intended filesystem. Cross-compilation alone does not validate locks, access control lists or open handles. A cross-compiled test harness invoked with `-exec` also cannot execute its nested runner, so it does not establish that the projected suites ran. See [Windows verification](../docs/windows-verification.md).
 
+## TLSA script tests
+
+Run the offline TLSA suite with Python 3, Bash, OpenSSL and jq:
+
+```sh
+python3 tests/tlsa/test_update_tlsa.py
+```
+
+The suite uses temporary certificates and simulated Cloudflare, HTTPS endpoints and locking. It does not contact production or establish that a real Debian/Certbot deployment, DNS propagation or Linux locking works.
+
 ## Browser and Apache tests
 
 Run all JavaScript tests from the repository root with Node.js 18 or later:

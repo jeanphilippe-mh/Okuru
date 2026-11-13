@@ -1,30 +1,54 @@
 #!/bin/bash
-
-# Never echo secret-bearing shell expansions, including when invoked with -x.
+# Cloudflare TLSA deploy hook. Review certificate paths and DNS rollover before use.
+# This script replaces existing TLSA records; it cannot make replacement atomic.
 set +x
 
-# Script variables
 CF_API_TOKEN="${CF_API_TOKEN:-}"
 CF_API_TOKEN_FILE="${CF_API_TOKEN_FILE:-}"
-CF_ZONE_ID="${CF_ZONE_ID:-}" # Set your Cloudflare DNS zone ID
-SUBDOMAINS=( # Add your domains names
-  ""
-  ""
-  ""
-  ""
-  ""
+CF_ZONE_ID="${CF_ZONE_ID:-}" # Set locally or provide through the hook environment.
+if [[ -z "$CF_API_TOKEN" && -z "$CF_API_TOKEN_FILE" ]]; then
+  CF_API_TOKEN_FILE="/etc/letsencrypt/renewal-hooks/deploy/cloudflare-tlsa.token"
+fi
+SUBDOMAINS=(
+  "jeanphilippe.io"
+  "monportfolio.jeanphilippe.io"
+  "myportfolio.jeanphilippe.io"
+  "share.jeanphilippe.io"
+  "www.jeanphilippe.io"
 )
-LOG_FILE="/var/log/letsencrypt/update_tlsa.log"
-TIMEOUT=30  # Timeout for API requests (in seconds)
-MAX_RETRIES=3  # Maximum retries in case of failure
+# The local share certificate is independently checked against the HTTPS endpoint.
+# OVH-managed certificates are obtained from the public endpoint: publication
+# trusts the local PKIX trust store and the single endpoint reached at each check.
+# This does not independently authenticate a new key against an existing TLSA.
+# A different CDN edge, IPv4/IPv6 address or server can present another key.
+declare -A CERTIFICATE_SOURCES=(
+  ["jeanphilippe.io"]="public"
+  ["monportfolio.jeanphilippe.io"]="public"
+  ["myportfolio.jeanphilippe.io"]="public"
+  ["share.jeanphilippe.io"]="local"
+  ["www.jeanphilippe.io"]="public"
+)
+# Set a local path for every domain whose source is "local".
+declare -A CERTIFICATE_PATHS=(
+  ["share.jeanphilippe.io"]="/etc/letsencrypt/live/share.jeanphilippe.io/cert.pem"
+)
+LOG_FILE="${LOG_FILE:-/var/log/letsencrypt/update_tlsa.log}"
+TIMEOUT="${TIMEOUT:-30}"
+MAX_RETRIES="${MAX_RETRIES:-3}"
+LOCK_DIR="${OKURU_TLSA_LOCK_DIR:-/run/lock/okuru-tlsa}"
+LOG_TLSA=false
+DRY_RUN=false
+DIAGNOSTIC=false
 
-# Colors for displaying in Shell
-WHITE='\033[1;37m'
-GREEN='\033[1;92m'
-RED='\033[1;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-NC='\033[0m'
+function usage {
+  echo "Usage: $0 [-log|--log-tlsa] [--dry-run|--diagnostic] [-h|--help]"
+  echo "  --log-tlsa  Show certificate diagnostics (compatibility option)."
+  echo "  --dry-run   Inspect certificates and Cloudflare records without modifying DNS."
+  echo "  --diagnostic  Report each domain's certificate source and Cloudflare status without modifying DNS."
+  echo "Set CF_ZONE_ID and either CF_API_TOKEN_FILE or CF_API_TOKEN."
+  echo "Review CERTIFICATE_SOURCES and CERTIFICATE_PATHS against the actual endpoints."
+  echo "Public checks also trust the system CA store and only the endpoint reached."
+}
 
 function load_api_token {
   if [[ -n "$CF_API_TOKEN_FILE" ]]; then
@@ -40,223 +64,367 @@ function load_api_token {
     fi
     CF_API_TOKEN=$(< "$CF_API_TOKEN_FILE")
   fi
-
-  # The token is embedded in a quoted curl config directive. Reject characters
-  # which could escape that directive or introduce a second config option.
   if [[ -z "$CF_API_TOKEN" || "$CF_API_TOKEN" == *[[:cntrl:]]* || "$CF_API_TOKEN" == *\"* || "$CF_API_TOKEN" == *\\* ]]; then
-    echo "ERROR: The Cloudflare token is missing or contains invalid characters." >&2
+    echo "ERROR: Cloudflare token missing or invalid." >&2
     return 1
   fi
-  # Do not pass an exported token through the environment of child processes.
   export -n CF_API_TOKEN
 }
 
-# Script prerequisites initial check
 function check_prerequisites {
-  for cmd in curl jq tlsa; do
-    if ! command -v "$cmd" &> /dev/null; then
-      echo -e "${RED}[$(date)] ERROR: The command $cmd is required but not found. Exiting.${NC}"
-      exit 1
-    fi
+  local cmd
+  for cmd in curl jq openssl stat timeout awk flock; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: Required command $cmd not found." >&2; return 1; }
   done
-
-  load_api_token || exit 1
-
-  if [ -z "$CF_ZONE_ID" ]; then
-    echo -e "${RED}[$(date)] ERROR: CF_ZONE_ID is not set. Exiting.${NC}"
-    exit 1
-  fi
+  [[ "$CF_ZONE_ID" =~ ^[[:xdigit:]]{32}$ ]] || { echo "ERROR: CF_ZONE_ID must be a 32-character hexadecimal zone ID." >&2; return 1; }
+  [[ "$TIMEOUT" =~ ^[1-9][0-9]*$ && "$MAX_RETRIES" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: Invalid timeout or retry count." >&2; return 1; }
+  load_api_token
 }
 
-# Centralized function for sending API requests
-function send_request {
-  local METHOD=$1
-  local URL=$2
-  local DATA=$3
-
-  # printf is a shell builtin; curl reads the sensitive header from stdin and
-  # never receives it in its process arguments or inherited environment.
-  if ! RESPONSE=$(printf 'header = "Authorization: Bearer %s"\n' "$CF_API_TOKEN" | \
-    curl -s --config - --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
-      -w "%{http_code}" -X "$METHOD" "$URL" \
-      -H "Content-Type: application/json" --data "$DATA"); then
-    echo "[$(date)] ERROR: Cloudflare request failed." >> "$LOG_FILE"
-    return 1
-  fi
-
-  if (( ${#RESPONSE} < 3 )); then
-    echo "[$(date)] ERROR: Invalid Cloudflare response." >> "$LOG_FILE"
-    return 1
-  fi
-  HTTP_CODE="${RESPONSE: -3}"
-  BODY="${RESPONSE:0:${#RESPONSE}-3}"
-  if [[ ! "$HTTP_CODE" =~ ^[0-9]{3}$ ]]; then
-    echo "[$(date)] ERROR: Invalid Cloudflare response status." >> "$LOG_FILE"
-    return 1
-  fi
-
-  if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-    # An HTTP success alone does not mean Cloudflare accepted the operation.
-    # Require exactly one JSON object with an explicit success flag.
-    if ! printf '%s' "$BODY" | jq -es 'length == 1 and (.[0] | type == "object" and .success == true)' >/dev/null 2>&1; then
-      echo "[$(date)] ERROR: Cloudflare returned an unsuccessful or invalid response." >> "$LOG_FILE"
-      return 1
-    fi
-    printf '%s\n' "$BODY"
-  else
-    echo "[$(date)] ERROR: Cloudflare request returned HTTP $HTTP_CODE." >> "$LOG_FILE"
-    return 1
-  fi
-}
-
-# Step management with numbering
-function step {
-  local STEP_NUMBER=$1
-  local MESSAGE=$2
-  echo -e "${BLUE}[Step $STEP_NUMBER]${NC} $MESSAGE"
-}
-
-# Errors handling
-function error_exit {
-  echo -e "${RED}[$(date)] **TLSA RECORD UPDATE HAD FAILED**${NC}"
-  exit 1
-}
-
-# Log rotation
 function rotate_logs {
-  if [ -f "$LOG_FILE" ] && [ "$(stat --format=%s "$LOG_FILE")" -ge 1048576 ]; then
-    mv "$LOG_FILE" "$LOG_FILE.$(date +%Y%m%d%H%M%S)"
-    echo "[$(date)] INFO: Log file rotated." > "$LOG_FILE"
+  local log_dir timestamp size
+  log_dir=$(dirname "$LOG_FILE") || return 1
+  mkdir -p -- "$log_dir" || return 1
+  if [[ -f "$LOG_FILE" ]]; then
+    size=$(stat --format=%s "$LOG_FILE") || return 1
+    if (( size >= 1048576 )); then
+      timestamp=$(date +%Y%m%d%H%M%S)
+      mv -- "$LOG_FILE" "${LOG_FILE}.${timestamp}" || return 1
+    fi
   fi
 }
 
-# Verify & Delete existing Cloudflare TLSA records
-function delete_tlsa_records {
-  local SUBDOMAIN=$1
-  local EXISTING_RECORDS RECORD_IDS RECORD_ID DELETE_RESULT
-  step 1 "Deleting old TLSA records for $SUBDOMAIN."
-
-  if ! EXISTING_RECORDS=$(send_request "GET" "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?type=TLSA&name=_443._tcp.$SUBDOMAIN" ""); then
-    echo "[$(date)] ERROR: Failed to retrieve existing TLSA records."
-    return 1
-  fi
-
-  # Treat malformed, unsuccessful, or paginated responses as failures rather
-  # than claiming that no records exist or updating an incomplete result set.
-  if ! RECORD_IDS=$(printf '%s' "$EXISTING_RECORDS" | jq -er '
-    if .success == true and (.result | type == "array") and
-       (.result_info.total_pages | type == "number" and . >= 0 and . <= 1 and floor == .) and
-       all(.result[]; (.id | type == "string" and test("^[0-9a-f]{32}$")))
-    then [.result[].id] | join("\n")
-    else error("invalid TLSA record listing") end
-  ' 2>/dev/null); then
-    echo "[$(date)] ERROR: Invalid or incomplete TLSA record listing."
-    return 1
-  fi
-  if [ -z "$RECORD_IDS" ]; then
-    echo -e "${GREEN}[$(date)] No TLSA records to delete for $SUBDOMAIN.${NC}"
-    return
-  fi
-
-  for RECORD_ID in $RECORD_IDS; do
-    echo "[$(date)] Deleting TLSA record $RECORD_ID for $SUBDOMAIN..."
-    DELETE_RESULT=$(send_request "DELETE" "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$RECORD_ID" "")
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[$(date)] TLSA record $RECORD_ID deleted.${NC}"
+# Safe GET retries; mutations are never retried after an ambiguous response.
+function send_request {
+  local method=$1 url=$2 data=${3:-} max_attempts=${4:-$MAX_RETRIES} attempt=1 response body http_code transport_ok
+  while (( attempt <= max_attempts )); do
+    echo "[$(date)] HTTP $method attempt $attempt" >&2
+    transport_ok=true
+    if [[ -n "$data" ]]; then
+      response=$(printf 'header = "Authorization: Bearer %s"\n' "$CF_API_TOKEN" | curl -q -s --config - --noproxy '*' --proto '=https' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w '%{http_code}' -X "$method" "$url" -H 'Content-Type: application/json' --data "$data") || transport_ok=false
     else
-      echo -e "${RED}[$(date)] ERROR: Failed to delete record $RECORD_ID.${NC}"
+      response=$(printf 'header = "Authorization: Bearer %s"\n' "$CF_API_TOKEN" | curl -q -s --config - --noproxy '*' --proto '=https' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w '%{http_code}' -X "$method" "$url" -H 'Content-Type: application/json') || transport_ok=false
+    fi
+    if [[ "$transport_ok" == true && ${#response} -ge 3 ]]; then
+      http_code=${response: -3}
+      body=${response:0:${#response}-3}
+      if [[ "$http_code" =~ ^[0-9]{3}$ ]] && (( 10#$http_code >= 200 && 10#$http_code < 300 )); then
+        if printf '%s' "$body" | jq -es 'length == 1 and (.[0] | type == "object" and .success == true)' >/dev/null 2>&1; then
+          printf '%s\n' "$body"
+          return 0
+        fi
+        echo "ERROR: Cloudflare returned an invalid or unsuccessful response." >&2
+        return 1
+      fi
+    else
+      http_code="000"
+    fi
+    echo "ERROR: Cloudflare request failed (HTTP ${http_code:-unknown})." >&2
+    if [[ "$method" != GET || ! "$http_code" =~ ^[0-9]{3}$ ]] || (( 10#$http_code != 0 && 10#$http_code != 429 && 10#$http_code < 500 )); then
+      [[ "$method" == GET ]] || echo "ERROR: Mutation outcome may be unknown; verify Cloudflare before retrying." >&2
       return 1
     fi
+    (( attempt++ ))
+    if (( attempt <= max_attempts )); then sleep 2; fi
   done
+  echo "ERROR: GET failed after $max_attempts attempts." >&2
+  return 1
 }
 
-# Create a new TLSA record in Cloudflare DNS zone
-function create_tlsa_record {
-  local SUBDOMAIN=$1
-  step 2 "Creating a new TLSA record for $SUBDOMAIN."
-
-  if [ "$SUBDOMAIN" == "share.jeanphilippe.io" ]; then
-    TLSA_RAW_OUTPUT=$(tlsa --create -4 "$SUBDOMAIN" --ca-cert /etc/letsencrypt/live/share.jeanphilippe.io/ -u 3 -s 1 -m 1 2>/dev/null)
-    if [ $? -ne 0 ] || [ -z "$TLSA_RAW_OUTPUT" ]; then
-      echo -e "${YELLOW}[$(date)] Let's Encrypt method failed. Switching to standard method.${NC}"
-      TLSA_RAW_OUTPUT=$(tlsa --create "$SUBDOMAIN" -u 3 -s 1 -m 1)
-    fi
+function calculate_tlsa_hash {
+  local domain=$1 cert=${CERTIFICATE_PATHS[$1]:-} hash host_output
+  [[ -n "$cert" && -f "$cert" && -r "$cert" ]] || { echo "ERROR: No readable configured certificate for $domain." >&2; return 1; }
+  if [[ "$LOG_TLSA" == true ]]; then
+    openssl x509 -in "$cert" -noout -checkend 0 >&2 || return 1
+    host_output=$(openssl x509 -in "$cert" -noout -checkhost "$domain") || return 1
+    printf '%s\n' "$host_output" >&2
   else
-    TLSA_RAW_OUTPUT=$(tlsa --create "$SUBDOMAIN" -u 3 -s 1 -m 1)
+    openssl x509 -in "$cert" -noout -checkend 0 >/dev/null 2>&1 || { echo "ERROR: Certificate expired or invalid for $domain." >&2; return 1; }
+    host_output=$(openssl x509 -in "$cert" -noout -checkhost "$domain" 2>/dev/null) || return 1
   fi
+  # OpenSSL 3.0 can return exit 0 even when the hostname does not match.
+  [[ "$host_output" == "Hostname $domain does match certificate" ]] || { echo "ERROR: Certificate does not match $domain or output is unrecognized." >&2; return 1; }
+  hash=$(set -o pipefail; openssl x509 -in "$cert" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | openssl dgst -sha256 -r 2>/dev/null) || return 1
+  hash=${hash%% *}
+  [[ "$hash" =~ ^[[:xdigit:]]{64}$ ]] || { echo "ERROR: Invalid SHA-256 SPKI fingerprint for $domain." >&2; return 1; }
+  printf '%s\n' "${hash,,}"
+}
 
-  TLSA_HASH=$(echo "$TLSA_RAW_OUTPUT" | grep "IN TLSA" | awk '{print $NF}' | head -n 1)
-  if [ -z "$TLSA_HASH" ]; then
-    error_exit "Failed to generate TLSA hash for $SUBDOMAIN"
-  fi
-
-  # Generate JSON for Cloudfare API
-  JSON_DATA=$(jq -n \
-    --arg type "TLSA" \
-    --arg name "_443._tcp.$SUBDOMAIN" \
-    --arg usage "3" \
-    --arg selector "1" \
-    --arg matching_type "1" \
-    --arg certificate "$TLSA_HASH" \
-    '{
-      type: $type,
-      name: $name,
-      data: {
-        usage: ($usage | tonumber),
-        selector: ($selector | tonumber),
-        matching_type: ($matching_type | tonumber),
-        certificate: $certificate
-      }
-    }'
-  )
-
-  ADD_RESULT=$(send_request "POST" "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" "$JSON_DATA")
-  if [ $? -eq 0 ]; then
-    echo -e "${GREEN}[$(date)] New TLSA record successfully added for $SUBDOMAIN.${NC}"
+function served_tlsa_hash {
+  local domain=$1 output pem hash
+  if [[ "$LOG_TLSA" == true ]]; then
+    output=$(timeout "$TIMEOUT" openssl s_client -connect "$domain:443" -servername "$domain" -verify_return_error -verify_hostname "$domain" -showcerts </dev/null) || return 1
   else
-    echo -e "${RED}[$(date)] ERROR: Failed to create TLSA record for $SUBDOMAIN.${NC}"
+    output=$(timeout "$TIMEOUT" openssl s_client -connect "$domain:443" -servername "$domain" -verify_return_error -verify_hostname "$domain" -showcerts </dev/null 2>/dev/null) || return 1
+  fi
+  pem=$(printf '%s\n' "$output" | awk '/-----BEGIN CERTIFICATE-----/{if (!seen) {seen=1; active=1}} active {print} /-----END CERTIFICATE-----/{if (active) exit}')
+  [[ -n "$pem" ]] || return 1
+  hash=$(set -o pipefail; printf '%s\n' "$pem" | openssl x509 -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | openssl dgst -sha256 -r 2>/dev/null) || return 1
+  hash=${hash%% *}
+  [[ "$hash" =~ ^[[:xdigit:]]{64}$ ]] || return 1
+  printf '%s\n' "${hash,,}"
+}
+
+function retry_served_tlsa_hash {
+  local domain=$1 attempt=1 result
+  while (( attempt <= MAX_RETRIES )); do
+    if result=$(served_tlsa_hash "$domain"); then printf '%s\n' "$result"; return 0; fi
+    (( attempt++ ))
+    if (( attempt <= MAX_RETRIES )); then sleep 2; fi
+  done
+  return 1
+}
+
+# Normalize both Cloudflare representations, rejecting inconsistent dual forms.
+TLSA_JQ_LIBRARY='
+def normal_data:
+  if type != "object" then error("invalid data") else
+    if (.usage | type) == "number" and (.selector | type) == "number" and
+       (.matching_type | type) == "number" and (.certificate | type) == "string" and
+       (.certificate | test("^[0-9a-fA-F]+$")) then
+      {usage:.usage,selector:.selector,matching_type:.matching_type,certificate:(.certificate | ascii_downcase)}
+    else error("invalid data") end
+  end;
+def normal_content:
+  if type != "string" then error("invalid content") else
+    if test("^[0-9]+[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+[0-9a-fA-F]+$") then
+      capture("^(?<u>[0-9]+)[ \t]+(?<s>[0-9]+)[ \t]+(?<m>[0-9]+)[ \t]+(?<c>[0-9a-fA-F]+)$") |
+      {usage:(.u|tonumber),selector:(.s|tonumber),matching_type:(.m|tonumber),certificate:(.c|ascii_downcase)}
+    else error("invalid content") end
+  end;
+def tlsa_normal:
+  (if .data != null then (.data | normal_data) else null end) as $data |
+  (if .content != null then (.content | normal_content) else null end) as $content |
+  if $data == null and $content == null then error("missing TLSA data")
+  elif $data != null and $content != null and $data != $content then error("inconsistent TLSA data")
+  else ($data // $content) end;
+def valid_norm:
+  (.usage | type == "number" and floor == . and . >= 0 and . <= 3) and
+  (.selector | type == "number" and floor == . and . >= 0 and . <= 1) and
+  (.matching_type | type == "number" and floor == . and . >= 0 and . <= 2) and
+  (.certificate | type == "string" and test("^([0-9a-f]{2})+$")) and
+  (if .matching_type == 1 then (.certificate | length == 64)
+   elif .matching_type == 2 then (.certificate | length == 128) else true end);
+'
+
+function fetch_tlsa_records {
+  local domain=$1 max_attempts=${2:-$MAX_RETRIES} records
+  records=$(send_request GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?type=TLSA&name=_443._tcp.$domain" "" "$max_attempts") || return 1
+  if ! printf '%s' "$records" | jq -e --arg name "_443._tcp.$domain" "$TLSA_JQ_LIBRARY"'
+    .success == true and (.result | type == "array") and
+    (.result_info.total_pages | type == "number" and . >= 0 and . <= 1 and floor == .) and
+    all(.result[]; (.id | type == "string" and test("^[0-9a-f]{32}$")) and .type == "TLSA" and (.name | ascii_downcase) == ($name | ascii_downcase) and (tlsa_normal | valid_norm))
+  ' >/dev/null 2>&1; then
+    echo "ERROR: Invalid, inconsistent, or paginated TLSA listing for $domain." >&2
     return 1
   fi
+  printf '%s\n' "$records"
 }
 
-function main {
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-  echo "Usage: $0"
-  echo "Set CF_ZONE_ID and CF_API_TOKEN, or use an owner-only CF_API_TOKEN_FILE."
-  echo "This script updates TLSA records in Cloudflare for the configured subdomains."
-  return 0
-fi
-
-# Logging
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-check_prerequisites
-
-# Rotate logs
-rotate_logs
-
-# Start measuring execution time
-START_TIME=$(date +%s)
-
-# Display the startup message
-echo -e "${WHITE}**STARTING TLSA RECORD UPDATE**${NC}"
-
-# Process each Cloudflare subdomain
-for SUBDOMAIN in "${SUBDOMAINS[@]}"; do
-  echo -e "${YELLOW}[$(date)] Starting process for $SUBDOMAIN...${NC}"
-  delete_tlsa_records "$SUBDOMAIN" || error_exit "Deletion failed for $SUBDOMAIN"
-  create_tlsa_record "$SUBDOMAIN" || error_exit "Creation failed for $SUBDOMAIN"
-  echo -e "${GREEN}[$(date)] Finished processing for $SUBDOMAIN.${NC}"
-done
-
-# End measuring execution time
-END_TIME=$(date +%s)
-DURATION=$((END_TIME - START_TIME))
-echo -e "${GREEN}[$(date)] TLSA records update had been successfully completed in ${DURATION}s.${NC}"
-echo -e "${WHITE}**ENDING TLSA RECORD UPDATE**${NC}"
-
+function records_match {
+  local records=$1 hash=$2
+  printf '%s' "$records" | jq -e --arg hash "$hash" "$TLSA_JQ_LIBRARY"'
+    (.result | length) == 1 and
+    (.result[0] | tlsa_normal) == {usage:3,selector:1,matching_type:1,certificate:$hash}
+  ' >/dev/null 2>&1
 }
+
+# Compare complete records rather than only IDs: another Cloudflare client can
+# change a record in place between global preflight and a local DELETE. This
+# detects observed changes but is not an atomic compare-and-delete operation.
+function records_unchanged {
+  local before=$1 after=$2 before_canonical after_canonical
+  before_canonical=$(printf '%s' "$before" | jq -Sc '.result | sort_by(.id)') || return 1
+  after_canonical=$(printf '%s' "$after" | jq -Sc '.result | sort_by(.id)') || return 1
+  [[ "$before_canonical" == "$after_canonical" ]]
+}
+
+function expected_tlsa_hash {
+  local domain=$1 source=${CERTIFICATE_SOURCES[$1]:-} local_hash served_hash
+  case "$source" in
+    local)
+      local_hash=$(calculate_tlsa_hash "$domain") || return 1
+      served_hash=$(retry_served_tlsa_hash "$domain") || return 1
+      [[ "$local_hash" == "$served_hash" ]] || {
+        echo "ERROR: Local and publicly served certificates differ for $domain." >&2
+        return 1
+      }
+      printf '%s\n' "$local_hash"
+      ;;
+    public)
+      # HTTPS PKIX, hostname and SNI validation occurs in served_tlsa_hash.
+      retry_served_tlsa_hash "$domain"
+      ;;
+    *)
+      echo "ERROR: Missing or invalid certificate source for $domain." >&2
+      return 1
+      ;;
+  esac
+}
+
+function verify_current_endpoint {
+  local domain=$1 expected=$2 current_hash
+  current_hash=$(expected_tlsa_hash "$domain") || return 1
+  [[ "$current_hash" == "$expected" ]]
+}
+
+function await_records {
+  local domain=$1 desired=$2 hash=${3:-} attempt=1 records
+  while (( attempt <= MAX_RETRIES )); do
+    if records=$(fetch_tlsa_records "$domain" 1); then
+      if [[ "$desired" == empty ]] && printf '%s' "$records" | jq -e '(.result | length) == 0' >/dev/null 2>&1; then return 0; fi
+      if [[ "$desired" == matching ]] && records_match "$records" "$hash"; then return 0; fi
+    fi
+    (( attempt++ ))
+    if (( attempt <= MAX_RETRIES )); then sleep 2; fi
+  done
+  return 1
+}
+
+# All certificates, endpoints, payloads and listings are validated in main
+# before invoking this function for any domain.
+function update_domain {
+  local domain=$1 hash=$2 ids=$3 json=$4 previous=$5 current id post_ok=true
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "DRY RUN: Would replace existing _443._tcp.$domain TLSA records with 3 1 1 $hash."
+    return 0
+  fi
+  if ! verify_current_endpoint "$domain" "$hash"; then
+    echo "ERROR: Certificate or served endpoint changed for $domain; no DNS changes made for this domain." >&2
+    return 1
+  fi
+  current=$(fetch_tlsa_records "$domain") || { echo "ERROR: Cannot recheck Cloudflare records for $domain; no DNS changes made for this domain." >&2; return 1; }
+  if ! records_unchanged "$previous" "$current"; then
+    echo "ERROR: Cloudflare records changed during preflight for $domain; no DNS changes made for this domain." >&2
+    return 1
+  fi
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
+    send_request DELETE "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$id" "" >/dev/null || { echo "ERROR: TLSA deletion failed or is uncertain; creation not attempted. Existing records may already have been removed." >&2; return 1; }
+  done <<< "$ids"
+  if ! await_records "$domain" empty; then
+    echo "ERROR: Cannot confirm deletion for $domain; creation not attempted. Check Cloudflare immediately." >&2
+    return 1
+  fi
+  send_request POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" "$json" >/dev/null || post_ok=false
+  if ! await_records "$domain" matching "$hash"; then
+    echo "ERROR: Cloudflare did not confirm exactly the expected TLSA for $domain; old records may be gone. Check Cloudflare immediately." >&2
+    return 1
+  fi
+  if [[ "$post_ok" != true ]]; then
+    echo "WARNING: POST response was ambiguous; expected record confirmed by Cloudflare GET for $domain." >&2
+  fi
+  if ! verify_current_endpoint "$domain" "$hash"; then
+    echo "ERROR: Certificate or endpoint changed after publishing for $domain; DNS was modified. Check Cloudflare and the endpoint immediately." >&2
+    return 1
+  fi
+  echo "[$(date)] Expected TLSA confirmed in Cloudflare for $domain; DNS propagation not checked."
+}
+
+function acquire_lock {
+  local mode
+  command -v flock >/dev/null 2>&1 || { echo "ERROR: Required command flock not found." >&2; return 1; }
+  [[ "$LOCK_DIR" == /* ]] || { echo "ERROR: Lock directory must be absolute." >&2; return 1; }
+  mkdir -m 700 -- "$LOCK_DIR" 2>/dev/null || [[ -d "$LOCK_DIR" ]] || return 1
+  [[ -d "$LOCK_DIR" && ! -L "$LOCK_DIR" && -O "$LOCK_DIR" ]] || { echo "ERROR: Unsafe lock directory." >&2; return 1; }
+  mode=$(stat -c '%a' -- "$LOCK_DIR" 2>/dev/null || stat -f '%Lp' "$LOCK_DIR" 2>/dev/null) || return 1
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 077) == 0 )) || { echo "ERROR: Lock directory permissions must exclude group and others." >&2; return 1; }
+  [[ ! -L "$LOCK_DIR/lock" ]] || { echo "ERROR: Unsafe lock file." >&2; return 1; }
+  exec {TLSA_LOCK_FD}>>"$LOCK_DIR/lock" || return 1
+  flock -n "$TLSA_LOCK_FD" || { echo "ERROR: Another TLSA update is already running." >&2; return 1; }
+}
+
+# Run main in a subshell to release the lock on every exit path.
+function main (
+  while (( $# > 0 )); do
+    case "$1" in
+      -log|--log-tlsa) LOG_TLSA=true ;;
+      --dry-run) DRY_RUN=true ;;
+      --diagnostic) DIAGNOSTIC=true; DRY_RUN=true ;;
+      -h|--help) usage; return 0 ;;
+      *) echo "ERROR: Unknown option: $1" >&2; usage >&2; return 1 ;;
+    esac
+    shift
+  done
+  acquire_lock || return 1
+  if [[ "$DRY_RUN" != true ]]; then
+    rotate_logs || { echo "ERROR: Cannot prepare log." >&2; return 1; }
+    # Open the log directly, so a failed redirection stops the update. A tee
+    # process substitution can fail independently while DNS updates continue.
+    exec >> "$LOG_FILE" 2>&1 || { echo "ERROR: Cannot write log." >&2; return 1; }
+  fi
+  check_prerequisites || return 1
+  local start_time end_time domain hash records ids json diagnostic_issues=0
+  local -A hashes listings payloads snapshots skip seen
+  start_time=$(date +%s)
+  echo "**STARTING TLSA RECORD UPDATE**"
+  echo "Preflighting all configured domains before any DNS change."
+  for domain in "${SUBDOMAINS[@]}"; do
+    if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$domain" == *..* || "$domain" == *.-* || "$domain" == *-.* || ${#domain} -gt 253 ]]; then
+      echo "ERROR: Invalid domain: $domain." >&2
+      if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
+    fi
+    if [[ -n "${seen[$domain]+present}" ]]; then
+      echo "ERROR: Duplicate domain $domain." >&2
+      if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
+    fi
+    seen[$domain]=yes
+    if ! hash=$(expected_tlsa_hash "$domain"); then
+      echo "ERROR: Cannot verify the configured certificate source for $domain; DNS unchanged." >&2
+      if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
+    fi
+    if ! records=$(fetch_tlsa_records "$domain"); then
+      echo "ERROR: Cannot inspect Cloudflare records for $domain; DNS unchanged." >&2
+      if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
+    fi
+    if [[ "$DIAGNOSTIC" == true ]]; then
+      echo "DIAGNOSTIC: $domain source=${CERTIFICATE_SOURCES[$domain]} HTTPS=verified fingerprint=$hash"
+      if records_match "$records" "$hash"; then
+        echo "DIAGNOSTIC: $domain Cloudflare=matching"
+      elif printf '%s' "$records" | jq -e '(.result | length) == 0' >/dev/null 2>&1; then
+        echo "DIAGNOSTIC: $domain Cloudflare=empty; an update is needed."
+        ((diagnostic_issues++))
+      else
+        echo "DIAGNOSTIC: $domain Cloudflare=differs; an update is needed."
+        ((diagnostic_issues++))
+      fi
+      continue
+    fi
+    ids=$(printf '%s' "$records" | jq -r '.result[].id') || return 1
+    json=$(jq -n --arg name "_443._tcp.$domain" --arg hash "$hash" '{type:"TLSA",name:$name,data:{usage:3,selector:1,matching_type:1,certificate:$hash}}') || return 1
+    hashes[$domain]=$hash
+    listings[$domain]=$ids
+    payloads[$domain]=$json
+    snapshots[$domain]=$records
+    if records_match "$records" "$hash"; then skip[$domain]=yes; else skip[$domain]=no; fi
+  done
+  if [[ "$DIAGNOSTIC" == true ]]; then
+    echo "DIAGNOSTIC: DNS propagation and DNSSEC validation were not checked."
+    echo "DIAGNOSTIC: Public certificate sources rely on the system PKIX trust store and the endpoint reached."
+    if (( diagnostic_issues > 0 )); then
+      echo "DIAGNOSTIC: $diagnostic_issues domain(s) need attention; no DNS records were changed." >&2
+      return 1
+    fi
+    echo "DIAGNOSTIC: All configured domains match Cloudflare; no DNS records were changed."
+    return 0
+  fi
+  for domain in "${SUBDOMAINS[@]}"; do
+    if [[ "${skip[$domain]}" == yes ]]; then
+      echo "Existing Cloudflare TLSA already matches $domain; no change."
+      continue
+    fi
+    update_domain "$domain" "${hashes[$domain]}" "${listings[$domain]}" "${payloads[$domain]}" "${snapshots[$domain]}" || { echo "**TLSA RECORD UPDATE FAILED**" >&2; return 1; }
+  done
+  end_time=$(date +%s)
+  echo "TLSA update completed in $((end_time-start_time))s."
+  echo "**ENDING TLSA RECORD UPDATE**"
+)
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  main "$@"
+  # main runs in a subshell, so this shell retains Certbot's original stderr
+  # even when the real run redirects its own output to the log.
+  if ! main "$@"; then
+    echo "ERROR: TLSA update failed. If logging was enabled, check $LOG_FILE." >&2
+    exit 1
+  fi
 fi
