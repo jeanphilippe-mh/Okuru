@@ -240,10 +240,12 @@ class TLSAOfflineTests(unittest.TestCase):
         run_env = self.env.copy()
         run_env['MOCK_MODE'] = mode
         if env: run_env.update(env)
-        proc = subprocess.run(['bash', '-c', 'source "$1"; shift; CERTIFICATE_PATHS[share.jeanphilippe.io]="$TEST_CERT"; if [ -n "${TEST_BAD_DOMAIN:-}" ]; then CERTIFICATE_PATHS[$TEST_BAD_DOMAIN]="$TEST_BAD_CERT"; fi; if [ -n "${TEST_BAD_SOURCE:-}" ]; then CERTIFICATE_SOURCES[jeanphilippe.io]="$TEST_BAD_SOURCE"; fi; main "$@"', 'offline-test', str(SCRIPT), *args], env=run_env,
+        proc = subprocess.run(['bash', '-c', 'source "$1"; shift; CERTIFICATE_PATHS[share.jeanphilippe.io]="$TEST_CERT"; if [ -n "${TEST_BAD_DOMAIN:-}" ]; then CERTIFICATE_PATHS[$TEST_BAD_DOMAIN]="$TEST_BAD_CERT"; fi; if [ -n "${TEST_BAD_SOURCE:-}" ]; then CERTIFICATE_SOURCES[jeanphilippe.io]="$TEST_BAD_SOURCE"; fi; if [ "${MOCK_FAIL_LOG_AFTER_DELETE:-}" = 1 ]; then eval "$(declare -f send_request | sed \'1s/send_request/send_request_original/\')"; send_request() { send_request_original "$@"; local result=$?; if [ "$1" = DELETE ] && [ "$result" = 0 ]; then exec 2>&-; fi; return "$result"; }; fi; main "$@"', 'offline-test', str(SCRIPT), *args], env=run_env,
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               timeout=25)
-        self.last_output = proc.stdout + (self.log.read_text() if self.log.exists() else '')
+        self.last_console = proc.stdout
+        self.last_log = self.log.read_text() if self.log.exists() else ''
+        self.last_output = self.last_console + self.last_log
         calls = [json.loads(x) for x in self.calls.read_text().splitlines()] if self.calls.exists() else []
         self.assertEqual(proc.returncode == 0, success, msg=f'exit={proc.returncode}\n{proc.stdout}')
         self.assertNotIn(TOKEN, proc.stdout)
@@ -260,6 +262,25 @@ class TLSAOfflineTests(unittest.TestCase):
         self.assertTrue('GET' in methods and 'DELETE' in methods and 'POST' in methods)
         self.assertLess(methods.index('GET'), methods.index('DELETE'))
         self.assertLess(methods.index('DELETE'), methods.index('POST'))
+
+    def test_normal_run_reports_progress_to_console_and_log_without_secrets(self):
+        self.run_script(mode='existing')
+        for output in (self.last_console, self.last_log):
+            for domain in ('jeanphilippe.io', 'monportfolio.jeanphilippe.io',
+                           'myportfolio.jeanphilippe.io', 'share.jeanphilippe.io',
+                           'www.jeanphilippe.io'):
+                self.assertIn(domain, output)
+            self.assertRegex(output.lower(), r'(success|complete|confirm|updated)')
+            self.assertNotIn(TOKEN, output)
+            self.assertNotRegex(output, r'\x1b\[[0-9;]*m')
+
+    def test_log_tlsa_explains_certificate_checks_on_console_and_in_log(self):
+        self.run_script('--log-tlsa', mode='existing')
+        for output in (self.last_console, self.last_log):
+            self.assertRegex(output.lower(), r'(certificate|certificat)')
+            self.assertRegex(output.lower(), r'(hostname|sni|chain|expir)')
+            self.assertNotIn('-----BEGIN CERTIFICATE-----', output)
+            self.assertNotIn(TOKEN, output)
 
     def test_concurrent_cloudflare_changes_prevent_all_mutation(self):
         for mode in ('snapshot_content', 'snapshot_id', 'snapshot_added',
@@ -450,6 +471,8 @@ class TLSAOfflineTests(unittest.TestCase):
         self.assertEqual(sum(c['method'] == 'POST' for c in calls), 1)
         self.assertTrue(any(c['method'] == 'DELETE' for c in calls))
         self.assertRegex(self.last_output.lower(), r'(error|failed|échec|unable)')
+        self.assertRegex(self.last_console.lower(), r'(error|failed|échec|unable)')
+        self.assertRegex(self.last_log.lower(), r'(error|failed|échec|unable)')
 
     def test_failed_delete_prevents_post(self):
         calls = self.run_script(mode='delete_failure', success=False)
@@ -468,6 +491,45 @@ class TLSAOfflineTests(unittest.TestCase):
         calls = self.run_script(mode='existing', success=False,
                                 env={'LOG_FILE': self.temp.name})
         self.assertFalse(calls)
+        self.assertRegex(self.last_console.lower(), r'(error|failed|cannot|unable)')
+
+    def test_closed_console_pipe_does_not_interrupt_logged_updates(self):
+        # A caller can close its stderr reader at any time. Once the required
+        # journal is open, a broken console must not terminate Bash mid-update.
+        # Both pre- and post-mutation messages exercise the same broken pipe.
+        reader, writer = os.pipe()
+        os.close(reader)
+        env = self.env.copy()
+        env['MOCK_MODE'] = 'existing'
+        try:
+            proc = subprocess.run(
+                ['bash', '-c', 'source "$1"; '
+                 'CERTIFICATE_PATHS[share.jeanphilippe.io]="$TEST_CERT"; main',
+                 'offline-test', str(SCRIPT)],
+                env=env, stdout=subprocess.DEVNULL, stderr=writer, timeout=25,
+            )
+        finally:
+            os.close(writer)
+        self.assertEqual(proc.returncode, 0)
+        calls = [json.loads(x) for x in self.calls.read_text().splitlines()]
+        self.assertEqual(sum(c['method'] == 'POST' for c in calls), 5)
+        log = self.log.read_text()
+        self.assertRegex(log.lower(), r'(complete|confirm|updated|success)')
+        self.assertNotIn(TOKEN, log)
+
+    @unittest.skipUnless(os.path.exists('/dev/full'), '/dev/full is Linux-specific')
+    def test_log_write_failure_stops_before_dns_mutation(self):
+        calls = self.run_script(mode='existing', success=False,
+                                env={'LOG_FILE': '/dev/full'})
+        self.assertFalse(any(c['method'] in ('DELETE', 'POST') for c in calls))
+        self.assertRegex(self.last_console.lower(), r'(error|failed|cannot|unable|log)')
+
+    def test_log_write_failure_after_deletion_warns_about_partial_state(self):
+        calls = self.run_script(mode='existing', success=False,
+                                env={'MOCK_FAIL_LOG_AFTER_DELETE': '1'})
+        self.assertTrue(any(c['method'] == 'DELETE' for c in calls))
+        self.assertFalse(any(c['method'] == 'POST' for c in calls))
+        self.assertRegex(self.last_console.lower(), r'cloudflare.*(may|changed|partial)')
 
     def test_token_file_permissions(self):
         self.token.chmod(0o644)
@@ -493,6 +555,26 @@ class TLSAOfflineTests(unittest.TestCase):
     def test_help_is_non_mutating(self):
         self.run_script('--help')
         self.assertFalse(self.calls.exists())
+
+    def test_real_entrypoint_diagnostic_is_read_only(self):
+        # The production entrypoint has a wrapper around main. Use a disposable
+        # copy with only the local certificate path adjusted to our fixture.
+        source = SCRIPT.read_text()
+        original = '/etc/letsencrypt/live/share.jeanphilippe.io/cert.pem'
+        self.assertIn(original, source)
+        script = pathlib.Path(self.temp.name) / 'entrypoint.sh'
+        script.write_text(source.replace(original, str(self.cert)))
+        env = self.env.copy()
+        env['MOCK_MODE'] = 'diagnostic_matching'
+        proc = subprocess.run(['bash', str(script), '--diagnostic'], env=env,
+                              text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, timeout=25)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn('share.jeanphilippe.io', proc.stdout)
+        self.assertNotIn(TOKEN, proc.stdout)
+        calls = [json.loads(x) for x in self.calls.read_text().splitlines()]
+        self.assertTrue(calls)
+        self.assertFalse(any(c['method'] != 'GET' for c in calls))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
