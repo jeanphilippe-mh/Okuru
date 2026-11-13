@@ -24,7 +24,7 @@ New uploads are packaged as ZIP archives and encrypted at rest with **age**. The
 * Redis package with **notify-keyspace-events KEA** set on redis.conf.
 * Golang (I've used latest **1.27.4** from arm64/linux with Go Modules)
 
-## Installation/How to use it
+## Installation & How to use it
 
 * wget https://go.dev/dl/go1.27.4.linux-arm64.tar.gz
 * tar -xvf go1.27.4.linux-arm64.tar.gz
@@ -35,7 +35,7 @@ New uploads are packaged as ZIP archives and encrypted at rest with **age**. The
 * **go mod init** github.com/jeanphilippe-mh/Okuru
 * **go get** in the directory
 
-To test :
+_To test :_
 * Drop the **cert.pem** and **key.pem** files in /Okuru directory. This is a mandatory to start HTTPS server.
 * Copy the .env.dist file to .env file or edit it with your configuration. 
 * Source it (``set -a && source .env && set +a`` for example on linux).
