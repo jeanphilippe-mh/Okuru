@@ -41,7 +41,7 @@ func TestUploadAdmissionReclaimsAbandonedStaging(t *testing.T) {
 	t.Cleanup(func() { utils.FILEFOLDER = oldFolder })
 	t.Setenv("OKURU_STORAGE_QUOTA_BYTES", "3145728")
 	e := echo.New()
-	e.Use(requestLimits(time.Minute, time.Hour, time.Hour))
+	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
 	e.POST("/file", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 	req := httptest.NewRequest(http.MethodPost, "/file", strings.NewReader("body"))
 	req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=test")
