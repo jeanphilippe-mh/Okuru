@@ -26,6 +26,7 @@ router/logging_test.go
 router/secure_multipart_test.go
 router/staging_recovery_test.go
 router/upload_end_to_end_test.go
+router/upload_lease_test.go
 utils/archive_crypto_compat_test.go
 utils/admission_rate_test.go
 utils/client_identity_test.go
