@@ -173,11 +173,16 @@ func Decrypt(password []byte, decryptionKey string, ttl int) (string, error) {
  * @return {string, error} token, error
  */
 func SetPassword(password string, ttl, views int, deletable bool) (string, *echo.HTTPError) {
-	if ttl <= 0 {
+	if ttl <= 0 || ttl > maxSecretTTLSeconds {
 		return "", echo.NewHTTPError(http.StatusBadRequest)
 	}
 	if err := ValidateSecretLength(password); err != nil {
 		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge)
+	}
+	maxKeys, err := redisSecretMaxKeys()
+	if err != nil {
+		log.Error("Invalid secret creation capacity configuration")
+		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -186,7 +191,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 
 	if !Ping(c) {
 		println("Ping failed")
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 	}
 
 	storageKey := uuid.New()
@@ -196,14 +201,14 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 		return "", echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
-	err = createExpiringHash(c, REDIS_PREFIX+storageKey.String(), ttl,
+	err = createExpiringHashWithKeyLimit(c, REDIS_PREFIX+storageKey.String(), ttl, maxKeys,
 		"token", encryptedPassword,
 		"views", views,
 		"views_count", 0,
 		"deletable", deletable)
 	if err != nil {
 		log.Error("Could not create expiring password metadata")
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 	}
 
 	return storageKey.String() + TOKEN_SEPARATOR + encryptionKey, nil

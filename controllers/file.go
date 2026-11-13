@@ -571,6 +571,9 @@ func AddFile(context echo.Context) error {
 		var httpErr *echo.HTTPError
 		passwordToken, httpErr = SetPassword(f.Password, f.TTL, f.Views, false)
 		if httpErr != nil {
+			if httpErr.Code == http.StatusServiceUnavailable {
+				return fail(http.StatusServiceUnavailable, "Secret storage is unavailable")
+			}
 			return fail(http.StatusInternalServerError, "There was a problem during file processing")
 		}
 		f.PasswordProvidedKey, _, err = ParseToken(passwordToken)

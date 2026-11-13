@@ -85,10 +85,16 @@ func CreatePassword(context echo.Context) (err error) {
 	if err := ValidateAPILimits(input.TTL, input.Views); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
+	if admissionErr := admitSecretCreation(context); admissionErr != nil {
+		return admissionErr
+	}
 	p := &Password{Password: input.Password, TTL: input.TTL, Views: input.Views, Deletable: input.Deletable}
 
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
 	if err2 != nil {
+		if err2.Code == http.StatusServiceUnavailable {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
