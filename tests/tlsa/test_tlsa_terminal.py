@@ -70,11 +70,46 @@ class TLSATerminalTests(fixtures.TLSAOfflineTests):
     def test_terminal_normal_run_is_colored_but_log_is_plain(self):
         code, output, log, calls = self.run_terminal()
         self.assertEqual(code, 0, output)
-        self.assertRegex(output, r'\x1b\[[0-9;]*m')
+        # Match the exact original palette and the corresponding event type,
+        # rather than accepting an arbitrary ANSI escape anywhere in the UI.
+        self.assertIn('\x1b[1;37m**STARTING TLSA RECORD UPDATE**\x1b[0m', output)
+        self.assertIn('\x1b[1;37m**ENDING TLSA RECORD UPDATE**\x1b[0m', output)
+        self.assertIn('\x1b[1;33m[jeanphilippe.io] Checking certificate source:', output)
+        self.assertIn('\x1b[1;92m[jeanphilippe.io] Certificate verified;', output)
+        self.assertRegex(output, r'\x1b\[1;34m\[[^\r\n]+\] HTTP GET attempt 1\x1b\[0m')
         self.assertNotRegex(log, r'\x1b\[[0-9;]*m')
         self.assertIn('share.jeanphilippe.io', output)
         self.assertIn('share.jeanphilippe.io', log)
         self.assertTrue(any(c['method'] == 'POST' for c in calls))
+
+    def test_terminal_cloudflare_error_uses_original_red(self):
+        code, output, log, calls = self.run_terminal(mode='failure_flag')
+        self.assertNotEqual(code, 0, output)
+        self.assertIn('\x1b[1;31mERROR:', output)
+        self.assertNotRegex(log, r'\x1b\[[0-9;]*m')
+        self.assertFalse(any(c['method'] in ('DELETE', 'POST') for c in calls))
+
+    def test_terminal_help_usage_is_white_and_pipe_stays_plain(self):
+        code, output, log, calls = self.run_terminal('--help')
+        self.assertEqual(code, 0, output)
+        self.assertRegex(output, r'\x1b\[1;37mUsage: [^\r\n]+\x1b\[0m')
+        self.assertFalse(calls)
+        self.assertEqual(log, '')
+
+        code, output, _, _ = self.run_terminal('--help', no_color=True)
+        self.assertEqual(code, 0, output)
+        self.assertIn('Usage:', output)
+        self.assertNotRegex(output, r'\x1b\[[0-9;]*m')
+
+        env = self.env.copy()
+        env['TERM'] = 'xterm'
+        env.pop('NO_COLOR', None)
+        proc = subprocess.run(['bash', str(fixtures.SCRIPT), '--help'],
+                              env=env, text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('Usage:', proc.stdout)
+        self.assertNotRegex(proc.stdout + proc.stderr, r'\x1b\[[0-9;]*m')
 
     def test_terminal_no_color_disables_ansi(self):
         code, output, log, calls = self.run_terminal('--diagnostic', mode='diagnostic_matching', no_color=True)

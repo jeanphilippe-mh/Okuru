@@ -103,9 +103,10 @@ function log_event {
     fi
     if [[ -t 3 && -n "${TERM:-}" && "${TERM:-}" != dumb && ! ${NO_COLOR+x} ]]; then
       case "$level" in
+        BANNER) color=$'\033[1;37m' ;;
         INFO) color=$'\033[1;34m' ;;
-        SUCCESS) color=$'\033[1;32m' ;;
-        WARNING) color=$'\033[1;33m' ;;
+        SUCCESS) color=$'\033[1;92m' ;;
+        DOMAIN|WARNING) color=$'\033[1;33m' ;;
         ERROR) color=$'\033[1;31m' ;;
       esac
       [[ -n "$color" ]] && reset=$'\033[0m'
@@ -114,9 +115,10 @@ function log_event {
   else
     if [[ -t 2 && -n "${TERM:-}" && "${TERM:-}" != dumb && ! ${NO_COLOR+x} ]]; then
       case "$level" in
+        BANNER) color=$'\033[1;37m' ;;
         INFO) color=$'\033[1;34m' ;;
-        SUCCESS) color=$'\033[1;32m' ;;
-        WARNING) color=$'\033[1;33m' ;;
+        SUCCESS) color=$'\033[1;92m' ;;
+        DOMAIN|WARNING) color=$'\033[1;33m' ;;
         ERROR) color=$'\033[1;31m' ;;
       esac
       [[ -n "$color" ]] && reset=$'\033[0m'
@@ -134,7 +136,12 @@ function log_event {
 # Neither checks DNSSEC nor authoritative propagation or resolver caches.
 
 function usage {
-  echo "Usage: $0 [-log|--log-tlsa] [--dry-run|--diagnostic] [-h|--help]"
+  # Match the original white heading only for a colour-capable stdout terminal.
+  if [[ -t 1 && -n "${TERM:-}" && "${TERM:-}" != dumb && ! ${NO_COLOR+x} ]]; then
+    printf '\033[1;37m%s\033[0m\n' "Usage: $0 [-log|--log-tlsa] [--dry-run|--diagnostic] [-h|--help]"
+  else
+    echo "Usage: $0 [-log|--log-tlsa] [--dry-run|--diagnostic] [-h|--help]"
+  fi
   echo "  --log-tlsa  Show certificate diagnostics (compatibility option)."
   echo "  --dry-run   Inspect certificates and Cloudflare records without modifying DNS."
   echo "  --diagnostic  Report each domain's certificate source and Cloudflare status without modifying DNS."
@@ -559,7 +566,7 @@ function main (
   local start_time end_time domain hash records ids json diagnostic_issues=0
   local -A hashes listings payloads snapshots skip seen
   start_time=$(date +%s)
-  log_event INFO "**STARTING TLSA RECORD UPDATE**" || return 1
+  log_event BANNER "**STARTING TLSA RECORD UPDATE**" || return 1
   log_event INFO "Preflighting all configured domains before any DNS change." || return 1
   for domain in "${SUBDOMAINS[@]}"; do
     if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$domain" == *..* || "$domain" == *.-* || "$domain" == *-.* || ${#domain} -gt 253 ]]; then
@@ -571,7 +578,7 @@ function main (
       if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
     fi
     seen[$domain]=yes
-    log_event INFO "[$domain] Checking certificate source: ${CERTIFICATE_SOURCES[$domain]:-unconfigured}." || return 1
+    log_event DOMAIN "[$domain] Checking certificate source: ${CERTIFICATE_SOURCES[$domain]:-unconfigured}." || return 1
     if ! hash=$(expected_tlsa_hash "$domain"); then
       log_event ERROR "ERROR: Cannot verify the configured certificate source for $domain; DNS unchanged."
       if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
@@ -621,7 +628,7 @@ function main (
   done
   end_time=$(date +%s)
   log_event SUCCESS "TLSA update completed in $((end_time-start_time))s." || return 1
-  log_event SUCCESS "**ENDING TLSA RECORD UPDATE**" || return 1
+  log_event BANNER "**ENDING TLSA RECORD UPDATE**" || return 1
 )
 
 ############################################
