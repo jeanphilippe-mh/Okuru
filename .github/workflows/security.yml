@@ -41,5 +41,6 @@ jobs:
       - run: go run ./tests/cmd/okurutest vet
       - run: go run ./tests/cmd/okurutest test -race -count=1
       - run: node --test tests/*.test.js tests/*.test.cjs
+      - run: python3 tests/tlsa/test_update_tlsa.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
