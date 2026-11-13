@@ -517,6 +517,13 @@ func AddFile(context echo.Context) error {
 		return fail(http.StatusBadRequest, err.Error())
 	}
 
+	if admissionErr := admitFileCreation(context); admissionErr != nil {
+		if admissionErr.Code == http.StatusTooManyRequests {
+			return fail(http.StatusTooManyRequests, "File creation limit reached")
+		}
+		return fail(http.StatusServiceUnavailable, "File creation is unavailable")
+	}
+
 	// The temporary directory is excluded from UUID.zip reconciliation.
 	stage, err := CreateLockedStagingDir(FILEFOLDER, ".okuru-upload-")
 	if err != nil {

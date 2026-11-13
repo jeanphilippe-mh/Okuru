@@ -1,0 +1,5 @@
+# File creation admission
+
+Archive creation is bounded by a fixed-window Redis budget, including small and passwordless uploads. The limit is 20 per public client and 100 globally in 24 hours. With an unidentified shared proxy the global limit applies to the group. Fixed windows can allow a burst across a boundary; existing archives remain available. This reduces, but does not eliminate, quota starvation by distributed actors or by one user behind an indistinguishable proxy. Actual expired-archive cleanup and the disk quota remain necessary.
+
+Admission occurs after multipart parsing and validation but before publishing an archive. It does not limit resources used by the reverse proxy or by request-body parsing; keep independent upload limits at those layers. The Redis account requires access to the configured prefix and `EVAL`/`EVALSHA`, `GET`, `SET` and `PTTL`. Admission fails closed if Redis is unavailable. See [client admission](client-admission.md) for proxy identity and shared budgets.
