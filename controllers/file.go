@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	. "github.com/jeanphilippe-mh/Okuru/models"
@@ -188,6 +190,48 @@ func archiveNameFromToken(token string) (string, error) {
 	return id.String() + ".zip", nil
 }
 
+// Keep expensive password-derived archive work bounded per client and per
+// share, across processes. The Redis keys contain hashed identities, never
+// bearer keys or passwords. A refusal must occur before a view is claimed.
+func admitArchiveKDF(c echo.Context, shareID string, resume bool) error {
+	action := "file_kdf_upload"
+	perOrigin, shareAction, perShare := 6, "file_kdf_share", 4
+	if shareID != "" {
+		action = "file_kdf_download"
+	}
+	if resume {
+		action, perOrigin = "file_kdf_resume", 8
+		shareAction, perShare = "file_kdf_resume_share", 8
+	}
+	allowed, err := AllowClientAction(c.Request(), action, perOrigin, 24, time.Minute)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is unavailable")
+	}
+	if !allowed {
+		c.Response().Header().Set("Retry-After", "60")
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Archive password processing limit reached")
+	}
+	if shareID != "" {
+		allowed, err = AllowIdentityAction(shareID, shareAction, perShare, 24, time.Minute)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is unavailable")
+		}
+		if !allowed {
+			c.Response().Header().Set("Retry-After", "60")
+			return echo.NewHTTPError(http.StatusTooManyRequests, "Archive password processing limit reached")
+		}
+	}
+	allowed, err = AllowIdentityAction("global", "file_kdf_all", 24, 24, time.Minute)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is unavailable")
+	}
+	if !allowed {
+		c.Response().Header().Set("Retry-After", "60")
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Archive password processing limit reached")
+	}
+	return nil
+}
+
 func DownloadFile(context echo.Context) error {
 	dataContext := NewDataContext()
 	// Retrieve the CSRF token
@@ -213,6 +257,33 @@ func DownloadFile(context echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 
+	// Authenticate and inspect the archive without consuming a view. Acquire
+	// scarce scrypt capacity before the atomic view claim, so overload never
+	// burns a recipient's last attempt while waiting for another derivation.
+	preview := &File{FileKey: f.FileKey}
+	if previewErr := GetFile(preview); previewErr != nil {
+		return context.Render(http.StatusNotFound, "404.html", dataContext)
+	}
+	var releaseKDF func()
+	needsKDF := (preview.ArchiveFormat == ArchiveFormatAge || preview.ArchiveFormat == ArchiveFormatAgeUserPassword) && !(preview.PasswordProvided && password == "")
+	if needsKDF {
+		reserved, release, reserveErr := ReserveArchiveKDF(context.Request().Context())
+		if reserveErr != nil {
+			if errors.Is(reserveErr, ErrArchiveKDFBusy) {
+				context.Response().Header().Set("Retry-After", "1")
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is busy")
+			}
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
+		}
+		releaseKDF = release
+		defer releaseKDF()
+		context.SetRequest(context.Request().WithContext(reserved))
+		shareID, _, _ := ParseToken(f.FileKey) // archiveNameFromToken already validated it.
+		if err := admitArchiveKDF(context, shareID, false); err != nil {
+			return err
+		}
+	}
+
 	claim, retrieveErr := ClaimFileDownload(f)
 	if claim != nil {
 		defer func() {
@@ -224,6 +295,11 @@ func DownloadFile(context echo.Context) error {
 	if retrieveErr != nil {
 		log.Error("File metadata retrieval failed")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
+	}
+	// The authenticated record must be the same one whose format determined
+	// admission. Do not use a stale preview after concurrent record changes.
+	if !bytes.Equal(preview.Token, f.Token) || preview.ArchiveFormat != f.ArchiveFormat || preview.PasswordProvided != f.PasswordProvided {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
 	}
 
 	wrongPassword := func() error {
@@ -260,7 +336,13 @@ func DownloadFile(context echo.Context) error {
 		secret = "legacy-unencrypted"
 	}
 	archive, err := openDownloadArchive(context, f, secret, archiveName)
+	if releaseKDF != nil {
+		releaseKDF()
+	}
 	if err != nil {
+		if errors.Is(err, ErrArchiveKDFBusy) {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is busy")
+		}
 		if f.ArchiveFormat == ArchiveFormatAgeUserPassword && IsArchivePasswordError(err) {
 			return wrongPassword()
 		}
@@ -384,7 +466,7 @@ func validateUploadFiles(files []*SecureMultipartFile) ([]string, error) {
 }
 
 // writeEncryptedUploadArchive never creates a plaintext ZIP or staging copy.
-func writeEncryptedUploadArchive(ctx context.Context, path, password string, files []*SecureMultipartFile, names []string, format string) (resultErr error) {
+func writeEncryptedUploadArchive(ctx context.Context, path, password string, files []*SecureMultipartFile, names []string, format string, releaseKDF func()) (resultErr error) {
 	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
@@ -398,6 +480,11 @@ func writeEncryptedUploadArchive(ctx context.Context, path, password string, fil
 		encrypted, err = EncryptArchiveWithIdentity(ctx, out, password)
 	default:
 		return errors.New("Unsupported archive format")
+	}
+	// The expensive key derivation is finished once the age writer is created.
+	// Do not retain its single global slot while streaming a potentially large ZIP.
+	if releaseKDF != nil {
+		releaseKDF()
 	}
 	if err != nil {
 		return err
@@ -537,6 +624,25 @@ func AddFile(context echo.Context) error {
 	}()
 	provided := f.Password != ""
 	archiveFormat := ArchiveFormatAgeUserPassword
+	var releaseUploadKDF func()
+	if provided {
+		reserved, release, reserveErr := ReserveArchiveKDF(context.Request().Context())
+		if reserveErr != nil {
+			if errors.Is(reserveErr, ErrArchiveKDFBusy) {
+				context.Response().Header().Set("Retry-After", "1")
+			}
+			return fail(http.StatusServiceUnavailable, "Archive password processing is busy")
+		}
+		releaseUploadKDF = release
+		defer releaseUploadKDF()
+		context.SetRequest(context.Request().WithContext(reserved))
+		if err := admitArchiveKDF(context, "", false); err != nil {
+			if httpErr, ok := err.(*echo.HTTPError); ok && httpErr.Code == http.StatusTooManyRequests {
+				return fail(http.StatusTooManyRequests, "Archive password processing limit reached")
+			}
+			return fail(http.StatusServiceUnavailable, "Archive password processing is unavailable")
+		}
+	}
 	if !provided {
 		archiveFormat = ArchiveFormatAgeX25519
 		f.Password, err = GenerateArchiveIdentity()
@@ -545,7 +651,11 @@ func AddFile(context echo.Context) error {
 		}
 	}
 	temporaryArchive := filepath.Join(stage.Path, "archive.tmp")
-	if err := writeEncryptedUploadArchive(context.Request().Context(), temporaryArchive, f.Password, files, names, archiveFormat); err != nil {
+	if err := writeEncryptedUploadArchive(context.Request().Context(), temporaryArchive, f.Password, files, names, archiveFormat, releaseUploadKDF); err != nil {
+		if errors.Is(err, ErrArchiveKDFBusy) {
+			context.Response().Header().Set("Retry-After", "1")
+			return fail(http.StatusServiceUnavailable, "Archive password processing is busy")
+		}
 		log.Error("Failed to create encrypted upload archive")
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}

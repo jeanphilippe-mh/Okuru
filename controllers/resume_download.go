@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -398,6 +399,29 @@ func resumeDownload(c echo.Context) error {
 	if err != nil {
 		return c.NoContent(http.StatusNotFound)
 	}
+	// Authenticate without incrementing the session request count. A busy KDF
+	// or a rate-limit denial must not consume a continuation attempt or bytes.
+	preview := &File{FileKey: token}
+	if previewErr := PreviewDownloadSession(preview, cookie.Value); previewErr != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+	var releaseKDF func()
+	if preview.ArchiveFormat == ArchiveFormatAge || preview.ArchiveFormat == ArchiveFormatAgeUserPassword {
+		reserved, release, reserveErr := ReserveArchiveKDF(c.Request().Context())
+		if reserveErr != nil {
+			if errors.Is(reserveErr, ErrArchiveKDFBusy) {
+				c.Response().Header().Set("Retry-After", "1")
+			}
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is busy")
+		}
+		releaseKDF = release
+		defer releaseKDF()
+		c.SetRequest(c.Request().WithContext(reserved))
+		shareID, _, _ := ParseToken(token) // archiveNameFromToken already validated it.
+		if err := admitArchiveKDF(c, shareID, true); err != nil {
+			return err
+		}
+	}
 	f := &File{FileKey: token}
 	secret, session, httpErr := ResumeTrackedFileDownload(f, cookie.Value)
 	if httpErr != nil {
@@ -405,6 +429,9 @@ func resumeDownload(c echo.Context) error {
 	}
 	progress := &downloadProgress{session: session}
 	defer progress.finish()
+	if !bytes.Equal(preview.Token, f.Token) || preview.ArchiveFormat != f.ArchiveFormat || preview.PasswordProvided != f.PasswordProvided {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
+	}
 	_, length, err := parseSingleByteRange(value, session.Size())
 	if err != nil {
 		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", session.Size()))
@@ -423,7 +450,13 @@ func resumeDownload(c echo.Context) error {
 		}
 	}()
 	archive, err := openDownloadArchive(c, f, secret, name)
+	if releaseKDF != nil {
+		releaseKDF()
+	}
 	if err != nil {
+		if errors.Is(err, ErrArchiveKDFBusy) {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is busy")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 	defer archive.file.Close()
