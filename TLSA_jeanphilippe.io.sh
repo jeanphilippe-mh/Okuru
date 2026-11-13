@@ -1,14 +1,30 @@
 #!/bin/bash
-# Cloudflare TLSA deploy hook. Review certificate paths and DNS rollover before use.
-# This script replaces existing TLSA records; it cannot make replacement atomic.
+############################################
+# TLSA Update script for Cloudflare API
+############################################
+# Publish the SHA-256 fingerprint of each HTTPS server public key as a TLSA
+# 3 1 1 record. Intended for a Certbot deploy hook or a manual run after review.
+# Review certificate sources and paths before enabling. Delete followed by
+# create is not atomic: failures can leave records absent. DNS caches and DNSSEC
+# validation are not checked. Certbot does not detect independent OVH renewals.
+# Disable shell tracing before reading secrets, even if Bash was invoked with -x.
 set +x
 
+############################################
+# Script variables
+############################################
+# Set the zone ID locally or in the hook environment. Supply either a token
+# variable or a private token file, never both. The file contains only the raw
+# token and must be owned by the executing user. Interactive shell variables are
+# not automatically inherited by a separately scheduled Certbot process.
 CF_API_TOKEN="${CF_API_TOKEN:-}"
 CF_API_TOKEN_FILE="${CF_API_TOKEN_FILE:-}"
 CF_ZONE_ID="${CF_ZONE_ID:-}" # Set locally or provide through the hook environment.
 if [[ -z "$CF_API_TOKEN" && -z "$CF_API_TOKEN_FILE" ]]; then
   CF_API_TOKEN_FILE="/etc/letsencrypt/renewal-hooks/deploy/cloudflare-tlsa.token"
 fi
+# List fully qualified hostnames to manage. All entries are checked before a
+# real update starts; a preflight failure stops the operation before changes.
 SUBDOMAINS=(
   "jeanphilippe.io"
   "monportfolio.jeanphilippe.io"
@@ -33,6 +49,8 @@ declare -A CERTIFICATE_PATHS=(
   ["share.jeanphilippe.io"]="/etc/letsencrypt/live/share.jeanphilippe.io/cert.pem"
 )
 LOG_FILE="${LOG_FILE:-/var/log/letsencrypt/update_tlsa.log}"
+# TIMEOUT bounds network attempts in seconds. MAX_RETRIES bounds safe reads and
+# confirmation polling; failed or ambiguous writes are not blindly repeated.
 TIMEOUT="${TIMEOUT:-30}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 LOCK_DIR="${OKURU_TLSA_LOCK_DIR:-/run/lock/okuru-tlsa}"
@@ -40,6 +58,12 @@ LOG_TLSA=false
 DRY_RUN=false
 DIAGNOSTIC=false
 
+############################################
+# Usage / args
+############################################
+# --dry-run previews changes; --diagnostic reports each domain. Both modes query
+# Cloudflare and HTTPS endpoints and take a local lock, but do not change DNS.
+# Neither checks DNSSEC nor authoritative propagation or resolver caches.
 function usage {
   echo "Usage: $0 [-log|--log-tlsa] [--dry-run|--diagnostic] [-h|--help]"
   echo "  --log-tlsa  Show certificate diagnostics (compatibility option)."
@@ -50,6 +74,13 @@ function usage {
   echo "Public checks also trust the system CA store and only the endpoint reached."
 }
 
+############################################
+# Token handling and prerequisites
+############################################
+# Reject competing sources, symbolic links, files owned by another user and
+# files accessible to group or others. Mode 0600 is suitable for a root hook.
+# Reject characters that could inject curl configuration options. Removing the
+# export flag keeps the token out of child process environments.
 function load_api_token {
   if [[ -n "$CF_API_TOKEN_FILE" ]]; then
     if [[ -n "$CF_API_TOKEN" || ! -f "$CF_API_TOKEN_FILE" || -L "$CF_API_TOKEN_FILE" || ! -r "$CF_API_TOKEN_FILE" || ! -O "$CF_API_TOKEN_FILE" ]]; then
@@ -71,6 +102,7 @@ function load_api_token {
   export -n CF_API_TOKEN
 }
 
+# Verify required tools, zone ID and retry settings before making API requests.
 function check_prerequisites {
   local cmd
   for cmd in curl jq openssl stat timeout awk flock; do
@@ -81,6 +113,11 @@ function check_prerequisites {
   load_api_token
 }
 
+############################################
+# Log rotation
+############################################
+# Create the log directory if needed and rotate the log at 1 MiB. Actual updates
+# write to this log; dry-run and diagnostic output remains on the console.
 function rotate_logs {
   local log_dir timestamp size
   log_dir=$(dirname "$LOG_FILE") || return 1
@@ -94,7 +131,14 @@ function rotate_logs {
   fi
 }
 
-# Safe GET retries; mutations are never retried after an ambiguous response.
+############################################
+# HTTP requests with timeout & retries
+############################################
+# Feed the bearer header to curl through standard input rather than arguments.
+# Ignore implicit curl configuration and proxy settings, and require HTTPS.
+# Check the HTTP status and Cloudflare JSON success flag. Retry safe GETs for
+# temporary errors or rate limiting, but never blindly repeat an ambiguous
+# DELETE or POST: the operation may already have taken effect.
 function send_request {
   local method=$1 url=$2 data=${3:-} max_attempts=${4:-$MAX_RETRIES} attempt=1 response body http_code transport_ok
   while (( attempt <= max_attempts )); do
@@ -131,6 +175,12 @@ function send_request {
   return 1
 }
 
+############################################
+# Certificate validation and TLSA fingerprints
+############################################
+# For a local certificate, check expiration and hostname separately, then hash
+# its DER-encoded Subject Public Key Info with SHA-256. Separate checks matter:
+# combining OpenSSL options may cause one of the checks to be ignored.
 function calculate_tlsa_hash {
   local domain=$1 cert=${CERTIFICATE_PATHS[$1]:-} hash host_output
   [[ -n "$cert" && -f "$cert" && -r "$cert" ]] || { echo "ERROR: No readable configured certificate for $domain." >&2; return 1; }
@@ -150,6 +200,10 @@ function calculate_tlsa_hash {
   printf '%s\n' "${hash,,}"
 }
 
+# Authenticate one public HTTPS endpoint using SNI, hostname and certificate
+# chain checks. Hash the public key of the certificate actually observed. One
+# connection cannot establish what other addresses or CDN edges present; public
+# sources rely on the system trust store and the endpoint reached.
 function served_tlsa_hash {
   local domain=$1 output pem hash
   if [[ "$LOG_TLSA" == true ]]; then
@@ -165,6 +219,7 @@ function served_tlsa_hash {
   printf '%s\n' "${hash,,}"
 }
 
+# Retry failed public TLS checks up to the configured attempt limit.
 function retry_served_tlsa_hash {
   local domain=$1 attempt=1 result
   while (( attempt <= MAX_RETRIES )); do
@@ -175,7 +230,12 @@ function retry_served_tlsa_hash {
   return 1
 }
 
-# Normalize both Cloudflare representations, rejecting inconsistent dual forms.
+############################################
+# Cloudflare TLSA record validation
+############################################
+# Accept either the structured data or formatted content representation. If
+# both are present, require agreement; reject missing or inconsistent data.
+# TLSA 3 1 1 is a DANE end-entity public-key association using SHA-256.
 TLSA_JQ_LIBRARY='
 def normal_data:
   if type != "object" then error("invalid data") else
@@ -207,6 +267,8 @@ def valid_norm:
    elif .matching_type == 2 then (.certificate | length == 128) else true end);
 '
 
+# Read one complete page for the requested name. Refuse malformed responses,
+# unexpected names or IDs, and pagination that this script does not handle.
 function fetch_tlsa_records {
   local domain=$1 max_attempts=${2:-$MAX_RETRIES} records
   records=$(send_request GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?type=TLSA&name=_443._tcp.$domain" "" "$max_attempts") || return 1
@@ -221,6 +283,8 @@ function fetch_tlsa_records {
   printf '%s\n' "$records"
 }
 
+# A matching state has exactly one TLSA 3 1 1 record with the expected hash.
+# Other states are reported by diagnostic or handled by the replacement flow.
 function records_match {
   local records=$1 hash=$2
   printf '%s' "$records" | jq -e --arg hash "$hash" "$TLSA_JQ_LIBRARY"'
@@ -229,6 +293,9 @@ function records_match {
   ' >/dev/null 2>&1
 }
 
+############################################
+# Concurrent change detection
+############################################
 # Compare complete records rather than only IDs: another Cloudflare client can
 # change a record in place between global preflight and a local DELETE. This
 # detects observed changes but is not an atomic compare-and-delete operation.
@@ -239,6 +306,12 @@ function records_unchanged {
   [[ "$before_canonical" == "$after_canonical" ]]
 }
 
+############################################
+# Certificate source selection
+############################################
+# A local source must match the authenticated public endpoint. A public source
+# uses that endpoint directly, as requested for the OVH-managed domains; it does
+# not independently pin a newly observed key against an out-of-band reference.
 function expected_tlsa_hash {
   local domain=$1 source=${CERTIFICATE_SOURCES[$1]:-} local_hash served_hash
   case "$source" in
@@ -262,12 +335,15 @@ function expected_tlsa_hash {
   esac
 }
 
+# Recheck the selected certificate against the fingerprint captured earlier.
 function verify_current_endpoint {
   local domain=$1 expected=$2 current_hash
   current_hash=$(expected_tlsa_hash "$domain") || return 1
   [[ "$current_hash" == "$expected" ]]
 }
 
+# Poll Cloudflare for an empty or expected state without repeating a write. A
+# confirmed API state does not prove DNS propagation or DNSSEC validation.
 function await_records {
   local domain=$1 desired=$2 hash=${3:-} attempt=1 records
   while (( attempt <= MAX_RETRIES )); do
@@ -281,8 +357,14 @@ function await_records {
   return 1
 }
 
-# All certificates, endpoints, payloads and listings are validated in main
-# before invoking this function for any domain.
+############################################
+# Delete existing and create new TLSA records
+############################################
+# Main validates all certificates, endpoints, payloads and listings first.
+# Recheck the endpoint and Cloudflare snapshot immediately before deletion.
+# Delete old records, confirm their absence, create the new record and confirm
+# the expected value. A failure after deletion can leave records absent; inspect
+# Cloudflare promptly. This sequence does not guarantee an uninterrupted rollover.
 function update_domain {
   local domain=$1 hash=$2 ids=$3 json=$4 previous=$5 current id post_ok=true
   if [[ "$DRY_RUN" == true ]]; then
@@ -321,6 +403,12 @@ function update_domain {
   echo "[$(date)] Expected TLSA confirmed in Cloudflare for $domain; DNS propagation not checked."
 }
 
+############################################
+# Process lock
+############################################
+# Hold an exclusive local lock for the run. It prevents another instance on
+# this host from running simultaneously, but cannot lock other machines or the
+# Cloudflare dashboard; snapshot comparison reduces but cannot eliminate races.
 function acquire_lock {
   local mode
   command -v flock >/dev/null 2>&1 || { echo "ERROR: Required command flock not found." >&2; return 1; }
@@ -334,6 +422,12 @@ function acquire_lock {
   flock -n "$TLSA_LOCK_FD" || { echo "ERROR: Another TLSA update is already running." >&2; return 1; }
 }
 
+############################################
+# MAIN
+############################################
+# Parse arguments, acquire the lock and check all domains before any real DNS
+# update. Diagnostic continues across domain errors and returns failure if a
+# domain cannot be checked or differs. Matching records are left unchanged.
 # Run main in a subshell to release the lock on every exit path.
 function main (
   while (( $# > 0 )); do
@@ -420,6 +514,10 @@ function main (
   echo "**ENDING TLSA RECORD UPDATE**"
 )
 
+############################################
+# Script entry point
+############################################
+# Do not execute the update when this file is sourced by the offline tests.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   # main runs in a subshell, so this shell retains Certbot's original stderr
   # even when the real run redirects its own output to the log.
