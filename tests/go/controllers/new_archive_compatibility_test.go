@@ -3,6 +3,10 @@ package controllers
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net"
@@ -13,14 +17,145 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"filippo.io/age"
 	"github.com/flosch/pongo2"
 	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
 )
+
+func TestBusyKDFDoesNotConsumeFileViewsOrBlockPasswordlessDownloads(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	id, _, err := u.ParseToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passwordlessEcho, passwordlessToken, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	_, release, err := u.ReserveArchiveKDF(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+
+	for i := 0; i < 64; i++ {
+		rec, downloadErr := downloadCompatibilityFile(t, e, token, "wrong-password")
+		var httpErr *echo.HTTPError
+		if !errors.As(downloadErr, &httpErr) || httpErr.Code != http.StatusServiceUnavailable {
+			t.Fatalf("attempt %d: error = %v, want 503", i, downloadErr)
+		}
+		if rec.Header().Get("Retry-After") != "1" {
+			t.Fatalf("attempt %d: missing retry hint", i)
+		}
+	}
+	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+	if err != nil || count != 0 {
+		t.Fatalf("overloaded attempts consumed views: count=%d err=%v", count, err)
+	}
+	rec, err := downloadCompatibilityFile(t, passwordlessEcho, passwordlessToken, "")
+	if err != nil || rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), plain) {
+		t.Fatalf("passwordless download blocked by KDF: status=%d err=%v", rec.Code, err)
+	}
+	release()
+	rec, err = downloadCompatibilityFile(t, e, token, password)
+	if err != nil || rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), expected) {
+		t.Fatalf("legacy download failed after recovery: status=%d err=%v", rec.Code, err)
+	}
+}
+
+func TestEmptyFilePasswordConsumesViewsWithoutKDFAdmission(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	id, _, err := u.ParseToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Do("HSET", u.REDIS_PREFIX+"file_"+id, "views", 3); err != nil {
+		t.Fatal(err)
+	}
+	_, release, err := u.ReserveArchiveKDF(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+	for i := 0; i < 2; i++ {
+		rec, downloadErr := downloadCompatibilityFile(t, e, token, "")
+		if downloadErr != nil || rec.Code != http.StatusUnauthorized {
+			t.Fatalf("empty password %d: status=%d err=%v", i, rec.Code, downloadErr)
+		}
+	}
+	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+	if err != nil || count != 2 {
+		t.Fatalf("empty password did not consume the expected views: count=%d err=%v", count, err)
+	}
+	keys, err := redis.Strings(conn.Do("KEYS", u.REDIS_PREFIX+"admission_file_kdf_*"))
+	if err != nil || len(keys) != 0 {
+		t.Fatalf("empty password consumed KDF admission: keys=%d err=%v", len(keys), err)
+	}
+	release()
+	rec, err := downloadCompatibilityFile(t, e, token, password)
+	if err != nil || rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), expected) {
+		t.Fatalf("correct password after failures: status=%d err=%v", rec.Code, err)
+	}
+}
+
+func TestArchiveKDFShareRateLimitDoesNotConsumeLastView(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	id, _, err := u.ParseToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fill the budget independently of expensive scrypt so the regression is
+	// deterministic and the unconsumed view can be checked without delays.
+	for i := 0; i < 4; i++ {
+		allowed, err := u.AllowIdentityAction(id, "file_kdf_share", 4, 24, time.Minute)
+		if err != nil || !allowed {
+			t.Fatalf("seed share budget %d: allowed=%v err=%v", i, allowed, err)
+		}
+	}
+	rec, downloadErr := downloadCompatibilityFile(t, e, token, password)
+	var httpErr *echo.HTTPError
+	if !errors.As(downloadErr, &httpErr) || httpErr.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("limited download: error=%v retry=%q", downloadErr, rec.Header().Get("Retry-After"))
+	}
+	count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+	if err != nil || count != 0 {
+		t.Fatalf("rate limit consumed a view: count=%d err=%v", count, err)
+	}
+	// Simulate expiration of this one test's identity counter. Global and
+	// origin counters remain, so the recovery still passes through admission.
+	digest := sha256.Sum256([]byte(id))
+	if _, err := conn.Do("DEL", u.REDIS_PREFIX+"admission_file_kdf_share_"+hex.EncodeToString(digest[:])); err != nil {
+		t.Fatal(err)
+	}
+	rec, err = downloadCompatibilityFile(t, e, token, password)
+	if err != nil || rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), expected) {
+		t.Fatalf("download after budget recovery: status=%d err=%v", rec.Code, err)
+	}
+}
+
+func TestArchiveKDFUploadOriginLimit(t *testing.T) {
+	_ = configureCompatibilityRedis(t)
+	e := echo.New()
+	for i := 0; i < 7; i++ {
+		ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file", nil), httptest.NewRecorder())
+		err := admitArchiveKDF(ctx, "", false)
+		if i < 6 && err != nil {
+			t.Fatalf("admission %d was rejected: %v", i, err)
+		}
+		if i == 6 {
+			var httpErr *echo.HTTPError
+			if !errors.As(err, &httpErr) || httpErr.Code != http.StatusTooManyRequests {
+				t.Fatalf("seventh admission error = %v", err)
+			}
+		}
+	}
+}
 
 type compatibilityRenderer struct {
 	name string
@@ -49,7 +184,7 @@ func configureCompatibilityRedis(t *testing.T) redis.Conn {
 		u.REDIS_HOST, u.REDIS_PORT, u.REDIS_DB, u.REDIS_PASSWORD, u.REDIS_PREFIX, u.FILEFOLDER, u.MaxFileSize = oldHost, oldPort, oldDB, oldPassword, oldPrefix, oldFolder, oldSize
 	})
 	u.REDIS_HOST, u.REDIS_PORT, u.REDIS_DB, u.REDIS_PASSWORD = host, port, "0", ""
-	u.REDIS_PREFIX, u.FILEFOLDER, u.MaxFileSize = "integration_archive_compat_", t.TempDir(), 1<<20
+	u.REDIS_PREFIX, u.FILEFOLDER, u.MaxFileSize = "integration_archive_compat_"+uuid.NewString()+"_", t.TempDir(), 1<<20
 	conn := u.NewPool().Get()
 	if err := conn.Err(); err != nil {
 		t.Fatal(err)

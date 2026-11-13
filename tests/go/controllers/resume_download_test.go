@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -22,6 +23,70 @@ import (
 	u "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v4"
 )
+
+func TestBusyKDFDoesNotConsumeResumeAttempts(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, password, plain := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	cookie, prefix, etag := interruptedSessionWithPassword(t, conn, e, token, 5, password)
+	if !bytes.Equal(prefix, plain[:5]) {
+		t.Fatal("initial prefix mismatch")
+	}
+	id, _, err := u.ParseToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+	_, release, err := u.ReserveArchiveKDF(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+	const attempts = 32
+	results := make(chan int, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec, _ := getResume(e, token, cookie, "bytes=5-5", etag)
+			results <- rec.Code
+		}()
+	}
+	wg.Wait()
+	close(results)
+	for status := range results {
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("busy resume status=%d, want 503", status)
+		}
+	}
+	counts, err := redis.Ints(conn.Do("HMGET", sessionKey, "requests", "used"))
+	if err != nil || len(counts) != 2 || counts[0] != 0 || counts[1] != 0 {
+		t.Fatalf("busy resumes consumed session budget: %v err=%v", counts, err)
+	}
+	release()
+	for i := 0; i < 8; i++ {
+		allowed, err := u.AllowIdentityAction(id, "file_kdf_resume_share", 8, 24, time.Minute)
+		if err != nil || !allowed {
+			t.Fatalf("seed resume budget %d: allowed=%v err=%v", i, allowed, err)
+		}
+	}
+	limited, _ := getResume(e, token, cookie, "bytes=5-5", etag)
+	if limited.Code != http.StatusTooManyRequests || limited.Header().Get("Retry-After") != "60" {
+		t.Fatalf("limited resume: status=%d retry=%q", limited.Code, limited.Header().Get("Retry-After"))
+	}
+	counts, err = redis.Ints(conn.Do("HMGET", sessionKey, "requests", "used"))
+	if err != nil || len(counts) != 2 || counts[0] != 0 || counts[1] != 0 {
+		t.Fatalf("rate-limited resume consumed session budget: %v err=%v", counts, err)
+	}
+	digest := sha256.Sum256([]byte(id))
+	if _, err := conn.Do("DEL", u.REDIS_PREFIX+"admission_file_kdf_resume_share_"+hex.EncodeToString(digest[:])); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := getResume(e, token, cookie, "bytes=5-5", etag)
+	if err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), plain[5:6]) {
+		t.Fatalf("resume after capacity recovery: status=%d err=%v", rec.Code, err)
+	}
+}
 
 func resumeFixture(t *testing.T, conn redis.Conn, format string, protected bool) (*echo.Echo, string, string, []byte) {
 	t.Helper()

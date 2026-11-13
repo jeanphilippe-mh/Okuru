@@ -64,6 +64,22 @@ redis.call('HINCRBY', KEYS[2], 'requests', 1)
 return {redis.call('HGETALL', KEYS[1]), ttl, secret, limit}
 `)
 
+// The preview authenticates a continuation without incrementing its request
+// count. KDF admission must happen before the consuming transition above, so
+// temporary overload does not spend one of the client's bounded resume tries.
+var previewDownloadSessionScript = redis.NewScript(2, `
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return nil end
+if redis.call('TTL', KEYS[2]) < 0 or redis.call('HGET', KEYS[2], 'session_version') ~= '2' then return nil end
+local secret = redis.call('HGET', KEYS[2], 'secret')
+local count = tonumber(redis.call('HGET', KEYS[2], 'requests'))
+local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
+local limit = tonumber(redis.call('HGET', KEYS[2], 'limit'))
+if not secret or not count or not used or not limit then return nil end
+if count >= tonumber(ARGV[2]) or used >= limit then return nil end
+return {redis.call('HGETALL', KEYS[1]), secret}
+`)
+
 var reserveDownloadBytesScript = redis.NewScript(2, `
 if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return -1 end
 if redis.call('TTL', KEYS[2]) < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return -1 end
@@ -166,6 +182,40 @@ func CreateDownloadSession(f *models.File, secret string, size int64) (string, i
 		return "", 0, errors.New("Cannot create download session")
 	}
 	return cookie, duration, nil
+}
+
+// PreviewDownloadSession authenticates the bearer and session cookie while
+// leaving request and byte counters untouched. It must not replace the atomic
+// consuming check in ResumeFileDownload, which remains authoritative.
+func PreviewDownloadSession(f *models.File, cookie string) *echo.HTTPError {
+	id, linkKey, err := ParseToken(f.FileKey)
+	if err != nil || !validDownloadSessionCookie(cookie) {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	c := NewPool().Get()
+	defer c.Close()
+	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
+	token, err := redis.Bytes(c.Do("HGET", fileKey, "token"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	if _, err := Decrypt(token, linkKey, 0); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	reply, err := redis.Values(previewDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	var record []interface{}
+	var encrypted []byte
+	if _, err := redis.Scan(reply, &record, &encrypted); err != nil || redis.ScanStruct(record, f) != nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	keys, err := fernet.DecodeKeys(cookie)
+	if err != nil || fernet.VerifyAndDecrypt(encrypted, 0, keys) == nil {
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
+	return nil
 }
 
 // ResumeFileDownload authenticates the link again and atomically checks both
