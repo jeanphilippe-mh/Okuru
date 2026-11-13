@@ -25,6 +25,7 @@ CF_ZONE_ID="${CF_ZONE_ID:-}" # Set locally or provide through the hook environme
 if [[ -z "$CF_API_TOKEN" && -z "$CF_API_TOKEN_FILE" ]]; then
   CF_API_TOKEN_FILE="/etc/letsencrypt/renewal-hooks/deploy/cloudflare-tlsa.token"
 fi
+
 # List fully qualified hostnames to manage. All entries are checked before a
 # real update starts; a preflight failure stops the operation before changes.
 SUBDOMAINS=(
@@ -34,6 +35,7 @@ SUBDOMAINS=(
   "share.jeanphilippe.io"
   "www.jeanphilippe.io"
 )
+
 # The local share certificate is independently checked against the HTTPS endpoint.
 # OVH-managed certificates are obtained from the public endpoint: publication
 # trusts the local PKIX trust store and the single endpoint reached at each check.
@@ -46,11 +48,13 @@ declare -A CERTIFICATE_SOURCES=(
   ["share.jeanphilippe.io"]="local"
   ["www.jeanphilippe.io"]="public"
 )
+
 # Set a local path for every domain whose source is "local".
 declare -A CERTIFICATE_PATHS=(
   ["share.jeanphilippe.io"]="/etc/letsencrypt/live/share.jeanphilippe.io/cert.pem"
 )
 LOG_FILE="${LOG_FILE:-/var/log/letsencrypt/update_tlsa.log}"
+
 # TIMEOUT bounds network attempts in seconds. MAX_RETRIES bounds safe reads and
 # confirmation polling; failed or ambiguous writes are not blindly repeated.
 TIMEOUT="${TIMEOUT:-30}"
@@ -59,6 +63,67 @@ LOCK_DIR="${OKURU_TLSA_LOCK_DIR:-/run/lock/okuru-tlsa}"
 LOG_TLSA=false
 DRY_RUN=false
 DIAGNOSTIC=false
+TLSA_LOGGING_ACTIVE=false
+TLSA_DNS_MAY_HAVE_CHANGED=false
+
+############################################
+# Console output and logging
+############################################
+
+# Send progress and errors to the original console even when the normal run's
+# stderr is redirected to the log. Only the console receives ANSI colours, and
+# only when it is a terminal; logs and piped output remain plain text. Writing
+# to the log first ensures a failed journal write aborts before the next action.
+
+# A detached or piped console can disappear at any point. Ignore SIGPIPE only
+# in the display subprocess so a closed viewer cannot interrupt a DNS update.
+function write_console {
+  local fd=$1 color=$2 message=$3 reset=$4
+  (
+    trap '' PIPE
+    # Preserve fd 2 before silencing printf's own broken-pipe diagnostic.
+    if [[ "$fd" == 2 ]]; then
+      exec 9>&2
+    else
+      { exec 9>&3; } 2>/dev/null || exit 1
+    fi
+    { printf '%s%s%s\n' "$color" "$message" "$reset" >&9; } 2>/dev/null
+  )
+}
+
+function log_event {
+  local level=$1 message=$2 color='' reset=''
+  if [[ "$TLSA_LOGGING_ACTIVE" == true ]]; then
+    if ! printf '%s\n' "$message" >&2; then
+      write_console 3 '' 'ERROR: Cannot write to the TLSA log; the update was stopped.' '' || :
+      if [[ "$TLSA_DNS_MAY_HAVE_CHANGED" == true ]]; then
+        write_console 3 '' 'ERROR: Cloudflare records may already have changed; check Cloudflare immediately.' '' || :
+      fi
+      return 1
+    fi
+    if [[ -t 3 && -n "${TERM:-}" && "${TERM:-}" != dumb && ! ${NO_COLOR+x} ]]; then
+      case "$level" in
+        INFO) color=$'\033[1;34m' ;;
+        SUCCESS) color=$'\033[1;32m' ;;
+        WARNING) color=$'\033[1;33m' ;;
+        ERROR) color=$'\033[1;31m' ;;
+      esac
+      [[ -n "$color" ]] && reset=$'\033[0m'
+    fi
+    write_console 3 "$color" "$message" "$reset" || :
+  else
+    if [[ -t 2 && -n "${TERM:-}" && "${TERM:-}" != dumb && ! ${NO_COLOR+x} ]]; then
+      case "$level" in
+        INFO) color=$'\033[1;34m' ;;
+        SUCCESS) color=$'\033[1;32m' ;;
+        WARNING) color=$'\033[1;33m' ;;
+        ERROR) color=$'\033[1;31m' ;;
+      esac
+      [[ -n "$color" ]] && reset=$'\033[0m'
+    fi
+    write_console 2 "$color" "$message" "$reset" || :
+  fi
+}
 
 ############################################
 # Usage / args
@@ -90,19 +155,19 @@ function usage {
 function load_api_token {
   if [[ -n "$CF_API_TOKEN_FILE" ]]; then
     if [[ -n "$CF_API_TOKEN" || ! -f "$CF_API_TOKEN_FILE" || -L "$CF_API_TOKEN_FILE" || ! -r "$CF_API_TOKEN_FILE" || ! -O "$CF_API_TOKEN_FILE" ]]; then
-      echo "ERROR: Supply one readable, owner-controlled token file or one token variable." >&2
+      log_event ERROR "ERROR: Supply one readable, owner-controlled token file or one token variable."
       return 1
     fi
     local mode
     mode=$(stat -c '%a' -- "$CF_API_TOKEN_FILE" 2>/dev/null || stat -f '%Lp' "$CF_API_TOKEN_FILE" 2>/dev/null) || return 1
     if [[ ! "$mode" =~ ^[0-7]{3,4}$ ]] || (( (8#$mode & 077) != 0 )); then
-      echo "ERROR: The token file must not be accessible to group or other users." >&2
+      log_event ERROR "ERROR: The token file must not be accessible to group or other users."
       return 1
     fi
     CF_API_TOKEN=$(< "$CF_API_TOKEN_FILE")
   fi
   if [[ -z "$CF_API_TOKEN" || "$CF_API_TOKEN" == *[[:cntrl:]]* || "$CF_API_TOKEN" == *\"* || "$CF_API_TOKEN" == *\\* ]]; then
-    echo "ERROR: Cloudflare token missing or invalid." >&2
+    log_event ERROR "ERROR: Cloudflare token missing or invalid."
     return 1
   fi
   export -n CF_API_TOKEN
@@ -113,10 +178,10 @@ function load_api_token {
 function check_prerequisites {
   local cmd
   for cmd in curl jq openssl stat timeout awk flock; do
-    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: Required command $cmd not found." >&2; return 1; }
+    command -v "$cmd" >/dev/null 2>&1 || { log_event ERROR "ERROR: Required command $cmd not found."; return 1; }
   done
-  [[ "$CF_ZONE_ID" =~ ^[[:xdigit:]]{32}$ ]] || { echo "ERROR: CF_ZONE_ID must be a 32-character hexadecimal zone ID." >&2; return 1; }
-  [[ "$TIMEOUT" =~ ^[1-9][0-9]*$ && "$MAX_RETRIES" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: Invalid timeout or retry count." >&2; return 1; }
+  [[ "$CF_ZONE_ID" =~ ^[[:xdigit:]]{32}$ ]] || { log_event ERROR "ERROR: CF_ZONE_ID must be a 32-character hexadecimal zone ID."; return 1; }
+  [[ "$TIMEOUT" =~ ^[1-9][0-9]*$ && "$MAX_RETRIES" =~ ^[1-9][0-9]*$ ]] || { log_event ERROR "ERROR: Invalid timeout or retry count."; return 1; }
   load_api_token
 }
 
@@ -125,7 +190,8 @@ function check_prerequisites {
 ############################################
 
 # Create the log directory if needed and rotate the log at 1 MiB. Actual updates
-# write to this log; dry-run and diagnostic output remains on the console.
+# write plain text here and display status on the console; read-only modes only
+# display their status on the console.
 
 function rotate_logs {
   local log_dir timestamp size
@@ -153,7 +219,7 @@ function rotate_logs {
 function send_request {
   local method=$1 url=$2 data=${3:-} max_attempts=${4:-$MAX_RETRIES} attempt=1 response body http_code transport_ok
   while (( attempt <= max_attempts )); do
-    echo "[$(date)] HTTP $method attempt $attempt" >&2
+    log_event INFO "[$(date)] HTTP $method attempt $attempt" || return 1
     transport_ok=true
     if [[ -n "$data" ]]; then
       response=$(printf 'header = "Authorization: Bearer %s"\n' "$CF_API_TOKEN" | curl -q -s --config - --noproxy '*' --proto '=https' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w '%{http_code}' -X "$method" "$url" -H 'Content-Type: application/json' --data "$data") || transport_ok=false
@@ -168,21 +234,21 @@ function send_request {
           printf '%s\n' "$body"
           return 0
         fi
-        echo "ERROR: Cloudflare returned an invalid or unsuccessful response." >&2
+        log_event ERROR "ERROR: Cloudflare returned an invalid or unsuccessful response."
         return 1
       fi
     else
       http_code="000"
     fi
-    echo "ERROR: Cloudflare request failed (HTTP ${http_code:-unknown})." >&2
+    log_event ERROR "ERROR: Cloudflare request failed (HTTP ${http_code:-unknown})."
     if [[ "$method" != GET || ! "$http_code" =~ ^[0-9]{3}$ ]] || (( 10#$http_code != 0 && 10#$http_code != 429 && 10#$http_code < 500 )); then
-      [[ "$method" == GET ]] || echo "ERROR: Mutation outcome may be unknown; verify Cloudflare before retrying." >&2
+      [[ "$method" == GET ]] || log_event ERROR "ERROR: Mutation outcome may be unknown; verify Cloudflare before retrying."
       return 1
     fi
     (( attempt++ ))
     if (( attempt <= max_attempts )); then sleep 2; fi
   done
-  echo "ERROR: GET failed after $max_attempts attempts." >&2
+  log_event ERROR "ERROR: GET failed after $max_attempts attempts."
   return 1
 }
 
@@ -195,21 +261,22 @@ function send_request {
 # combining OpenSSL options may cause one of the checks to be ignored.
 
 function calculate_tlsa_hash {
-  local domain=$1 cert=${CERTIFICATE_PATHS[$1]:-} hash host_output
-  [[ -n "$cert" && -f "$cert" && -r "$cert" ]] || { echo "ERROR: No readable configured certificate for $domain." >&2; return 1; }
+  local domain=$1 cert=${CERTIFICATE_PATHS[$1]:-} hash host_output expiry_output
+  [[ -n "$cert" && -f "$cert" && -r "$cert" ]] || { log_event ERROR "ERROR: No readable configured certificate for $domain."; return 1; }
   if [[ "$LOG_TLSA" == true ]]; then
-    openssl x509 -in "$cert" -noout -checkend 0 >&2 || return 1
+    expiry_output=$(openssl x509 -in "$cert" -noout -checkend 0) || return 1
+    log_event INFO "[$domain] $expiry_output" || return 1
     host_output=$(openssl x509 -in "$cert" -noout -checkhost "$domain") || return 1
-    printf '%s\n' "$host_output" >&2
+    log_event INFO "[$domain] $host_output" || return 1
   else
-    openssl x509 -in "$cert" -noout -checkend 0 >/dev/null 2>&1 || { echo "ERROR: Certificate expired or invalid for $domain." >&2; return 1; }
+    openssl x509 -in "$cert" -noout -checkend 0 >/dev/null 2>&1 || { log_event ERROR "ERROR: Certificate expired or invalid for $domain."; return 1; }
     host_output=$(openssl x509 -in "$cert" -noout -checkhost "$domain" 2>/dev/null) || return 1
   fi
   # OpenSSL 3.0 can return exit 0 even when the hostname does not match.
-  [[ "$host_output" == "Hostname $domain does match certificate" ]] || { echo "ERROR: Certificate does not match $domain or output is unrecognized." >&2; return 1; }
+  [[ "$host_output" == "Hostname $domain does match certificate" ]] || { log_event ERROR "ERROR: Certificate does not match $domain or output is unrecognized."; return 1; }
   hash=$(set -o pipefail; openssl x509 -in "$cert" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | openssl dgst -sha256 -r 2>/dev/null) || return 1
   hash=${hash%% *}
-  [[ "$hash" =~ ^[[:xdigit:]]{64}$ ]] || { echo "ERROR: Invalid SHA-256 SPKI fingerprint for $domain." >&2; return 1; }
+  [[ "$hash" =~ ^[[:xdigit:]]{64}$ ]] || { log_event ERROR "ERROR: Invalid SHA-256 SPKI fingerprint for $domain."; return 1; }
   printf '%s\n' "${hash,,}"
 }
 
@@ -221,7 +288,9 @@ function calculate_tlsa_hash {
 function served_tlsa_hash {
   local domain=$1 output pem hash
   if [[ "$LOG_TLSA" == true ]]; then
-    output=$(timeout "$TIMEOUT" openssl s_client -connect "$domain:443" -servername "$domain" -verify_return_error -verify_hostname "$domain" -showcerts </dev/null) || return 1
+    log_event INFO "[$domain] Checking the public TLS certificate chain, SNI and hostname." || return 1
+    output=$(timeout "$TIMEOUT" openssl s_client -connect "$domain:443" -servername "$domain" -verify_return_error -verify_hostname "$domain" -showcerts </dev/null) || { log_event ERROR "ERROR: Public TLS certificate verification failed for $domain."; return 1; }
+    log_event SUCCESS "[$domain] Public TLS certificate chain and hostname verified." || return 1
   else
     output=$(timeout "$TIMEOUT" openssl s_client -connect "$domain:443" -servername "$domain" -verify_return_error -verify_hostname "$domain" -showcerts </dev/null 2>/dev/null) || return 1
   fi
@@ -294,7 +363,7 @@ function fetch_tlsa_records {
     (.result_info.total_pages | type == "number" and . >= 0 and . <= 1 and floor == .) and
     all(.result[]; (.id | type == "string" and test("^[0-9a-f]{32}$")) and .type == "TLSA" and (.name | ascii_downcase) == ($name | ascii_downcase) and (tlsa_normal | valid_norm))
   ' >/dev/null 2>&1; then
-    echo "ERROR: Invalid, inconsistent, or paginated TLSA listing for $domain." >&2
+    log_event ERROR "ERROR: Invalid, inconsistent, or paginated TLSA listing for $domain."
     return 1
   fi
   printf '%s\n' "$records"
@@ -341,7 +410,7 @@ function expected_tlsa_hash {
       local_hash=$(calculate_tlsa_hash "$domain") || return 1
       served_hash=$(retry_served_tlsa_hash "$domain") || return 1
       [[ "$local_hash" == "$served_hash" ]] || {
-        echo "ERROR: Local and publicly served certificates differ for $domain." >&2
+        log_event ERROR "ERROR: Local and publicly served certificates differ for $domain."
         return 1
       }
       printf '%s\n' "$local_hash"
@@ -351,7 +420,7 @@ function expected_tlsa_hash {
       retry_served_tlsa_hash "$domain"
       ;;
     *)
-      echo "ERROR: Missing or invalid certificate source for $domain." >&2
+      log_event ERROR "ERROR: Missing or invalid certificate source for $domain."
       return 1
       ;;
   esac
@@ -394,39 +463,46 @@ function await_records {
 function update_domain {
   local domain=$1 hash=$2 ids=$3 json=$4 previous=$5 current id post_ok=true
   if [[ "$DRY_RUN" == true ]]; then
-    echo "DRY RUN: Would replace existing _443._tcp.$domain TLSA records with 3 1 1 $hash."
+    log_event INFO "DRY RUN: Would replace existing _443._tcp.$domain TLSA records with 3 1 1 $hash." || return 1
     return 0
   fi
+  log_event INFO "[$domain] Rechecking the certificate and Cloudflare records before changes." || return 1
   if ! verify_current_endpoint "$domain" "$hash"; then
-    echo "ERROR: Certificate or served endpoint changed for $domain; no DNS changes made for this domain." >&2
+    log_event ERROR "ERROR: Certificate or served endpoint changed for $domain; no DNS changes made for this domain."
     return 1
   fi
-  current=$(fetch_tlsa_records "$domain") || { echo "ERROR: Cannot recheck Cloudflare records for $domain; no DNS changes made for this domain." >&2; return 1; }
+  current=$(fetch_tlsa_records "$domain") || { log_event ERROR "ERROR: Cannot recheck Cloudflare records for $domain; no DNS changes made for this domain."; return 1; }
   if ! records_unchanged "$previous" "$current"; then
-    echo "ERROR: Cloudflare records changed during preflight for $domain; no DNS changes made for this domain." >&2
+    log_event ERROR "ERROR: Cloudflare records changed during preflight for $domain; no DNS changes made for this domain."
     return 1
   fi
   while IFS= read -r id; do
     [[ -z "$id" ]] && continue
-    send_request DELETE "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$id" "" >/dev/null || { echo "ERROR: TLSA deletion failed or is uncertain; creation not attempted. Existing records may already have been removed." >&2; return 1; }
+    log_event INFO "[$domain] Deleting existing TLSA record $id." || return 1
+    TLSA_DNS_MAY_HAVE_CHANGED=true
+    send_request DELETE "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$id" "" >/dev/null || { log_event ERROR "ERROR: TLSA deletion failed or is uncertain; creation not attempted. Existing records may already have been removed."; return 1; }
   done <<< "$ids"
+  log_event INFO "[$domain] Confirming removal of previous TLSA records." || return 1
   if ! await_records "$domain" empty; then
-    echo "ERROR: Cannot confirm deletion for $domain; creation not attempted. Check Cloudflare immediately." >&2
+    log_event ERROR "ERROR: Cannot confirm deletion for $domain; creation not attempted. Check Cloudflare immediately."
     return 1
   fi
+  log_event INFO "[$domain] Creating the new TLSA 3 1 1 record." || return 1
+  TLSA_DNS_MAY_HAVE_CHANGED=true
   send_request POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" "$json" >/dev/null || post_ok=false
+  log_event INFO "[$domain] Confirming the new TLSA record in Cloudflare." || return 1
   if ! await_records "$domain" matching "$hash"; then
-    echo "ERROR: Cloudflare did not confirm exactly the expected TLSA for $domain; old records may be gone. Check Cloudflare immediately." >&2
+    log_event ERROR "ERROR: Cloudflare did not confirm exactly the expected TLSA for $domain; old records may be gone. Check Cloudflare immediately."
     return 1
   fi
   if [[ "$post_ok" != true ]]; then
-    echo "WARNING: POST response was ambiguous; expected record confirmed by Cloudflare GET for $domain." >&2
+    log_event WARNING "WARNING: POST response was ambiguous; expected record confirmed by Cloudflare GET for $domain." || return 1
   fi
   if ! verify_current_endpoint "$domain" "$hash"; then
-    echo "ERROR: Certificate or endpoint changed after publishing for $domain; DNS was modified. Check Cloudflare and the endpoint immediately." >&2
+    log_event ERROR "ERROR: Certificate or endpoint changed after publishing for $domain; DNS was modified. Check Cloudflare and the endpoint immediately."
     return 1
   fi
-  echo "[$(date)] Expected TLSA confirmed in Cloudflare for $domain; DNS propagation not checked."
+  log_event SUCCESS "[$(date)] Expected TLSA confirmed in Cloudflare for $domain; DNS propagation not checked." || return 1
 }
 
 ############################################
@@ -439,15 +515,15 @@ function update_domain {
 
 function acquire_lock {
   local mode
-  command -v flock >/dev/null 2>&1 || { echo "ERROR: Required command flock not found." >&2; return 1; }
-  [[ "$LOCK_DIR" == /* ]] || { echo "ERROR: Lock directory must be absolute." >&2; return 1; }
+  command -v flock >/dev/null 2>&1 || { log_event ERROR "ERROR: Required command flock not found."; return 1; }
+  [[ "$LOCK_DIR" == /* ]] || { log_event ERROR "ERROR: Lock directory must be absolute."; return 1; }
   mkdir -m 700 -- "$LOCK_DIR" 2>/dev/null || [[ -d "$LOCK_DIR" ]] || return 1
-  [[ -d "$LOCK_DIR" && ! -L "$LOCK_DIR" && -O "$LOCK_DIR" ]] || { echo "ERROR: Unsafe lock directory." >&2; return 1; }
+  [[ -d "$LOCK_DIR" && ! -L "$LOCK_DIR" && -O "$LOCK_DIR" ]] || { log_event ERROR "ERROR: Unsafe lock directory."; return 1; }
   mode=$(stat -c '%a' -- "$LOCK_DIR" 2>/dev/null || stat -f '%Lp' "$LOCK_DIR" 2>/dev/null) || return 1
-  [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 077) == 0 )) || { echo "ERROR: Lock directory permissions must exclude group and others." >&2; return 1; }
-  [[ ! -L "$LOCK_DIR/lock" ]] || { echo "ERROR: Unsafe lock file." >&2; return 1; }
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 077) == 0 )) || { log_event ERROR "ERROR: Lock directory permissions must exclude group and others."; return 1; }
+  [[ ! -L "$LOCK_DIR/lock" ]] || { log_event ERROR "ERROR: Unsafe lock file."; return 1; }
   exec {TLSA_LOCK_FD}>>"$LOCK_DIR/lock" || return 1
-  flock -n "$TLSA_LOCK_FD" || { echo "ERROR: Another TLSA update is already running." >&2; return 1; }
+  flock -n "$TLSA_LOCK_FD" || { log_event ERROR "ERROR: Another TLSA update is already running."; return 1; }
 }
 
 ############################################
@@ -466,39 +542,43 @@ function main (
       --dry-run) DRY_RUN=true ;;
       --diagnostic) DIAGNOSTIC=true; DRY_RUN=true ;;
       -h|--help) usage; return 0 ;;
-      *) echo "ERROR: Unknown option: $1" >&2; usage >&2; return 1 ;;
+      *) log_event ERROR "ERROR: Unknown option: $1"; usage >&2; return 1 ;;
     esac
     shift
   done
   acquire_lock || return 1
   if [[ "$DRY_RUN" != true ]]; then
-    rotate_logs || { echo "ERROR: Cannot prepare log." >&2; return 1; }
-    # Open the log directly, so a failed redirection stops the update. A tee
-    # process substitution can fail independently while DNS updates continue.
-    exec >> "$LOG_FILE" 2>&1 || { echo "ERROR: Cannot write log." >&2; return 1; }
+    rotate_logs || { log_event ERROR "ERROR: Cannot prepare log."; return 1; }
+    # Retain the original stderr for the console. Journal writes remain direct
+    # and checked; no asynchronous tee process can hide a logging failure.
+    exec 3>&2 || return 1
+    exec >> "$LOG_FILE" 2>&1 || { log_event ERROR "ERROR: Cannot write log."; return 1; }
+    TLSA_LOGGING_ACTIVE=true
   fi
   check_prerequisites || return 1
   local start_time end_time domain hash records ids json diagnostic_issues=0
   local -A hashes listings payloads snapshots skip seen
   start_time=$(date +%s)
-  echo "**STARTING TLSA RECORD UPDATE**"
-  echo "Preflighting all configured domains before any DNS change."
+  log_event INFO "**STARTING TLSA RECORD UPDATE**" || return 1
+  log_event INFO "Preflighting all configured domains before any DNS change." || return 1
   for domain in "${SUBDOMAINS[@]}"; do
     if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$domain" == *..* || "$domain" == *.-* || "$domain" == *-.* || ${#domain} -gt 253 ]]; then
-      echo "ERROR: Invalid domain: $domain." >&2
+      log_event ERROR "ERROR: Invalid domain: $domain."
       if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
     fi
     if [[ -n "${seen[$domain]+present}" ]]; then
-      echo "ERROR: Duplicate domain $domain." >&2
+      log_event ERROR "ERROR: Duplicate domain $domain."
       if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
     fi
     seen[$domain]=yes
+    log_event INFO "[$domain] Checking certificate source: ${CERTIFICATE_SOURCES[$domain]:-unconfigured}." || return 1
     if ! hash=$(expected_tlsa_hash "$domain"); then
-      echo "ERROR: Cannot verify the configured certificate source for $domain; DNS unchanged." >&2
+      log_event ERROR "ERROR: Cannot verify the configured certificate source for $domain; DNS unchanged."
       if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
     fi
+    log_event SUCCESS "[$domain] Certificate verified; checking Cloudflare TLSA records." || return 1
     if ! records=$(fetch_tlsa_records "$domain"); then
-      echo "ERROR: Cannot inspect Cloudflare records for $domain; DNS unchanged." >&2
+      log_event ERROR "ERROR: Cannot inspect Cloudflare records for $domain; DNS unchanged."
       if [[ "$DIAGNOSTIC" == true ]]; then ((diagnostic_issues++)); continue; else return 1; fi
     fi
     if [[ "$DIAGNOSTIC" == true ]]; then
@@ -534,14 +614,14 @@ function main (
   fi
   for domain in "${SUBDOMAINS[@]}"; do
     if [[ "${skip[$domain]}" == yes ]]; then
-      echo "Existing Cloudflare TLSA already matches $domain; no change."
+      log_event SUCCESS "Existing Cloudflare TLSA already matches $domain; no change." || return 1
       continue
     fi
-    update_domain "$domain" "${hashes[$domain]}" "${listings[$domain]}" "${payloads[$domain]}" "${snapshots[$domain]}" || { echo "**TLSA RECORD UPDATE FAILED**" >&2; return 1; }
+    update_domain "$domain" "${hashes[$domain]}" "${listings[$domain]}" "${payloads[$domain]}" "${snapshots[$domain]}" || { log_event ERROR "**TLSA RECORD UPDATE FAILED**"; return 1; }
   done
   end_time=$(date +%s)
-  echo "TLSA update completed in $((end_time-start_time))s."
-  echo "**ENDING TLSA RECORD UPDATE**"
+  log_event SUCCESS "TLSA update completed in $((end_time-start_time))s." || return 1
+  log_event SUCCESS "**ENDING TLSA RECORD UPDATE**" || return 1
 )
 
 ############################################
@@ -553,7 +633,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   # main runs in a subshell, so this shell retains Certbot's original stderr
   # even when the real run redirects its own output to the log.
   if ! main "$@"; then
-    echo "ERROR: TLSA update failed. If logging was enabled, check $LOG_FILE." >&2
+    log_event ERROR "ERROR: TLSA update failed. If logging was enabled, check $LOG_FILE."
     exit 1
   fi
 fi
