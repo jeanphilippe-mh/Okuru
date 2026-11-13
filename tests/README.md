@@ -57,9 +57,10 @@ Run the offline TLSA suite with Python 3, Bash, OpenSSL and jq:
 
 ```sh
 python3 tests/tlsa/test_update_tlsa.py
+python3 tests/tlsa/test_tlsa_terminal.py
 ```
 
-The suite uses temporary certificates and simulated Cloudflare, HTTPS endpoints and locking. It does not contact production or establish that a real Debian/Certbot deployment, DNS propagation or Linux locking works.
+The suites use temporary certificates, a pseudo-terminal, and simulated Cloudflare, HTTPS endpoints and locking. They check interactive colours and uncoloured logs without contacting production. They do not establish that a real Debian/Certbot deployment, DNS propagation or Linux locking works.
 
 ## Browser and Apache tests
 
