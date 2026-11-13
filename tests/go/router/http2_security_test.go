@@ -48,7 +48,7 @@ func newHTTP2Pipe(t *testing.T, handler http.Handler) *http2.ClientConn {
 
 func newLimitedHTTP2Router(idle time.Duration) *echo.Echo {
 	e := echo.New()
-	e.Use(requestLimits(idle, 10*time.Second, 10*time.Second))
+	e.Use(testRequestLimits(idle, 10*time.Second, 10*time.Second))
 	return e
 }
 
@@ -186,6 +186,55 @@ func TestHTTP2StalledUploadDoesNotBlockAnotherStream(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("stalled HTTP/2 upload was not stopped")
 	}
+}
+
+func TestHTTP2MinimumRateStopsTricklingBody(t *testing.T) {
+	result := make(chan error, 1)
+	e := echo.New()
+	e.POST("/file", func(c echo.Context) error {
+		start := time.Now()
+		body := &idleDeadlineBody{
+			ReadCloser: c.Request().Body,
+			controller: http.NewResponseController(c.Response().Writer),
+			timeout:    5 * time.Second,
+			absolute:   start.Add(5 * time.Second),
+			rateStart:  start,
+			rateGrace:  100 * time.Millisecond,
+			minRate:    1024,
+		}
+		_, err := io.Copy(io.Discard, body)
+		result <- err
+		return echo.NewHTTPError(http.StatusRequestTimeout)
+	})
+	client := newHTTP2Pipe(t, e)
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://unit.invalid/file", reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseDone := make(chan struct{})
+	go func() {
+		defer close(responseDone)
+		resp, roundTripErr := client.RoundTrip(req)
+		if roundTripErr == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	go func() { _, _ = writer.Write([]byte("x")) }()
+	select {
+	case err := <-result:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("HTTP/2 trickling body was not stopped by a deadline: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("HTTP/2 trickling body exceeded the test deadline")
+	}
+	_ = writer.Close()
+	<-responseDone
 }
 
 func TestHTTP2SlowReaderReceivesCompleteDownload(t *testing.T) {

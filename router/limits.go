@@ -2,7 +2,9 @@ package router
 
 import (
 	"bytes"
+	"errors"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"time"
@@ -19,6 +21,8 @@ const (
 	maxConcurrentUploads  = 4
 	maxSmallBodyTime      = 30 * time.Second
 	maxUploadBodyBytes    = int64(1024 * 1000 * 1000) // Echo BodyLimit("1024M") uses decimal MB.
+	uploadRateGrace       = 30 * time.Second
+	minUploadBytesPerSec  = int64(32 << 10)
 )
 
 // Shared across router instances, so constructing another router does not
@@ -46,6 +50,12 @@ func multipartFileUpload(r *http.Request) bool {
 // streaming body limit; all other unsafe requests are buffered only up to a
 // small, finite size so chunked input cannot bypass the limit.
 func requestLimits(idleTimeout, readTimeout, writeTimeout time.Duration) echo.MiddlewareFunc {
+	return requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout, acquireUploadLease)
+}
+
+// The injected lease function lets protocol/deadline tests run without Redis;
+// production always uses acquireUploadLease.
+func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Duration, acquire func(*http.Request, time.Duration) (func(), error)) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			select {
@@ -60,17 +70,35 @@ func requestLimits(idleTimeout, readTimeout, writeTimeout time.Duration) echo.Mi
 			upload := multipartFileUpload(r)
 			started := time.Now()
 			if upload {
+				bodyBytes := r.ContentLength
+				if bodyBytes > maxUploadBodyBytes {
+					closeUnreadHTTP1(c)
+					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
+				}
+				leaseTTL := readTimeout
+				if writeTimeout > leaseTTL {
+					leaseTTL = writeTimeout
+				}
+				if leaseTTL <= 0 || leaseTTL > time.Duration(math.MaxInt64)-10*time.Minute || acquire == nil {
+					closeUnreadHTTP1(c)
+					return echo.NewHTTPError(http.StatusServiceUnavailable, "Upload admission is unavailable")
+				}
+				release, err := acquire(r, leaseTTL+10*time.Minute)
+				if err != nil || release == nil {
+					closeUnreadHTTP1(c)
+					if errors.Is(err, ErrUploadLeaseBusy) {
+						c.Response().Header().Set(echo.HeaderRetryAfter, "60")
+						return echo.NewHTTPError(http.StatusTooManyRequests, "Another upload is in progress")
+					}
+					return echo.NewHTTPError(http.StatusServiceUnavailable, "Upload admission is unavailable")
+				}
+				defer release()
 				select {
 				case uploadSlots <- struct{}{}:
 					defer func() { <-uploadSlots }()
 				default:
 					closeUnreadHTTP1(c)
 					return echo.NewHTTPError(http.StatusServiceUnavailable, "Upload capacity is busy")
-				}
-				bodyBytes := r.ContentLength
-				if bodyBytes > maxUploadBodyBytes {
-					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
 				}
 				if bodyBytes < 0 {
 					bodyBytes = maxUploadBodyBytes
@@ -108,6 +136,15 @@ func requestLimits(idleTimeout, readTimeout, writeTimeout time.Duration) echo.Mi
 					absolute = started.Add(maxSmallBodyTime)
 				}
 				limitedBody := &idleDeadlineBody{ReadCloser: r.Body, controller: controller, timeout: idleTimeout, absolute: absolute}
+				if upload {
+					// An idle timeout alone permits an attacker to send one byte
+					// just before every deadline. Bound cumulative elapsed time as
+					// well, without buffering the upload or shortening the absolute
+					// transfer limit for clients meeting the minimum average rate.
+					limitedBody.rateStart = time.Now()
+					limitedBody.rateGrace = uploadRateGrace
+					limitedBody.minRate = minUploadBytesPerSec
+				}
 				// Also bound any server-side drain after rejecting a body based on
 				// Content-Length, before this middleware performs its first read.
 				_ = controller.SetReadDeadline(limitedBody.deadline())
@@ -142,6 +179,10 @@ type idleDeadlineBody struct {
 	controller *http.ResponseController
 	timeout    time.Duration
 	absolute   time.Time
+	rateStart  time.Time
+	rateGrace  time.Duration
+	minRate    int64
+	bytesRead  int64
 }
 
 func (b *idleDeadlineBody) Read(p []byte) (int, error) {
@@ -149,6 +190,9 @@ func (b *idleDeadlineBody) Read(p []byte) (int, error) {
 	// absolute ReadTimeout remains a backstop in that case.
 	_ = b.controller.SetReadDeadline(b.deadline())
 	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.bytesRead += int64(n)
+	}
 	if err == io.EOF {
 		// Reading is finished. In particular, do not let a body deadline
 		// expire during subsequent ZIP creation or response generation.
@@ -160,7 +204,16 @@ func (b *idleDeadlineBody) Read(p []byte) (int, error) {
 func (b *idleDeadlineBody) deadline() time.Time {
 	deadline := time.Now().Add(b.timeout)
 	if b.absolute.Before(deadline) {
-		return b.absolute
+		deadline = b.absolute
+	}
+	if b.minRate > 0 && !b.rateStart.IsZero() {
+		// The request's body is separately bounded to approximately 1 GB,
+		// so the multiplication remains within time.Duration's range.
+		allowance := time.Duration(b.bytesRead * int64(time.Second) / b.minRate)
+		rateDeadline := b.rateStart.Add(b.rateGrace + allowance)
+		if rateDeadline.Before(deadline) {
+			return rateDeadline
+		}
 	}
 	return deadline
 }
