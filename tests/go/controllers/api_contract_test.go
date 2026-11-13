@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/router"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
@@ -97,6 +98,81 @@ func TestAPIJSONCreateReadAndSingleUse(t *testing.T) {
 	r = apiRequest(e, "GET", link.Path, "", "", nil, "")
 	if r.Code != 404 || !json.Valid(r.Body.Bytes()) {
 		t.Fatalf("repeated read: %d %s", r.Code, r.Body)
+	}
+}
+
+func TestAPISecretCreationCapacityReturns503(t *testing.T) {
+	e := apiContractServer(t)
+	t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "1")
+	cookie, token := apiCredentials(t, e)
+	r := apiRequest(e, "POST", "/api/v1", `{"password":"contract-secret","ttl":300,"views":1}`, "application/json", cookie, token)
+	if r.Code != http.StatusServiceUnavailable {
+		t.Fatalf("capacity refusal should be 503, got %d %s", r.Code, r.Body)
+	}
+}
+
+func TestWebSecretCreationCapacityReturns503(t *testing.T) {
+	e := resourceTest(t)
+	t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "1")
+	r := requestWithCSRF(t, e, "/", url.Values{
+		"password": {"contract-secret"},
+		"ttl":      {"1"},
+		"ttlViews": {"1"},
+	})
+	if r.Code != http.StatusServiceUnavailable {
+		t.Fatalf("capacity refusal should be 503, got %d %s", r.Code, r.Body)
+	}
+}
+
+func TestWebAndAPICreationSharePerOriginBudget(t *testing.T) {
+	e := apiContractServer(t)
+	e.Renderer = securityRenderer{}
+	cookie, token := apiCredentials(t, e)
+	for i := 0; i < 49; i++ {
+		r := apiRequest(e, "POST", "/api/v1", `{"password":"contract-secret","ttl":300,"views":1}`, "application/json", cookie, token)
+		if r.Code != http.StatusCreated {
+			t.Fatalf("API creation %d failed: %d %s", i, r.Code, r.Body)
+		}
+	}
+	web := requestWithCSRF(t, e, "/", url.Values{
+		"password": {"contract-secret"},
+		"ttl":      {"1"},
+		"ttlViews": {"1"},
+	})
+	if web.Code != http.StatusOK {
+		t.Fatalf("web creation did not share the allowed budget: %d %s", web.Code, web.Body)
+	}
+	limited := apiRequest(e, "POST", "/api/v1", `{"password":"contract-secret","ttl":300,"views":1}`, "application/json", cookie, token)
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("shared origin budget did not reject request: %d %s", limited.Code, limited.Body)
+	}
+}
+
+func TestUntrustedLoopbackProxyDoesNotApplySmallSharedOriginBudget(t *testing.T) {
+	e := apiContractServer(t)
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "")
+	cookie, token := apiCredentials(t, e)
+	for i := 0; i < 51; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1", strings.NewReader(`{"password":"contract-secret","ttl":300,"views":1}`))
+		req.RemoteAddr = "127.0.0.1:43100"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", token)
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("203.0.113.%d", i+1))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("loopback proxy hit the smaller per-origin limit at request %d: %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	conn, err := redis.Dial("tcp", os.Getenv("OKURU_TEST_REDIS_ADDR"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	keys, err := redis.Strings(conn.Do("KEYS", "api_contract_admission_secret_create_*"))
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("untrusted forwarding header unexpectedly split identities: %d keys, %v", len(keys), err)
 	}
 }
 func TestAPIFormDefaultsAndValidation(t *testing.T) {

@@ -13,6 +13,17 @@ local ttl = tonumber(ARGV[1])
 if not ttl or ttl <= 0 or ttl ~= math.floor(ttl) then
     return redis.error_reply('invalid record expiry')
 end
+-- A nonzero budget limits the entire selected Redis database. DBSIZE and
+-- creation run in the same script so other processes cannot race admission.
+local maxKeys = tonumber(ARGV[2])
+if not maxKeys or maxKeys < 0 or maxKeys ~= math.floor(maxKeys) then
+    return redis.error_reply('invalid Redis key limit')
+end
+if maxKeys > 0 then
+    local count = redis.pcall('DBSIZE')
+    if type(count) == 'table' and count.err then return count end
+    if count >= maxKeys then return 0 end
+end
 if redis.call('EXISTS', KEYS[1]) ~= 0 then
     return redis.error_reply('record already exists')
 end
@@ -25,7 +36,7 @@ if probe ~= 0 then return redis.error_reply('unexpected existing record') end
 local cleanupProbe = redis.pcall('DEL', KEYS[1])
 if type(cleanupProbe) == 'table' and cleanupProbe.err then return cleanupProbe end
 if cleanupProbe ~= 0 then return redis.error_reply('unexpected existing record') end
-local created = redis.pcall('HMSET', KEYS[1], unpack(ARGV, 2))
+local created = redis.pcall('HMSET', KEYS[1], unpack(ARGV, 3))
 if type(created) == 'table' and created.err then return created end
 local expired = redis.pcall('EXPIRE', KEYS[1], ttl)
 if expired ~= 1 then
@@ -39,12 +50,28 @@ return 1
 `)
 
 func createExpiringHash(c redis.Conn, key string, ttl int, fields ...interface{}) error {
+	return createExpiringHashWithKeyLimit(c, key, ttl, 0, fields...)
+}
+
+func createExpiringHashWithKeyLimit(c redis.Conn, key string, ttl int, maxKeys int64, fields ...interface{}) error {
 	if ttl <= 0 {
 		return errors.New("Invalid record expiry")
 	}
-	args := append(redis.Args{}.Add(key, ttl), fields...)
-	_, err := createExpiringHashScript.Do(c, args...)
-	return err
+	if maxKeys < 0 {
+		return errors.New("Invalid Redis key limit")
+	}
+	args := append(redis.Args{}.Add(key, ttl, maxKeys), fields...)
+	result, err := redis.Int(createExpiringHashScript.Do(c, args...))
+	if err != nil {
+		return err
+	}
+	if result == 0 {
+		return ErrRedisSecretCapacity
+	}
+	if result != 1 {
+		return errors.New("Invalid Redis admission response")
+	}
+	return nil
 }
 
 // Reserve an attempt only when the encrypted token is still the exact value
