@@ -2,6 +2,8 @@
 
 Secrets are limited to 32 KiB, numeric fields to 16 bytes, and uploads to 100 files. Names must be valid and distinct after sanitization; their total size must not exceed `OKURU_MAX_FILE_SIZE`. The browser accepts up to 255 characters for a new archive password; the server applies the byte limit.
 
+For portable extraction, new uploads reject names that have an 8.3-sized shape and contain `~` immediately followed by an ASCII digit, such as `LONGFI~1.TXT` or `FILE.D~1`. This conservative rule prevents ordinary Windows 8.3-style aliases from being submitted as distinct names, without predicting volume-specific alias generation; it also rejects some otherwise legitimate short names. Longer names such as `report~2025.txt` remain allowed. Rename rejected files before uploading. Existing archives are not changed. Windows short-name behavior depends on the volume and configuration, and this filter does not establish protection against every alias a privileged local user could assign manually. See [Microsoft's file naming guidance](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file).
+
 ## Multipart staging
 
 Before CSRF form extraction, multipart fields are parsed in memory with explicit count and size limits. File parts are encrypted as they arrive into a private directory under `OKURU_FILE_FOLDER`, using a fresh age X25519 identity held only in process memory for that request. File contents and names are not intentionally written in plaintext into multipart temporary files. The encrypted parts are read back in a stream to create the final encrypted ZIP; this uses an extra encrypted read/write pass. CSRF fields can appear before or after the files. Request and storage limits apply before parsing.
