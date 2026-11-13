@@ -2,11 +2,14 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"github.com/fernet/fernet-go"
 	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,6 +65,180 @@ func TestCreateExpiringHashRejectsInvalidTTLWithoutWriting(t *testing.T) {
 	}
 	if c.mutations != 0 {
 		t.Fatal("invalid TTL reached Redis")
+	}
+}
+
+func TestRedisSecretKeyLimitConfigurationAndTTL(t *testing.T) {
+	for _, raw := range []string{"0", "-1", "1.5", "broken", "9007199254740992"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", raw)
+			if _, err := redisSecretMaxKeys(); err == nil {
+				t.Fatal("invalid Redis limit was accepted")
+			}
+			if _, httpErr := SetPassword("secret", 60, 1, false); httpErr == nil || httpErr.Code != 503 {
+				t.Fatalf("invalid capacity configuration did not fail closed: %v", httpErr)
+			}
+		})
+	}
+	t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "4")
+	if limit, err := redisSecretMaxKeys(); err != nil || limit != 4 {
+		t.Fatalf("valid Redis limit rejected: limit=%d err=%v", limit, err)
+	}
+	if _, httpErr := SetPassword("secret", maxSecretTTLSeconds+1, 1, false); httpErr == nil || httpErr.Code != 400 {
+		t.Fatalf("secret lifetime above seven days was accepted: %v", httpErr)
+	}
+}
+
+func TestRedisSecretKeyLimitIncludesLegacyAndCoordinatesCreators(t *testing.T) {
+	addr := os.Getenv("OKURU_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("set OKURU_TEST_REDIS_ADDR to an isolated Redis")
+	}
+	admin, err := redis.Dial("tcp", addr, redis.DialDatabase(15))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	prefix := fmt.Sprintf("okuru_quota_test_%d_", time.Now().UnixNano())
+	legacy := prefix + "legacy"
+	if _, err := admin.Do("SET", legacy, "existing", "EX", 60); err != nil {
+		t.Fatal(err)
+	}
+	keys := []interface{}{legacy, prefix + "after-expiry"}
+	for i := 0; i < 24; i++ {
+		keys = append(keys, fmt.Sprintf("%s%d", prefix, i))
+	}
+	defer func() { _, _ = admin.Do("DEL", keys...) }()
+	baseline, err := redis.Int64(admin.Do("DBSIZE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := baseline + 3
+	var admitted, rejected atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 24; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			conn, err := redis.Dial("tcp", addr, redis.DialDatabase(15))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer conn.Close()
+			err = createExpiringHashWithKeyLimit(conn, fmt.Sprintf("%s%d", prefix, i), 60, limit, "token", "encrypted")
+			if err == nil {
+				admitted.Add(1)
+			} else if errors.Is(err, ErrRedisSecretCapacity) {
+				rejected.Add(1)
+			} else {
+				t.Errorf("unexpected creation error: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if admitted.Load() != 3 || rejected.Load() != 21 {
+		t.Fatalf("concurrent admissions exceeded or missed limit: admitted=%d rejected=%d", admitted.Load(), rejected.Load())
+	}
+	if value, err := redis.String(admin.Do("GET", legacy)); err != nil || value != "existing" {
+		t.Fatalf("existing key changed: %q %v", value, err)
+	}
+	if _, err := admin.Do("EXPIRE", legacy, 1); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		exists, err := redis.Int(admin.Do("EXISTS", legacy))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("legacy test key did not expire")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if err := createExpiringHashWithKeyLimit(admin, prefix+"after-expiry", 60, limit, "token", "encrypted"); err != nil {
+		t.Fatalf("expiration did not free capacity: %v", err)
+	}
+}
+
+func TestRedisSecretKeyLimitFailsClosedWhenDBSizeIsDenied(t *testing.T) {
+	addr := os.Getenv("OKURU_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("set OKURU_TEST_REDIS_ADDR to an isolated Redis")
+	}
+	admin, err := redis.Dial("tcp", addr, redis.DialDatabase(15))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	key, username := "okuru_secret_quota_acl_"+suffix, "okuru_secret_quota_user_"+suffix
+	if _, err := admin.Do("ACL", "SETUSER", username, "on", ">temporary-test-password", "~"+key, "+@all", "-dbsize"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = admin.Do("DEL", key); _, _ = admin.Do("ACL", "DELUSER", username) }()
+	conn, err := redis.Dial("tcp", addr, redis.DialUsername(username), redis.DialPassword("temporary-test-password"), redis.DialDatabase(15))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := createExpiringHashWithKeyLimit(conn, key, 60, 10000, "token", "encrypted"); err == nil {
+		t.Fatal("creation succeeded without permission to inspect capacity")
+	}
+	if exists, err := redis.Int(admin.Do("EXISTS", key)); err != nil || exists != 0 {
+		t.Fatalf("capacity permission failure left a record: exists=%d err=%v", exists, err)
+	}
+}
+
+func TestRedisSecretCapacityKeepsLegacyLinksReadable(t *testing.T) {
+	addr := os.Getenv("OKURU_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("set OKURU_TEST_REDIS_ADDR to an isolated Redis")
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHost, oldPort, oldDB, oldPassword, oldPrefix := REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD, REDIS_PREFIX
+	REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD = host, port, "15", ""
+	REDIS_PREFIX = fmt.Sprintf("okuru_legacy_quota_%d_", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_ = CloseRedisPool()
+		REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD, REDIS_PREFIX = oldHost, oldPort, oldDB, oldPassword, oldPrefix
+	})
+	conn, err := redis.Dial("tcp", addr, redis.DialDatabase(15))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	id := uuid.NewString()
+	storageKey := REDIS_PREFIX + id
+	defer func() { _, _ = conn.Do("DEL", storageKey) }()
+	encrypted, key, err := Encrypt("legacy-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Do("HSET", storageKey, "token", encrypted, "views", 1, "views_count", 0, "deletable", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Do("EXPIRE", storageKey, 60); err != nil {
+		t.Fatal(err)
+	}
+	count, err := redis.Int64(conn.Do("DBSIZE"))
+	if err != nil || count < 1 {
+		t.Fatalf("database count: %d %v", count, err)
+	}
+	t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", strconv.FormatInt(count, 10))
+	if _, httpErr := SetPassword("new-secret", 60, 1, false); httpErr == nil || httpErr.Code != 503 {
+		t.Fatalf("full database did not reject new secret: %v", httpErr)
+	}
+	p := &models.Password{PasswordKey: id + TOKEN_SEPARATOR + key}
+	if httpErr := RetrievePassword(p); httpErr != nil || p.Password != "legacy-secret" {
+		t.Fatalf("legacy link stopped working at capacity: value=%q err=%v", p.Password, httpErr)
 	}
 }
 
