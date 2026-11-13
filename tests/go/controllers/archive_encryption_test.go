@@ -19,6 +19,9 @@ import (
 )
 
 func TestEncryptedUploadArchive(t *testing.T) {
+	oldFileFolder := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = oldFileFolder })
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	part, err := mw.CreateFormFile("files", "test.txt")
@@ -48,10 +51,29 @@ func TestEncryptedUploadArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "encrypted")
-	if err = writeEncryptedUploadArchive(context.Background(), path, "test password", files, names, ArchiveFormatAge); err != nil {
+	reserved, release, err := ReserveArchiveKDF(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeEncryptedUploadArchive(context.Background(), path, "test password", files, names, ArchiveFormatAge); err == nil {
+	defer release()
+	releasedBeforeStreaming := false
+	releaseBeforeStreaming := func() {
+		release()
+		_, probeRelease, probeErr := ReserveArchiveKDF(context.Background())
+		if probeErr != nil {
+			t.Errorf("KDF slot was not released before ZIP streaming: %v", probeErr)
+			return
+		}
+		probeRelease()
+		releasedBeforeStreaming = true
+	}
+	if err = writeEncryptedUploadArchive(reserved, path, "test password", files, names, ArchiveFormatAge, releaseBeforeStreaming); err != nil {
+		t.Fatal(err)
+	}
+	if !releasedBeforeStreaming {
+		t.Fatal("KDF slot remained reserved during ZIP streaming")
+	}
+	if err := writeEncryptedUploadArchive(context.Background(), path, "test password", files, names, ArchiveFormatAge, nil); err == nil {
 		t.Fatal("existing archive overwritten")
 	}
 	ciphertext, err := os.ReadFile(path)
@@ -140,6 +162,9 @@ func (r *partialArchiveReader) Read(p []byte) (int, error) {
 }
 
 func BenchmarkEncryptedArchiveRoundTrip(b *testing.B) {
+	oldFileFolder := FILEFOLDER
+	FILEFOLDER = b.TempDir()
+	b.Cleanup(func() { FILEFOLDER = oldFileFolder })
 	payload := bytes.Repeat([]byte("synthetic content"), 65536)
 	b.SetBytes(int64(len(payload)))
 	for i := 0; i < b.N; i++ {

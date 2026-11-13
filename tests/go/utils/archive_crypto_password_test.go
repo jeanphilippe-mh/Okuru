@@ -52,6 +52,9 @@ func TestFileMetadataSecretSeparatesPasswordOnlyForNewProvidedFormat(t *testing.
 }
 
 func TestArchivePasswordErrorClassification(t *testing.T) {
+	oldFileFolder := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = oldFileFolder })
 	// Use a small work factor only in this isolated test fixture.
 	r, err := age.NewScryptRecipient("correct fixture password")
 	if err != nil {

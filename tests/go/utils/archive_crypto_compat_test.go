@@ -3,14 +3,80 @@ package utils
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"filippo.io/age"
 )
 
+func TestArchiveKDFAdmissionRejectsWaitersAndReleases(t *testing.T) {
+	oldFileFolder := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = oldFileFolder })
+	reserved, release, err := ReserveArchiveKDF(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+
+	const clients = 64
+	results := make(chan error, clients)
+	for i := 0; i < clients; i++ {
+		go func() {
+			results <- withArchiveKDF(context.Background(), func() error {
+				return errors.New("unexpected second KDF")
+			})
+		}()
+	}
+	for i := 0; i < clients; i++ {
+		select {
+		case err := <-results:
+			if !errors.Is(err, ErrArchiveKDFBusy) {
+				t.Fatalf("waiter error = %v, want busy", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("KDF waiter blocked instead of being rejected")
+		}
+	}
+	if err := withArchiveKDF(reserved, func() error { return nil }); err != nil {
+		t.Fatalf("reserved KDF was rejected: %v", err)
+	}
+	started := make(chan struct{})
+	finish := make(chan struct{})
+	workerDone := make(chan error, 1)
+	go func() {
+		workerDone <- withArchiveKDF(reserved, func() error {
+			close(started)
+			<-finish
+			return nil
+		})
+	}()
+	<-started
+	if err := withArchiveKDF(reserved, func() error { return nil }); !errors.Is(err, ErrArchiveKDFBusy) {
+		close(finish)
+		t.Fatalf("shared reservation permitted concurrent KDF work: %v", err)
+	}
+	close(finish)
+	if err := <-workerDone; err != nil {
+		t.Fatal(err)
+	}
+	release()
+	release() // Release is safe even after an earlier explicit release.
+	if err := withArchiveKDF(reserved, func() error { return nil }); !errors.Is(err, ErrArchiveKDFBusy) {
+		t.Fatalf("released reservation allowed work: %v", err)
+	}
+	if err := withArchiveKDF(context.Background(), func() error { return nil }); err != nil {
+		t.Fatalf("slot was not released: %v", err)
+	}
+}
+
 func TestArchiveWorkFactorAndLegacyCompatibility(t *testing.T) {
+	oldFileFolder := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = oldFileFolder })
 	const password = "test-phrase-with-sufficient-entropy"
 	const content = "synthetic legacy archive content"
 	var current bytes.Buffer
