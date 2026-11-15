@@ -2,7 +2,7 @@ package routes
 
 import (
 	"github.com/jeanphilippe-mh/Okuru/controllers"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func File(g *echo.Group) {

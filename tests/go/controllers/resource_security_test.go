@@ -16,12 +16,12 @@ import (
 	"github.com/jeanphilippe-mh/Okuru/models"
 	"github.com/jeanphilippe-mh/Okuru/router"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type securityRenderer struct{}
 
-func (securityRenderer) Render(w io.Writer, _ string, _ interface{}, _ echo.Context) error {
+func (securityRenderer) Render(_ *echo.Context, w io.Writer, _ string, _ interface{}) error {
 	_, err := io.WriteString(w, "test page")
 	return err
 }
@@ -96,10 +96,9 @@ func TestFileTokensCannotBeUsedAsSecretTokens(t *testing.T) {
 	for _, handler := range []echo.HandlerFunc{controllers.ReadIndex, controllers.ReadPassword, controllers.DeleteIndex} {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(httptest.NewRequest("GET", "/", nil), rec)
-		c.SetParamNames("password_key")
-		c.SetParamValues(altered)
+		c.SetPathValues(echo.PathValues{{Name: "password_key", Value: altered}})
 		if err := handler(c); err != nil {
-			e.HTTPErrorHandler(err, c)
+			e.HTTPErrorHandler(c, err)
 		}
 		if strings.Contains(rec.Body.String(), "additional-password") {
 			t.Fatal("file password disclosed")
@@ -237,6 +236,20 @@ func TestDeletionLinksAreReadOnlyUntilCSRFProtectedConfirmation(t *testing.T) {
 			if err := u.GetPassword(&models.Password{PasswordKey: token}); err != nil {
 				t.Fatal("GET deleted secret")
 			}
+		}
+		// A link preview must not delete a share, regardless of whether HEAD is
+		// served as a confirmation page or rejected by the router.
+		head := httptest.NewRecorder()
+		e.ServeHTTP(head, httptest.NewRequest(http.MethodHead, path, nil))
+		if head.Code != http.StatusMethodNotAllowed || head.Body.Len() != 0 {
+			t.Fatalf("HEAD confirmation status=%d body length=%d", head.Code, head.Body.Len())
+		}
+		if file {
+			if err := u.GetFileForDeletion(&models.File{FileKey: token}); err != nil {
+				t.Fatal("HEAD deleted archive")
+			}
+		} else if err := u.GetPassword(&models.Password{PasswordKey: token}); err != nil {
+			t.Fatal("HEAD deleted secret")
 		}
 		noCSRF := httptest.NewRecorder()
 		e.ServeHTTP(noCSRF, httptest.NewRequest("POST", path, nil))

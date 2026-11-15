@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func TestFileCreationLimitRejectsWithoutPublishingArchive(t *testing.T) {

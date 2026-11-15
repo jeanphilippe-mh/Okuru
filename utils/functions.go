@@ -14,14 +14,14 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
 	"github.com/jeanphilippe-mh/Okuru/models"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
 /**
  * Return url with http or https based on NO_SSL env value.
  */
-func GetBaseUrl(context echo.Context) string {
+func GetBaseUrl(context *echo.Context) string {
 	r := context.Request()
 	currentURL := context.Scheme() + "://" + r.Host
 	var url string
@@ -174,10 +174,10 @@ func Decrypt(password []byte, decryptionKey string, ttl int) (string, error) {
  */
 func SetPassword(password string, ttl, views int, deletable bool) (string, *echo.HTTPError) {
 	if ttl <= 0 || ttl > maxSecretTTLSeconds {
-		return "", echo.NewHTTPError(http.StatusBadRequest)
+		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if err := ValidateSecretLength(password); err != nil {
-		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge)
+		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge, http.StatusText(http.StatusRequestEntityTooLarge))
 	}
 	maxKeys, err := redisSecretMaxKeys()
 	if err != nil {
@@ -198,7 +198,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 
 	encryptedPassword, encryptionKey, err := Encrypt(password)
 	if err != nil {
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = createExpiringHashWithKeyLimit(c, REDIS_PREFIX+storageKey.String(), ttl, maxKeys,
@@ -217,11 +217,11 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 func RetrievePassword(p *models.Password) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(p.PasswordKey)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if decryptionKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -229,18 +229,18 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	println("\n/ Password has been retrieved by a viewver /\n")
 
 	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	record, remaining, ttl, password, err := authenticateAndConsumeAttempt(c, REDIS_PREFIX+storageKey, decryptionKey, true)
 	if err == redis.ErrNil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if err = redis.ScanStruct(record, p); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	p.Views = remaining
 	p.TTL = ttl
@@ -258,11 +258,11 @@ Source: https://www.alexedwards.net/blog/working-with-redis.
 func GetPassword(p *models.Password) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(p.PasswordKey)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if decryptionKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -270,28 +270,28 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	println("\n/ Password key was called from Redis and Secret page has been returned to a viewver /\n")
 
 	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
 	if err != nil {
 		log.Errorf("GetPassword() Redis err set : %+v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = redis.ScanStruct(v, p)
 	if err != nil {
 		log.Errorf("GetPassword() Redis err scan struct : %+v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	if len(p.Token) == 0 {
 		log.Error("Empty token")
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if _, err := Decrypt(p.Token, decryptionKey, 0); err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	vc := p.ViewsCount
@@ -303,7 +303,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	p.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+storageKey))
 	if err != nil {
 		log.Errorf("GetPassword() Redis err GET views count TTL : %+v\n", err)
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	p.Views = vcLeft
 
@@ -316,11 +316,11 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 func RemovePassword(p *models.Password) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(p.PasswordKey)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if storageKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -328,33 +328,33 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	println("\n/ Password key has been removed from Redis /\n")
 
 	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
 	if err != nil {
 		log.Errorf("RemovePassword() Redis err set : %+v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = redis.ScanStruct(v, p)
 	if err != nil {
 		log.Errorf("RemovePassword() Redis err scan struct : %+v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	if _, err := Decrypt(p.Token, decryptionKey, 0); err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if !p.Deletable {
-		return echo.NewHTTPError(http.StatusUnauthorized)
+		return echo.NewHTTPError(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 	}
 
 	_, err = c.Do("DEL", REDIS_PREFIX+storageKey)
 	if err != nil {
 		log.Errorf("DeletePassword() Redis err : %+v\n", err)
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	return nil
@@ -414,30 +414,30 @@ func GenerateRandomString(n int) (string, error) {
  */
 func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string, archiveFormat ...string) (string, *echo.HTTPError) { //done
 	if ttl <= 0 {
-		return "", echo.NewHTTPError(http.StatusBadRequest)
+		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if err := ValidateSecretLength(password); err != nil {
-		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge)
+		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge, http.StatusText(http.StatusRequestEntityTooLarge))
 	}
 	if len(archiveFormat) > 1 || (len(archiveFormat) == 1 && archiveFormat[0] != ArchiveFormatAge && archiveFormat[0] != ArchiveFormatAgeUserPassword && archiveFormat[0] != ArchiveFormatAgeX25519) {
-		return "", echo.NewHTTPError(http.StatusBadRequest)
+		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	format := ""
 	if len(archiveFormat) == 1 {
 		format = archiveFormat[0]
 	}
 	if format == ArchiveFormatAgeUserPassword && !canonicalArchiveID(providedKey) {
-		return "", echo.NewHTTPError(http.StatusBadRequest)
+		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if format == ArchiveFormatAgeX25519 && providedKey != "" {
-		return "", echo.NewHTTPError(http.StatusBadRequest)
+		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	metadataSecret, err := fileMetadataSecret(password, provided, format)
 	if err != nil {
 		if errors.Is(err, errArchivePasswordRequired) || errors.Is(err, errArchiveIdentityRequired) {
-			return "", echo.NewHTTPError(http.StatusBadRequest)
+			return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 		}
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -445,14 +445,14 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	println("\n/ File was uploaded by a user while an associated key has been stored in Redis /\n")
 
 	if !Ping(c) {
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	storageKey := uuid.New()
 
 	encryptedPassword, encryptionKey, err := Encrypt(metadataSecret)
 	if err != nil {
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = createExpiringHash(c, REDIS_PREFIX+"file_"+storageKey.String(), ttl,
@@ -466,7 +466,7 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 
 	if err != nil {
 		log.Error("Could not create expiring file metadata")
-		return "", echo.NewHTTPError(http.StatusInternalServerError)
+		return "", echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	return storageKey.String() + TOKEN_SEPARATOR + encryptionKey, nil
@@ -475,11 +475,11 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(f.FileKey)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if decryptionKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -487,20 +487,20 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	println("\n/ File has been downloaded by a viewver/\n")
 
 	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	// Keep exhausted file metadata until expiry so the last response can
 	// stream its archive safely. Further reservations are rejected atomically.
 	record, remaining, ttl, password, err := authenticateAndConsumeAttempt(c, REDIS_PREFIX+"file_"+storageKey, decryptionKey, false)
 	if err == redis.ErrNil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if err = redis.ScanStruct(record, f); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	f.Views = remaining
 	f.TTL = ttl
@@ -518,11 +518,11 @@ func GetFileForDeletion(f *models.File) *echo.HTTPError { return getFile(f, fals
 func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(f.FileKey)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if decryptionKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	pool := NewPool()
 	c := pool.Get()
@@ -530,30 +530,30 @@ func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 	println("\n/ File key was called from Redis and Secret File page has been returned to a viewver /\n")
 
 	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	// Preview is read-only: it must not reserve and then undo a download.
 	record, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+"file_"+storageKey))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if err = redis.ScanStruct(record, f); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if len(f.Token) == 0 || (requireDownloads && f.ViewsCount >= f.Views) {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+"file_"+storageKey))
 	if err != nil || f.TTL < 0 {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.Views -= f.ViewsCount
 
 	password, err := Decrypt(f.Token, decryptionKey, f.TTL)
 	if err != nil {
 		log.Error("Error while decrypting password")
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.Password = password
 
@@ -563,15 +563,15 @@ func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 func RemoveFile(f *models.File) *echo.HTTPError {
 	storageKey, decryptionKey, err := ParseToken(f.FileKey)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if storageKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer guard.Close()
 	pool := NewPool()
@@ -579,47 +579,47 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 	defer c.Close()
 
 	if !Ping(c) {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+"file_"+storageKey))
 	if err != nil {
 		log.Errorf("RemoveFile() Redis err set : %+v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = redis.ScanStruct(v, f)
 	if err != nil {
 		log.Errorf("RemoveFile() Redis err scan struct : %+v\n", err)
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	if _, err := Decrypt(f.Token, decryptionKey, 0); err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	if !f.Deletable {
-		return echo.NewHTTPError(http.StatusUnauthorized)
+		return echo.NewHTTPError(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 	}
 
 	fileKey := REDIS_PREFIX + "file_" + storageKey
 	passwordKey := fileKey
 	if f.PasswordProvided {
 		if !canonicalArchiveID(f.PasswordProvidedKey) {
-			return echo.NewHTTPError(http.StatusInternalServerError)
+			return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 		}
 		passwordKey = REDIS_PREFIX + f.PasswordProvidedKey
 	}
 	if err := deleteAuthenticatedFileMetadata(c, fileKey, passwordKey, REDIS_PREFIX+"download_session_"+storageKey+"_", f.Token, f.PasswordProvidedKey, f.PasswordProvided); err != nil {
 		log.Error("Could not delete file metadata")
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	// The metadata is already gone. Reconciliation retries failed archive
 	// cleanup, but a failed removal must not be reported as complete.
 	if err := CleanFile(storageKey); err != nil {
 		log.Error("Could not remove archive")
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	return nil

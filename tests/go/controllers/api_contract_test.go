@@ -6,7 +6,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/router"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net"
 	"net/http"
 	"net/http/httptest"

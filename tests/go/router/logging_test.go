@@ -10,12 +10,12 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func TestSensitiveURLsAreNotLogged(t *testing.T) {
 	e := echo.New()
-	e.GET("/:password_key", func(c echo.Context) error {
+	e.GET("/:password_key", func(c *echo.Context) error {
 		route := safeLogRoute(c)
 		if route != "/:password_key" || strings.Contains(route, "secret-key") {
 			t.Fatalf("unsafe route %q", route)

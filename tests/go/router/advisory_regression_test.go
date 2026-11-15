@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 type fakeProxyTransport func(*http.Request) (*http.Response, error)
@@ -19,7 +19,7 @@ func (f fakeProxyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // This checks Echo's unconfigured extractor with the exact dependency in go.mod.
 func TestAdvisoryDefaultRealIPIgnoresSpoofedForwarding(t *testing.T) {
 	e := echo.New()
-	e.GET("/", func(c echo.Context) error { return c.String(http.StatusOK, c.RealIP()) })
+	e.GET("/", func(c *echo.Context) error { return c.String(http.StatusOK, c.RealIP()) })
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "203.0.113.9:1234"
 	r.Header.Set("X-Forwarded-For", "198.51.100.8")
@@ -44,7 +44,7 @@ func TestAdvisoryProxyOverwritesSpoofedRealIP(t *testing.T) {
 		}),
 	})
 	e.Use(proxy)
-	e.GET("/", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+	e.GET("/", func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "203.0.113.9:1234"
 	r.Header.Set("X-Real-IP", "198.51.100.8")

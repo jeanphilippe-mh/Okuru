@@ -11,12 +11,12 @@ import (
 
 	"github.com/flosch/pongo2"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type uploadFormTemplateRenderer struct{ templates *pongo2.TemplateSet }
 
-func (r uploadFormTemplateRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+func (r uploadFormTemplateRenderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
 	template, err := r.templates.FromFile(name)
 	if err != nil {
 		return err
@@ -51,7 +51,7 @@ func TestUploadFormPreservesLimitsAndAccessibilityAfterError(t *testing.T) {
 
 	for _, test := range []struct {
 		name string
-		run  func(echo.Context) error
+		run  func(*echo.Context) error
 		req  *http.Request
 		want int
 	}{

@@ -1,12 +1,11 @@
 package router
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 const (
@@ -51,7 +50,7 @@ func boundedLogText(value string, maxBytes int) string {
 }
 
 // Log the router pattern, never the concrete RequestURI or its query string.
-func safeLogRoute(c echo.Context) string {
+func safeLogRoute(c *echo.Context) string {
 	if route := c.Path(); route != "" {
 		return route
 	}
@@ -61,9 +60,10 @@ func safeLogRoute(c echo.Context) string {
 // Errors may embed attacker-controlled URLs, payloads or file names. Keep a
 // useful status category without copying arbitrary error text into logs.
 func safeLogError(err error) string {
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) {
-		return http.StatusText(httpErr.Code)
+	if code := echo.StatusCode(err); code >= 400 && code <= 599 {
+		if text := http.StatusText(code); text != "" {
+			return text
+		}
 	}
 	return "request failed"
 }

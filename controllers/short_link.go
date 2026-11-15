@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // Bound concurrent resolutions so they cannot exhaust the dedicated Redis
@@ -19,7 +19,7 @@ var shortLinkResolveSlots = make(chan struct{}, 8)
 
 // ReadRootShare dispatches the root segment without altering the established
 // GET and POST behavior for password tokens. HEAD is only enabled for aliases.
-func ReadRootShare(c echo.Context) error {
+func ReadRootShare(c *echo.Context) error {
 	// Echo may expose RawPath in parameters. Use net/http's decoded URL.Path
 	// for classification so percent-encoded alias characters behave the same
 	// way as their literal equivalents; do not decode it a second time.
@@ -36,7 +36,7 @@ func ReadRootShare(c echo.Context) error {
 // redirectShortLink resolves only a locally generated, authenticated mapping.
 // The shortener never fetches the target: the browser follows the redirect and
 // the original share handler remains responsible for views and expiry.
-func redirectShortLink(c echo.Context, alias string) error {
+func redirectShortLink(c *echo.Context, alias string) error {
 	select {
 	case shortLinkResolveSlots <- struct{}{}:
 		defer func() { <-shortLinkResolveSlots }()
@@ -62,7 +62,7 @@ func redirectShortLink(c echo.Context, alias string) error {
 
 // shareLink returns the existing URL when short-link creation is disabled or
 // unavailable, without making a successfully created secret inaccessible.
-func shareLink(c echo.Context, token string, isFile bool) string {
+func shareLink(c *echo.Context, token string, isFile bool) string {
 	longPath := "/" + token
 	if isFile {
 		longPath = "/file/" + token
@@ -83,7 +83,7 @@ func shareLink(c echo.Context, token string, isFile bool) string {
 // sharePublicOrigin keeps the historical origin when short-link configuration
 // is absent or invalid; otherwise all rendered share and deletion URLs use the
 // configured trusted origin rather than the request's Host header.
-func sharePublicOrigin(c echo.Context) string {
+func sharePublicOrigin(c *echo.Context) string {
 	if origin, ok := shortLinkPublicOrigin(os.Getenv("OKURU_SHORTLINK_PUBLIC_ORIGIN")); ok {
 		return origin
 	}

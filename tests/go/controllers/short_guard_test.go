@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func TestShortLinkResolutionGuardSaturationAndRelease(t *testing.T) {
@@ -23,8 +23,7 @@ func TestShortLinkResolutionGuardSaturationAndRelease(t *testing.T) {
 	e := echo.New()
 	rec := httptest.NewRecorder()
 	ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/invalid", nil), rec)
-	ctx.SetParamNames("alias")
-	ctx.SetParamValues("invalid")
+	ctx.SetPathValues(echo.PathValues{{Name: "alias", Value: "invalid"}})
 	if err := redirectShortLink(ctx, "invalid"); err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +33,7 @@ func TestShortLinkResolutionGuardSaturationAndRelease(t *testing.T) {
 	<-shortLinkResolveSlots
 	rec = httptest.NewRecorder()
 	ctx = e.NewContext(httptest.NewRequest(http.MethodGet, "/invalid", nil), rec)
-	ctx.SetParamNames("alias")
-	ctx.SetParamValues("invalid")
+	ctx.SetPathValues(echo.PathValues{{Name: "alias", Value: "invalid"}})
 	if err := redirectShortLink(ctx, "invalid"); err != nil {
 		t.Fatal(err)
 	}

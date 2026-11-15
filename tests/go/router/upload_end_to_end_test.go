@@ -22,7 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	"github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type uploadE2ERenderer struct {
@@ -30,7 +30,7 @@ type uploadE2ERenderer struct {
 	link string
 }
 
-func (r *uploadE2ERenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+func (r *uploadE2ERenderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
 	ctx, ok := data.(pongo2.Context)
 	if !ok {
 		return fmt.Errorf("unexpected render context")

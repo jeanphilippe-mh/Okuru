@@ -19,11 +19,11 @@ import (
 	"github.com/google/uuid"
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
-func IndexFile(context echo.Context) error {
+func IndexFile(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	csrfToken := context.Get("csrf")
@@ -34,91 +34,91 @@ func IndexFile(context echo.Context) error {
 	return context.Render(http.StatusOK, "index_file.html", dataContext)
 }
 
-func Error400File(context echo.Context) error {
+func Error400File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusBadRequest, "400.html", dataContext)
 }
 
-func Error401File(context echo.Context) error {
+func Error401File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusUnauthorized, "401.html", dataContext)
 }
 
-func Error403File(context echo.Context) error {
+func Error403File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusForbidden, "403.html", dataContext)
 }
 
-func Error404File(context echo.Context) error {
+func Error404File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusNotFound, "404.html", dataContext)
 }
 
-func Error413File(context echo.Context) error {
+func Error413File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusRequestEntityTooLarge, "413.html", dataContext)
 }
 
-func Error500File(context echo.Context) error {
+func Error500File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusInternalServerError, "500.html", dataContext)
 }
 
-func Error501File(context echo.Context) error {
+func Error501File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusNotImplemented, "501.html", dataContext)
 }
 
-func Error502File(context echo.Context) error {
+func Error502File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusBadGateway, "502.html", dataContext)
 }
 
-func Error503File(context echo.Context) error {
+func Error503File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusServiceUnavailable, "503.html", dataContext)
 }
 
-func Error504File(context echo.Context) error {
+func Error504File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusGatewayTimeout, "504.html", dataContext)
 }
 
-func Error505File(context echo.Context) error {
+func Error505File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", dataContext)
 }
 
-func Error506File(context echo.Context) error {
+func Error506File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", dataContext)
 }
 
-func Error507File(context echo.Context) error {
+func Error507File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusInsufficientStorage, "507.html", dataContext)
 }
 
-func Error508File(context echo.Context) error {
+func Error508File(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusLoopDetected, "508.html", dataContext)
 }
 
-func ReadFile(context echo.Context) error {
+func ReadFile(context *echo.Context) error {
 	if context.Request().Header.Get("Range") != "" {
 		return resumeDownload(context)
 	}
@@ -193,7 +193,7 @@ func archiveNameFromToken(token string) (string, error) {
 // Keep expensive password-derived archive work bounded per client and per
 // share, across processes. The Redis keys contain hashed identities, never
 // bearer keys or passwords. A refusal must occur before a view is claimed.
-func admitArchiveKDF(c echo.Context, shareID string, resume bool) error {
+func admitArchiveKDF(c *echo.Context, shareID string, resume bool) error {
 	action := "file_kdf_upload"
 	perOrigin, shareAction, perShare := 6, "file_kdf_share", 4
 	if shareID != "" {
@@ -232,7 +232,7 @@ func admitArchiveKDF(c echo.Context, shareID string, resume bool) error {
 	return nil
 }
 
-func DownloadFile(context echo.Context) error {
+func DownloadFile(context *echo.Context) error {
 	dataContext := NewDataContext()
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
@@ -246,7 +246,7 @@ func DownloadFile(context echo.Context) error {
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer guard.Close()
 	password := context.FormValue("password")
@@ -254,7 +254,7 @@ func DownloadFile(context echo.Context) error {
 		return context.NoContent(http.StatusRequestEntityTooLarge)
 	}
 	if err := ValidateDownloadSessionTimeout(); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	// Authenticate and inspect the archive without consuming a view. Acquire
@@ -346,12 +346,12 @@ func DownloadFile(context echo.Context) error {
 		if f.ArchiveFormat == ArchiveFormatAgeUserPassword && IsArchivePasswordError(err) {
 			return wrongPassword()
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	value, lifetime, session, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
 	if err != nil {
 		_ = archive.file.Close()
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	progress := &downloadProgress{session: session, representationOK: true}
 	defer func() {
@@ -360,7 +360,7 @@ func DownloadFile(context echo.Context) error {
 	}()
 	cookieName, err := downloadSessionCookie(f.FileKey, value)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	context.SetCookie(&http.Cookie{
 		Name: cookieName, Value: value, Path: "/file/" + f.FileKey,
@@ -372,7 +372,7 @@ func DownloadFile(context echo.Context) error {
 		// for original unencrypted ZIPs, including authenticated POST ranges.
 		info, err := archive.file.Stat()
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError)
+			return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 		}
 		h := context.Response().Header()
 		h.Set(echo.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": archiveName}))
@@ -394,9 +394,10 @@ func DownloadFile(context echo.Context) error {
 // Supported values for OKURU_ZIP_COMPRESSION:
 // After headers are committed, an authentication or transport error must abort
 // the HTTP stream so a truncated body is not mistaken for a complete ZIP.
-func streamDecryptedArchive(c echo.Context, plain io.Reader) error {
+func streamDecryptedArchive(c *echo.Context, plain io.Reader) error {
 	if err := c.Stream(http.StatusOK, "application/zip", plain); err != nil {
-		if c.Response().Committed {
+		response, unwrapErr := echo.UnwrapResponse(c.Response())
+		if unwrapErr != nil || response.Committed {
 			panic(http.ErrAbortHandler)
 		}
 		return err
@@ -545,10 +546,10 @@ func discardUnpublishedUpload(fileToken, passwordToken string) {
 	}
 }
 
-func AddFile(context echo.Context) error {
+func AddFile(context *echo.Context) error {
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer guard.Close()
 	form := GetSecureMultipart(context.Request())
@@ -739,7 +740,7 @@ func AddFile(context echo.Context) error {
 	published = true
 	return nil
 }
-func DeleteFile(context echo.Context) error {
+func DeleteFile(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token

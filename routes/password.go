@@ -2,12 +2,12 @@ package routes
 
 import (
 	"github.com/jeanphilippe-mh/Okuru/controllers"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func Password(g *echo.Group) {
 	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			c.Response().Header().Set("Cache-Control", "no-store")
 			return next(c)
 		}

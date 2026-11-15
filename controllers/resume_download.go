@@ -16,7 +16,7 @@ import (
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -49,7 +49,7 @@ func sessionETag(base, value string) string {
 // A browser's If-Range identifies the correct one. Without that validator,
 // fail closed if more than one session cookie is present rather than sharing a
 // different session's retry or byte budget.
-func chooseDownloadCookie(c echo.Context, token string) (*http.Cookie, error) {
+func chooseDownloadCookie(c *echo.Context, token string) (*http.Cookie, error) {
 	prefix, err := downloadSessionCookiePrefix(token)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ type downloadArchive struct {
 	info   os.FileInfo
 }
 
-func openDownloadArchive(c echo.Context, f *File, secret, name string) (*downloadArchive, error) {
+func openDownloadArchive(c *echo.Context, f *File, secret, name string) (*downloadArchive, error) {
 	if (f.ArchiveFormat == ArchiveFormatAgeUserPassword && !f.PasswordProvided) ||
 		(f.ArchiveFormat == ArchiveFormatAgeX25519 && f.PasswordProvided) {
 		return nil, errors.New("Invalid archive metadata")
@@ -319,7 +319,7 @@ func (b *downloadBudget) finish() {
 	}
 }
 
-func writeDownloadArchive(c echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress ...*downloadProgress) error {
+func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress ...*downloadProgress) error {
 	start, length, status := int64(0), a.size, http.StatusOK
 	if budget != nil {
 		defer budget.finish()
@@ -379,7 +379,7 @@ func writeDownloadArchive(c echo.Context, a *downloadArchive, name string, budge
 	return nil
 }
 
-func resumeDownload(c echo.Context) error {
+func resumeDownload(c *echo.Context) error {
 	token := c.Param("file_key")
 	name, err := archiveNameFromToken(token)
 	if err != nil {
@@ -387,7 +387,7 @@ func resumeDownload(c echo.Context) error {
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer guard.Close()
 	value := c.Request().Header.Get("Range")
@@ -457,12 +457,12 @@ func resumeDownload(c echo.Context) error {
 		if errors.Is(err, ErrArchiveKDFBusy) {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "Archive password processing is busy")
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer archive.file.Close()
 	progress.representationOK, err = VerifyDownloadRepresentation(session, archive.etag)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable)
+		return echo.NewHTTPError(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable))
 	}
 	archive.etag = sessionETag(archive.etag, cookie.Value)
 	handedOff = true

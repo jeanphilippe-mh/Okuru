@@ -2,7 +2,7 @@ package controllers
 
 import (
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,8 +31,7 @@ func TestDownloadRejectsInvalidPathBeforeStorage(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/download", nil)
 	response := httptest.NewRecorder()
 	c := e.NewContext(req, response)
-	c.SetParamNames("file_key")
-	c.SetParamValues("../outside" + TOKEN_SEPARATOR + "key")
+	c.SetPathValues(echo.PathValues{{Name: "file_key", Value: "../outside" + TOKEN_SEPARATOR + "key"}})
 	if err := DownloadFile(c); err != nil {
 		t.Fatal(err)
 	}

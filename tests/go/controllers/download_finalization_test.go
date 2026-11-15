@@ -17,7 +17,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func finalizationArchive(t *testing.T, token string) (string, string) {
@@ -205,8 +205,7 @@ func TestFailedWriteDoesNotFinalizeEvenIfAllBytesWereAccepted(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: len(expected)}
 			ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/"+token, nil), writer)
-			ctx.SetParamNames("file_key")
-			ctx.SetParamValues(token)
+			ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 			func() {
 				defer func() {
 					if value := recover(); value != nil && value != http.ErrAbortHandler {
@@ -249,8 +248,7 @@ func interruptedHistoricalSession(t *testing.T, conn redis.Conn, e *echo.Echo, t
 	recorder := httptest.NewRecorder()
 	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: 11}
 	ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/"+token, nil), writer)
-	ctx.SetParamNames("file_key")
-	ctx.SetParamValues(token)
+	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	func() {
 		defer func() {
 			if value := recover(); value != nil && value != http.ErrAbortHandler {
@@ -481,8 +479,7 @@ func TestExpiredSessionKeyDoesNotDeleteArchiveWhileAnotherResponseIsActive(t *te
 	recorder := httptest.NewRecorder()
 	writer := &gatedFinalizationWriter{ResponseRecorder: recorder, waiting: make(chan struct{}), release: make(chan struct{})}
 	ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/"+token, nil), writer)
-	ctx.SetParamNames("file_key")
-	ctx.SetParamValues(token)
+	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	done := make(chan error, 1)
 	finished := make(chan struct{})
 	go func() {

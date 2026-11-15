@@ -3,8 +3,9 @@ package router
 import (
 	"encoding/json"
 	"errors"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -19,12 +20,12 @@ func TestErrorsKeepStatusAndAreWrittenOnce(t *testing.T) {
 	e := echo.New()
 	ConfigureErrorHandler(e, dir)
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		HandleError: true, LogError: true,
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error { return nil },
+		HandleError: true,
+		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error { return nil },
 	}))
-	e.GET("/api/test", func(c echo.Context) error { return echo.NewHTTPError(400, "private message") })
-	e.GET("/web", func(c echo.Context) error { return echo.NewHTTPError(400) })
-	e.GET("/fallback", func(c echo.Context) error { return errors.New("private failure") })
+	e.GET("/api/test", func(c *echo.Context) error { return echo.NewHTTPError(400, "private message") })
+	e.GET("/web", func(c *echo.Context) error { return echo.NewHTTPError(400, http.StatusText(400)) })
+	e.GET("/fallback", func(c *echo.Context) error { return errors.New("private failure") })
 	for _, path := range []string{"/api/test", "/web", "/fallback"} {
 		response := httptest.NewRecorder()
 		e.ServeHTTP(response, httptest.NewRequest("GET", path, nil))

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 )
 
 type multipartPipeListener struct {
@@ -78,7 +78,7 @@ func TestSecureMultipartPrecedesCSRFAndPreservesTokenVariants(t *testing.T) {
 			e.Use(secureMultipart)
 			e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{TokenLookup: "form:_csrf,header:X-CSRF-Token"}))
 			called := false
-			e.POST("/file", func(c echo.Context) error {
+			e.POST("/file", func(c *echo.Context) error {
 				called = true
 				if c.FormValue("password") != "passphrase" || utils.GetSecureMultipart(c.Request()) == nil {
 					t.Fatal("secure form not available")
@@ -114,9 +114,9 @@ func TestSecureMultipartPreservesBodyLimitError(t *testing.T) {
 	utils.FILEFOLDER = t.TempDir()
 	t.Cleanup(func() { utils.FILEFOLDER = old })
 	e := echo.New()
-	e.Use(middleware.BodyLimit("256"))
+	e.Use(middleware.BodyLimit(256))
 	e.Use(secureMultipart)
-	e.POST("/file", func(c echo.Context) error { t.Fatal("oversized upload accepted"); return nil })
+	e.POST("/file", func(c *echo.Context) error { t.Fatal("oversized upload accepted"); return nil })
 	body, contentType := makeMultipartBody(t, "csrf-value", 4096)
 	req := httptest.NewRequest(http.MethodPost, "/file", body)
 	req.ContentLength = -1 // Exercise the streaming limit, not Content-Length.
@@ -142,7 +142,7 @@ func TestSecureMultipartOversizedFieldReturns413(t *testing.T) {
 	}
 	e := echo.New()
 	e.Use(secureMultipart)
-	e.POST("/file", func(c echo.Context) error { t.Fatal("oversized field accepted"); return nil })
+	e.POST("/file", func(c *echo.Context) error { t.Fatal("oversized field accepted"); return nil })
 	req := httptest.NewRequest(http.MethodPost, "/file", body)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	rec := httptest.NewRecorder()
@@ -158,7 +158,7 @@ func TestSecureMultipartHTTP1RejectsStalledChunkedBodyImmediately(t *testing.T) 
 	t.Cleanup(func() { utils.FILEFOLDER = old })
 	e := echo.New()
 	e.Use(secureMultipart)
-	e.POST("/file", func(c echo.Context) error { t.Error("oversized field accepted"); return nil })
+	e.POST("/file", func(c *echo.Context) error { t.Error("oversized field accepted"); return nil })
 	serverConn, clientConn := net.Pipe()
 	listener := &multipartPipeListener{conn: serverConn, closed: make(chan struct{})}
 	server := &http.Server{Handler: e}
@@ -193,8 +193,8 @@ func TestSecureMultipartHTTP2RejectsWithoutConnectionHeader(t *testing.T) {
 	t.Cleanup(func() { utils.FILEFOLDER = old })
 	e := echo.New()
 	e.Use(secureMultipart)
-	e.POST("/file", func(c echo.Context) error { t.Error("oversized field accepted"); return nil })
-	e.GET("/healthy", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+	e.POST("/file", func(c *echo.Context) error { t.Error("oversized field accepted"); return nil })
+	e.GET("/healthy", func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 	client := newHTTP2Pipe(t, e)
 	body := new(bytes.Buffer)
 	w := multipart.NewWriter(body)

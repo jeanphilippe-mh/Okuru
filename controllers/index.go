@@ -6,11 +6,11 @@ import (
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
-func Index(context echo.Context) error {
+func Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	csrfToken := context.Get("csrf")
@@ -18,103 +18,103 @@ func Index(context echo.Context) error {
 	return context.Render(http.StatusOK, "set_password.html", dataContext)
 }
 
-func SecurityIndex(context echo.Context) error {
+func SecurityIndex(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.File("public/.well-known/security.txt")
 }
 
-func PrivacyIndex(context echo.Context) error {
+func PrivacyIndex(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusOK, "privacy.html", dataContext)
 }
 
-func Error400Index(context echo.Context) error {
+func Error400Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusBadRequest, "400.html", dataContext)
 }
 
-func Error401Index(context echo.Context) error {
+func Error401Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusUnauthorized, "401.html", dataContext)
 }
 
-func Error403Index(context echo.Context) error {
+func Error403Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusForbidden, "403.html", dataContext)
 }
 
-func Error404Index(context echo.Context) error {
+func Error404Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusNotFound, "404.html", dataContext)
 }
 
-func Error413Index(context echo.Context) error {
+func Error413Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusRequestEntityTooLarge, "413.html", dataContext)
 }
 
-func Error500Index(context echo.Context) error {
+func Error500Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusInternalServerError, "500.html", dataContext)
 }
 
-func Error501Index(context echo.Context) error {
+func Error501Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusNotImplemented, "501.html", dataContext)
 }
 
-func Error502Index(context echo.Context) error {
+func Error502Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusBadGateway, "502.html", dataContext)
 }
 
-func Error503Index(context echo.Context) error {
+func Error503Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusServiceUnavailable, "503.html", dataContext)
 }
 
-func Error504Index(context echo.Context) error {
+func Error504Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusGatewayTimeout, "504.html", dataContext)
 }
 
-func Error505Index(context echo.Context) error {
+func Error505Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusHTTPVersionNotSupported, "505.html", dataContext)
 }
 
-func Error506Index(context echo.Context) error {
+func Error506Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusVariantAlsoNegotiates, "506.html", dataContext)
 }
 
-func Error507Index(context echo.Context) error {
+func Error507Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusInsufficientStorage, "507.html", dataContext)
 }
 
-func Error508Index(context echo.Context) error {
+func Error508Index(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	return context.Render(http.StatusLoopDetected, "508.html", dataContext)
 }
 
-func ReadIndex(context echo.Context) error {
+func ReadIndex(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token
@@ -165,7 +165,7 @@ func ReadIndex(context echo.Context) error {
 	return context.Render(http.StatusOK, "password.html", dataContext)
 }
 
-func RevealPassword(context echo.Context) error {
+func RevealPassword(context *echo.Context) error {
 	dataContext := NewDataContext()
 	// Retrieve the CSRF token
 	csrfToken := context.Get("csrf")
@@ -196,7 +196,7 @@ func RevealPassword(context echo.Context) error {
 	return context.String(200, p.Password)
 }
 
-func AddIndex(context echo.Context) error {
+func AddIndex(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token
@@ -295,7 +295,7 @@ func AddIndex(context echo.Context) error {
 	return context.Render(http.StatusOK, "confirm.html", dataContext)
 }
 
-func DeleteIndex(context echo.Context) error {
+func DeleteIndex(context *echo.Context) error {
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
 	// Retrieve the CSRF token
