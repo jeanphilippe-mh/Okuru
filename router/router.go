@@ -6,6 +6,7 @@ import (
 	"github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -95,6 +96,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		Debug: true,
 	}
 	e := echo.New()
+	e.Logger = slog.New(&echoLogHandler{})
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			utils.AuditRequestID(c)
