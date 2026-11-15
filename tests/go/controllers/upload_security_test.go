@@ -12,13 +12,13 @@ import (
 	"testing"
 
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
 type errorMessageRenderer struct{}
 
-func (errorMessageRenderer) Render(w io.Writer, _ string, data interface{}, _ echo.Context) error {
+func (errorMessageRenderer) Render(_ *echo.Context, w io.Writer, _ string, data interface{}) error {
 	_, err := fmt.Fprint(w, data)
 	return err
 }
@@ -104,8 +104,7 @@ func TestOversizedSecretsRejectedBeforeRedis(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 		rec := httptest.NewRecorder()
 		ctx := e.NewContext(req, rec)
-		ctx.SetParamNames("file_key")
-		ctx.SetParamValues("00000000-0000-4000-8000-000000000000" + TOKEN_SEPARATOR + "key")
+		ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: "00000000-0000-4000-8000-000000000000" + TOKEN_SEPARATOR + "key"}})
 		if err := DownloadFile(ctx); err != nil || rec.Code != http.StatusRequestEntityTooLarge {
 			t.Fatalf("status = %d, error = %v", rec.Code, err)
 		}

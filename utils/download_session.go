@@ -11,7 +11,7 @@ import (
 	"github.com/fernet/fernet-go"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/models"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // A session permits bounded continuation of one already reserved download.
@@ -190,30 +190,30 @@ func CreateDownloadSession(f *models.File, secret string, size int64) (string, i
 func PreviewDownloadSession(f *models.File, cookie string) *echo.HTTPError {
 	id, linkKey, err := ParseToken(f.FileKey)
 	if err != nil || !validDownloadSessionCookie(cookie) {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	c := NewPool().Get()
 	defer c.Close()
 	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
 	token, err := redis.Bytes(c.Do("HGET", fileKey, "token"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	if _, err := Decrypt(token, linkKey, 0); err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	reply, err := redis.Values(previewDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	var record []interface{}
 	var encrypted []byte
 	if _, err := redis.Scan(reply, &record, &encrypted); err != nil || redis.ScanStruct(record, f) != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(cookie)
 	if err != nil || fernet.VerifyAndDecrypt(encrypted, 0, keys) == nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	return nil
 }
@@ -223,36 +223,36 @@ func PreviewDownloadSession(f *models.File, cookie string) *echo.HTTPError {
 func ResumeFileDownload(f *models.File, cookie string) (string, *DownloadSession, *echo.HTTPError) {
 	id, linkKey, err := ParseToken(f.FileKey)
 	if err != nil || !validDownloadSessionCookie(cookie) {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	c := NewPool().Get()
 	defer c.Close()
 	token, err := redis.Bytes(c.Do("HGET", REDIS_PREFIX+"file_"+id, "token"))
 	if err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	if _, err := Decrypt(token, linkKey, 0); err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
 	reply, err := redis.Values(inspectDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests))
 	if err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	var record []interface{}
 	var ttl int
 	var size int64
 	var encrypted []byte
 	if _, err := redis.Scan(reply, &record, &ttl, &encrypted, &size); err != nil || size < 0 || size > maxExactSessionBytes || redis.ScanStruct(record, f) != nil {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(cookie)
 	if err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	secret := fernet.VerifyAndDecrypt(encrypted, 0, keys)
 	if secret == nil {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.TTL = ttl
 	return string(secret), &DownloadSession{fileKey: fileKey, sessionKey: sessionKey, token: token, encrypted: encrypted, size: size}, nil
@@ -262,16 +262,16 @@ func ResumeFileDownload(f *models.File, cookie string) (string, *DownloadSession
 // aggregate bytes reserved across concurrent requests to one archive size.
 func ReserveDownloadBytes(s *DownloadSession, n int64) *echo.HTTPError {
 	if s == nil || n < 0 || n > maxExactSessionBytes {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	c := NewPool().Get()
 	defer c.Close()
 	status, err := redis.Int(reserveDownloadBytesScript.Do(c, s.fileKey, s.sessionKey, s.token, s.encrypted, n))
 	if err != nil || status < 0 {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	if status == 0 {
-		return echo.NewHTTPError(http.StatusTooManyRequests)
+		return echo.NewHTTPError(http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests))
 	}
 	return nil
 }

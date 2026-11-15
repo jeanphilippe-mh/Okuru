@@ -25,7 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func TestBusyKDFDoesNotConsumeFileViewsOrBlockPasswordlessDownloads(t *testing.T) {
@@ -162,7 +162,7 @@ type compatibilityRenderer struct {
 	data pongo2.Context
 }
 
-func (r *compatibilityRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+func (r *compatibilityRenderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
 	r.name = name
 	r.data = data.(pongo2.Context)
 	_, err := io.WriteString(w, name)
@@ -244,8 +244,7 @@ func downloadCompatibilityFile(t *testing.T, e *echo.Echo, token, password strin
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 	rec := httptest.NewRecorder()
 	ctx := e.NewContext(req, rec)
-	ctx.SetParamNames("file_key")
-	ctx.SetParamValues(token)
+	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	return rec, DownloadFile(ctx)
 }
 

@@ -3,7 +3,7 @@ package controllers
 import (
 	"context"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net"
 	"net/http/httptest"
 	"net/url"
@@ -50,8 +50,7 @@ func TestDownloadArchiveIntegration(t *testing.T) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rec := httptest.NewRecorder()
 		c := echoServer.NewContext(req, rec)
-		c.SetParamNames("file_key")
-		c.SetParamValues(token)
+		c.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 		if e = DownloadFile(c); e != nil {
 			t.Fatal(e)
 		}
@@ -110,8 +109,7 @@ func TestEncryptedDownloadAndUnknownFormat(t *testing.T) {
 		req := httptest.NewRequest("POST", "/file/", nil)
 		rec := httptest.NewRecorder()
 		ctx := e.NewContext(req, rec)
-		ctx.SetParamNames("file_key")
-		ctx.SetParamValues(token)
+		ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 		return rec, DownloadFile(ctx)
 	}
 	rec, err := download()

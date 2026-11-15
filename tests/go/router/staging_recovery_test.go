@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // Verify that admission can recover quota from a process that died while
@@ -42,7 +42,7 @@ func TestUploadAdmissionReclaimsAbandonedStaging(t *testing.T) {
 	t.Setenv("OKURU_STORAGE_QUOTA_BYTES", "3145728")
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/file", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+	e.POST("/file", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 	req := httptest.NewRequest(http.MethodPost, "/file", strings.NewReader("body"))
 	req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=test")
 	rec := httptest.NewRecorder()

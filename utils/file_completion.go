@@ -11,7 +11,7 @@ import (
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/models"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // FileDownloadClaim is an unforgeable, one-use reservation of an already
@@ -46,11 +46,11 @@ return {record, views - next, ttl}
 func ClaimFileDownload(f *models.File) (*FileDownloadClaim, *echo.HTTPError) {
 	id, key, err := ParseToken(f.FileKey)
 	if err != nil || key == "" {
-		return nil, echo.NewHTTPError(http.StatusNotFound)
+		return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return nil, echo.NewHTTPError(http.StatusInternalServerError)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	claim := &FileDownloadClaim{fileKey: REDIS_PREFIX + "file_" + id, field: "pending_" + hex.EncodeToString(random[:])}
 	c := NewPool().Get()
@@ -58,29 +58,29 @@ func ClaimFileDownload(f *models.File) (*FileDownloadClaim, *echo.HTTPError) {
 	token, err := redis.Bytes(c.Do("HGET", claim.fileKey, "token"))
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, echo.NewHTTPError(http.StatusNotFound)
+			return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 		}
-		return nil, echo.NewHTTPError(http.StatusInternalServerError)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	password, err := Decrypt(token, key, 0)
 	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound)
+		return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	claim.token = token
 	reply, err := redis.Values(claimFileDownloadScript.Do(c, claim.fileKey, token, claim.field))
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, echo.NewHTTPError(http.StatusNotFound)
+			return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 		}
-		return nil, echo.NewHTTPError(http.StatusInternalServerError)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	var record []interface{}
 	var remaining, ttl int
 	if _, err := redis.Scan(reply, &record, &remaining, &ttl); err != nil {
-		return claim, echo.NewHTTPError(http.StatusInternalServerError)
+		return claim, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if err := redis.ScanStruct(record, f); err != nil {
-		return claim, echo.NewHTTPError(http.StatusInternalServerError)
+		return claim, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	f.Views, f.TTL, f.Password = remaining, ttl, password
 	return claim, nil
@@ -137,19 +137,19 @@ func ResumeTrackedFileDownload(f *models.File, cookie string) (string, *Download
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusInternalServerError)
+		return "", nil, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	progressField := "operation_" + hex.EncodeToString(random[:])
 	c := NewPool().Get()
 	defer c.Close()
 	status, err := redis.Int(beginTrackedRangeScript.Do(c, session.fileKey, session.sessionKey, session.token, session.encrypted, progressField))
 	if err != nil || status < 0 {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound)
+		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	if status == 1 {
 		id, _, err := ParseToken(f.FileKey)
 		if err != nil {
-			return "", nil, echo.NewHTTPError(http.StatusNotFound)
+			return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 		}
 		session.archiveID, session.tracked, session.progressField = id, true, progressField
 	}

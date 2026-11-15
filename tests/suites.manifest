@@ -19,7 +19,10 @@ controllers/upload_form_accessibility_test.go
 controllers/upload_security_test.go
 controllers/validation_test.go
 root/main_test.go
+root/tls_config_test.go
 router/advisory_regression_test.go
+router/echo_migration_csrf_test.go
+router/echo_migration_errors_test.go
 router/errors_test.go
 router/http2_security_test.go
 router/limits_test.go

@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/flosch/pongo2"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"gopkg.in/go-playground/validator.v9"
 )
 
@@ -32,7 +32,7 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 	return cv.validator.Struct(i)
 }
 
-func (r Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+func (r Renderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
 	var ctx pongo2.Context
 	var t *pongo2.Template
 	var err error
@@ -97,7 +97,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	}
 	e := echo.New()
 	e.Pre(shortLinkHeaders)
-	e.Pre(middleware.RemoveTrailingSlash())
+	e.Pre(removeTrailingSlash)
 	e.Renderer = renderer
 	e.Validator = &CustomValidator{validator: validator.New()}
 
@@ -112,7 +112,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 
 	// Middleware BodyLimit
 	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
-	e.Use(middleware.BodyLimit("1024M"))
+	e.Use(middleware.BodyLimit(maxUploadBodyBytes))
 
 	// Middleware RequestLogger (for Echo 4.14+)
 	slogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -129,12 +129,11 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		LogMethod:        true,
 		LogURI:           false,
 		LogStatus:        true,
-		LogError:         true,
 		LogContentLength: true,
 		LogResponseSize:  true,
 		LogUserAgent:     true,
 
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
 			errMsg := ""
 			if v.Error != nil {
 				errMsg = safeLogError(v.Error)
@@ -168,20 +167,20 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		CookieSecure:   true,
 		CookieHTTPOnly: true,
 		CookieSameSite: http.SameSiteStrictMode,
+		// Echo v4 validated tokens for same-site, cross-origin requests.
+		// Keep that behavior without bypassing the token check or allowing
+		// cross-site and unrecognized Fetch Metadata values.
+		AllowSecFetchSiteFunc: func(c *echo.Context) (bool, error) {
+			if c.Request().Header.Get(echo.HeaderSecFetchSite) == "same-site" {
+				return false, nil
+			}
+			return false, echo.NewHTTPError(http.StatusForbidden, "cross-site request blocked by CSRF")
+		},
 	}))
 
 	// Middleware Static
 	publicfolder := filepath.Dir(ex) + "/public"
-	e.Use(middleware.StaticWithConfig(middleware.StaticConfig{
-		// API errors must not enter the HTML5 fallback or become filesystem errors.
-		Skipper: func(c echo.Context) bool {
-			path := c.Request().URL.Path
-			return path == "/api" || strings.HasPrefix(path, "/api/") || utils.IsRootShortLinkPath(path)
-		},
-		Root:   publicfolder,
-		HTML5:  true,
-		Browse: false,
-	}))
+	e.Use(publicAssets(publicfolder))
 
 	// Creating groups
 	apiGroup := e.Group("/api/v1")
@@ -192,4 +191,22 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	routes.File(fileGroup)
 
 	return e
+}
+
+// publicAssets keeps filesystem lookup anchored to the executable's public
+// directory, independently of the process working directory.
+func publicAssets(publicfolder string) echo.MiddlewareFunc {
+	return middleware.StaticWithConfig(middleware.StaticConfig{
+		// API errors must not enter the HTML5 fallback or become filesystem errors.
+		Skipper: func(c *echo.Context) bool {
+			path := c.Request().URL.Path
+			return path == "/api" || strings.HasPrefix(path, "/api/") || utils.IsRootShortLinkPath(path)
+		},
+		// Echo v5's default filesystem is rooted at the working directory.
+		// Okuru serves assets next to the executable, which can be elsewhere.
+		Filesystem: os.DirFS(publicfolder),
+		Root:       ".",
+		HTML5:      true,
+		Browse:     false,
+	})
 }

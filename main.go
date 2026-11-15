@@ -19,7 +19,7 @@ import (
 
 	"github.com/jeanphilippe-mh/Okuru/router"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"golang.org/x/net/http2"
@@ -99,6 +99,16 @@ func loadHTTPTimeouts() (httpTimeouts, error) {
 	return result, nil
 }
 
+// Keep Go's default key exchange groups so supported Go versions can offer
+// hybrid post-quantum key exchange without pinning a fixed group list.
+func newServerTLSConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2"},
+	}
+}
+
 func main() {
 	Flags()
 	configureLogging()
@@ -147,11 +157,7 @@ func run() error {
 	// Start and force TLS 1.3 server with HTTP/2 and ALPN.
 	certFile := "cert.pem"
 	keyFile := "key.pem"
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		MaxVersion: tls.VersionTLS13,
-		NextProtos: []string{"h2"},
-	}
+	tlsConfig := newServerTLSConfig()
 
 	s := &http.Server{
 		Addr:              ":" + APP_PORT,

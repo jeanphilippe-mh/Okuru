@@ -21,7 +21,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func TestBusyKDFDoesNotConsumeResumeAttempts(t *testing.T) {
@@ -177,11 +177,10 @@ func getResume(e *echo.Echo, token string, cookie *http.Cookie, rangeValue, vali
 	}
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.SetParamNames("file_key")
-	c.SetParamValues(token)
+	c.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	err := ReadFile(c)
 	if err != nil {
-		e.HTTPErrorHandler(err, c)
+		e.HTTPErrorHandler(c, err)
 	}
 	return rec, err
 }
@@ -227,8 +226,7 @@ func TestHistoricalZipAllowsRangeOnInitialPost(t *testing.T) {
 	req.Header.Set("Range", "bytes=1-8")
 	rec := httptest.NewRecorder()
 	ctx := e.NewContext(req, rec)
-	ctx.SetParamNames("file_key")
-	ctx.SetParamValues(token)
+	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	if err := DownloadFile(ctx); err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), plain[1:9]) {
 		t.Fatalf("legacy POST range: %d %v", rec.Code, err)
 	}
@@ -332,8 +330,7 @@ func TestInterruptedInitialDownloadResumesOneView(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: 11}
 	c := e.NewContext(req, writer)
-	c.SetParamNames("file_key")
-	c.SetParamValues(token)
+	c.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	func() {
 		defer func() {
 			if recover() != http.ErrAbortHandler {
@@ -385,8 +382,7 @@ func interruptedSessionWithPassword(t *testing.T, conn redis.Conn, e *echo.Echo,
 	recorder := httptest.NewRecorder()
 	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: prefixLen}
 	c := e.NewContext(req, writer)
-	c.SetParamNames("file_key")
-	c.SetParamValues(token)
+	c.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	func() {
 		defer func() {
 			if recover() != http.ErrAbortHandler {
@@ -440,11 +436,10 @@ func TestTwoInterruptedSessionsForSameFileResumeIndependently(t *testing.T) {
 		req.AddCookie(second)
 		rec := httptest.NewRecorder()
 		ctx := e.NewContext(req, rec)
-		ctx.SetParamNames("file_key")
-		ctx.SetParamValues(token)
+		ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 		err := ReadFile(ctx)
 		if err != nil {
-			e.HTTPErrorHandler(err, ctx)
+			e.HTTPErrorHandler(ctx, err)
 		}
 		return rec, err
 	}
@@ -540,8 +535,7 @@ func TestCorruptedEncryptedChunkAbortsDownload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/file/"+token, nil)
 	recorder := httptest.NewRecorder()
 	c := e.NewContext(req, recorder)
-	c.SetParamNames("file_key")
-	c.SetParamValues(token)
+	c.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	defer func() {
 		if recover() != http.ErrAbortHandler {
 			t.Error("corrupted chunk did not abort the response")

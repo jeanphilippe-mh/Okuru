@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type deadlineRecorder struct {
@@ -44,9 +44,9 @@ func TestSmallRequestLimitPrecedesLaterMiddleware(t *testing.T) {
 		e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
 		called := false
 		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-			return func(c echo.Context) error { called = true; return next(c) }
+			return func(c *echo.Context) error { called = true; return next(c) }
 		})
-		e.POST("/", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		e.POST("/", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", maxSmallRequestBytes+1)))
 		if unknownLength {
 			req.ContentLength = -1
@@ -62,7 +62,7 @@ func TestSmallRequestLimitPrecedesLaterMiddleware(t *testing.T) {
 func TestSmallBodyIsPreservedForHandler(t *testing.T) {
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/api/v1", func(c echo.Context) error {
+	e.POST("/api/v1", func(c *echo.Context) error {
 		body, err := io.ReadAll(c.Request().Body)
 		if err != nil {
 			return err
@@ -83,7 +83,7 @@ func TestMultipartUploadKeepsLargerBodyAllowance(t *testing.T) {
 	t.Cleanup(func() { utils.FILEFOLDER = oldFolder })
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/file", func(c echo.Context) error {
+	e.POST("/file", func(c *echo.Context) error {
 		data, err := io.ReadAll(c.Request().Body)
 		if err != nil {
 			return err
@@ -111,7 +111,7 @@ func TestUploadConcurrencyIsBounded(t *testing.T) {
 	started := make(chan struct{}, maxConcurrentUploads)
 	release := make(chan struct{})
 	var wg sync.WaitGroup
-	e.POST("/file", func(c echo.Context) error {
+	e.POST("/file", func(c *echo.Context) error {
 		started <- struct{}{}
 		<-release
 		return c.NoContent(http.StatusOK)
@@ -160,7 +160,7 @@ func TestUploadLeaseAdmissionFailsClosed(t *testing.T) {
 				return nil, tt.err
 			}))
 			called := false
-			e.POST("/file", func(c echo.Context) error { called = true; return c.NoContent(http.StatusOK) })
+			e.POST("/file", func(c *echo.Context) error { called = true; return c.NoContent(http.StatusOK) })
 			req := httptest.NewRequest(http.MethodPost, "/file", nil)
 			req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=test")
 			rec := httptest.NewRecorder()
@@ -187,7 +187,7 @@ func TestUploadLeaseIsEnforcedByRequestMiddleware(t *testing.T) {
 	defer release()
 	e := echo.New()
 	e.Use(requestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/file", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+	e.POST("/file", func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, r)
 	if rec.Code != http.StatusTooManyRequests {
@@ -212,7 +212,7 @@ func TestUploadQuotaRejectsBeforeParsing(t *testing.T) {
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
 	called := false
-	e.POST("/file", func(c echo.Context) error { called = true; return c.NoContent(http.StatusOK) })
+	e.POST("/file", func(c *echo.Context) error { called = true; return c.NoContent(http.StatusOK) })
 	req := httptest.NewRequest(http.MethodPost, "/file", strings.NewReader("body"))
 	req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=test")
 	rec := httptest.NewRecorder()
@@ -302,7 +302,7 @@ func TestUploadRateDeadlineStopsTricklingBody(t *testing.T) {
 func TestRejectedBodyHasReadDeadlineBeforeAnyRead(t *testing.T) {
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/", func(c echo.Context) error { t.Fatal("handler should not run"); return nil })
+	e.POST("/", func(c *echo.Context) error { t.Fatal("handler should not run"); return nil })
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", maxSmallRequestBytes+1)))
 	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	e.ServeHTTP(rec, req)
@@ -314,7 +314,7 @@ func TestRejectedBodyHasReadDeadlineBeforeAnyRead(t *testing.T) {
 func TestCompletedBodyClearsItsReadDeadline(t *testing.T) {
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+	e.POST("/", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("field=value"))
 	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	e.ServeHTTP(rec, req)

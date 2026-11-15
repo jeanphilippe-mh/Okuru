@@ -8,8 +8,7 @@ import (
 
 	"github.com/jeanphilippe-mh/Okuru/routes"
 	"github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
 )
 
 // Route registration and preprocessing match the production router. The two
@@ -17,7 +16,7 @@ import (
 // without Redis, state consumption, templates, or real secrets.
 func TestShareRoutesKeepTokensWithTrailingSlash(t *testing.T) {
 	e := echo.New()
-	e.Pre(middleware.RemoveTrailingSlash())
+	e.Pre(removeTrailingSlash)
 	routes.Index(e)
 	routes.File(e.Group("/file"))
 	_, key, err := utils.Encrypt("synthetic fixture")
@@ -27,7 +26,7 @@ func TestShareRoutesKeepTokensWithTrailingSlash(t *testing.T) {
 	token := "b98a99b6-88fe-4fc7-a627-b6e6e009d31d" + utils.TOKEN_SEPARATOR + key
 	called := ""
 	observe := func(kind, param string) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			called = kind
 			id, decodedKey, err := utils.ParseToken(c.Param(param))
 			if err != nil || id != "b98a99b6-88fe-4fc7-a627-b6e6e009d31d" || decodedKey != key {
@@ -68,8 +67,8 @@ func TestShareRoutesKeepTokensWithTrailingSlash(t *testing.T) {
 
 func TestRemoveTrailingSlashPreservesEscapedSlash(t *testing.T) {
 	e := echo.New()
-	e.Pre(middleware.RemoveTrailingSlash())
-	e.GET("/escape/*", func(c echo.Context) error {
+	e.Pre(removeTrailingSlash)
+	e.GET("/escape/*", func(c *echo.Context) error {
 		r := c.Request()
 		if r.RequestURI != "/escape/part%2Fpart?x=1" || r.URL.RawPath != "/escape/part%2Fpart" {
 			t.Fatalf("encoded path was changed: requestURI=%q rawPath=%q", r.RequestURI, r.URL.RawPath)
@@ -81,6 +80,23 @@ func TestRemoveTrailingSlashPreservesEscapedSlash(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 	e.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/escape/part%2Fpart/?x=1", nil))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("escaped route returned %d", w.Code)
+	}
+}
+
+func TestRemoveTrailingSlashDoesNotRemoveEncodedFinalSlash(t *testing.T) {
+	e := echo.New()
+	e.Pre(removeTrailingSlash)
+	e.GET("/escape/*", func(c *echo.Context) error {
+		r := c.Request()
+		if r.RequestURI != "/escape/part%2F?x=1" || r.URL.RawPath != "/escape/part%2F" {
+			t.Fatalf("encoded final slash was changed: requestURI=%q rawPath=%q", r.RequestURI, r.URL.RawPath)
+		}
+		return c.NoContent(http.StatusNoContent)
+	})
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/escape/part%2F?x=1", nil))
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("escaped route returned %d", w.Code)
 	}

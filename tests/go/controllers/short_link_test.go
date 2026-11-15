@@ -25,7 +25,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type shortLinkCaptureRenderer struct {
@@ -37,7 +37,7 @@ type shortLinkCaptureRenderer struct {
 	previewDelete string
 }
 
-func (r *shortLinkCaptureRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+func (r *shortLinkCaptureRenderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
 	if name == "confirm.html" {
 		values, ok := data.(pongo2.Context)
 		if !ok {

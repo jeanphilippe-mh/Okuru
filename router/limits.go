@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -32,7 +32,7 @@ var uploadSlots = make(chan struct{}, maxConcurrentUploads)
 
 // On HTTP/1, avoid net/http draining a slow unfinished request body before it
 // can send an error response. HTTP/2 manages cancellation per stream instead.
-func closeUnreadHTTP1(c echo.Context) {
+func closeUnreadHTTP1(c *echo.Context) {
 	if r := c.Request(); r.ProtoMajor == 1 && r.Body != nil && r.Body != http.NoBody {
 		c.Response().Header().Set(echo.HeaderConnection, "close")
 	}
@@ -57,7 +57,7 @@ func requestLimits(idleTimeout, readTimeout, writeTimeout time.Duration) echo.Mi
 // production always uses acquireUploadLease.
 func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Duration, acquire func(*http.Request, time.Duration) (func(), error)) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			select {
 			case requestSlots <- struct{}{}:
 				defer func() { <-requestSlots }()
@@ -126,10 +126,13 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 				}()
 			}
 
-			response := c.Response()
-			controller := http.NewResponseController(response.Writer)
-			originalWriter := response.Writer
-			response.Writer = &idleDeadlineWriter{ResponseWriter: originalWriter, controller: controller, timeout: idleTimeout, absolute: started.Add(writeTimeout)}
+			response, err := echo.UnwrapResponse(c.Response())
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Response writer unavailable")
+			}
+			controller := http.NewResponseController(response.ResponseWriter)
+			originalWriter := response.ResponseWriter
+			response.ResponseWriter = &idleDeadlineWriter{ResponseWriter: originalWriter, controller: controller, timeout: idleTimeout, absolute: started.Add(writeTimeout)}
 			if r.Body != nil && r.Body != http.NoBody {
 				absolute := started.Add(readTimeout)
 				if !upload && started.Add(maxSmallBodyTime).Before(absolute) {

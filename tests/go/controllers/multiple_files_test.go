@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"io"
 	"mime/multipart"
 	"net"
@@ -21,7 +21,7 @@ import (
 
 type captureUploadRenderer struct{ link string }
 
-func (r *captureUploadRenderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
+func (r *captureUploadRenderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
 	if name == "confirm_file.html" {
 		r.link = data.(pongo2.Context)["f"].(*models.File).Link
 	}
@@ -117,8 +117,7 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	downloadReq := httptest.NewRequest("POST", link.Path, nil)
 	downloadRec := httptest.NewRecorder()
 	ctx := e.NewContext(downloadReq, downloadRec)
-	ctx.SetParamNames("file_key")
-	ctx.SetParamValues(token)
+	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	if err := DownloadFile(ctx); err != nil || downloadRec.Code != 200 {
 		t.Fatalf("download failed: status=%d error=%v", downloadRec.Code, err)
 	}

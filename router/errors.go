@@ -1,9 +1,8 @@
 package router
 
 import (
-	"errors"
 	"fmt"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,15 +12,17 @@ import (
 // Preserve the error status and write each response only once, including when
 // RequestLogger has already invoked the handler through HandleError.
 func ConfigureErrorHandler(e *echo.Echo, viewDir string) {
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		if c.Response().Committed {
+	e.HTTPErrorHandler = func(c *echo.Context, err error) {
+		response, unwrapErr := echo.UnwrapResponse(c.Response())
+		if unwrapErr != nil {
+			// We cannot safely know whether headers have been sent. Abort rather
+			// than return an empty implicit 200 or append to a partial response.
+			panic(http.ErrAbortHandler)
+		}
+		if response.Committed {
 			return
 		}
-		code := http.StatusInternalServerError
-		var httpErr *echo.HTTPError
-		if errors.As(err, &httpErr) {
-			code = httpErr.Code
-		}
+		code := echo.StatusCode(err)
 		if code < 400 || code > 599 {
 			code = http.StatusInternalServerError
 		}

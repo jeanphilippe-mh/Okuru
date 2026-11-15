@@ -4,7 +4,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net/http"
 	"strings"
 )
@@ -12,7 +12,7 @@ import (
 /**
  * Print help for API usage in a readable way for bash/curl call.
  */
-func HelpPassword(context echo.Context) error {
+func HelpPassword(context *echo.Context) error {
 	if token, ok := context.Get("csrf").(string); ok {
 		context.Response().Header().Set("X-CSRF-Token", token)
 	}
@@ -37,22 +37,22 @@ Endpoint: ` + GetBaseUrl(context) + "/api/v1"
 /**
  * From a given token, return the initial password, we decrypt the password fetched from Redis.
  */
-func ReadPassword(context echo.Context) error {
+func ReadPassword(context *echo.Context) error {
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	// Secret retrieval cannot select file metadata through its identifier.
 	id, key, parseErr := ParseToken(p.PasswordKey)
 	canonical, uuidErr := uuid.Parse(id)
 	if parseErr != nil || uuidErr != nil || canonical.String() != id || key == "" {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	err := RetrievePassword(p)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	// Empty var so json response don't have them.
@@ -64,11 +64,11 @@ func ReadPassword(context echo.Context) error {
 /**
  * From a give password, return link.
  */
-func CreatePassword(context echo.Context) (err error) {
+func CreatePassword(context *echo.Context) (err error) {
 	// Bind only creation fields; internal storage fields are never client input.
 	input := new(createPasswordRequest)
 	if err := context.Bind(input); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest)
+		return echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if input.Views == 0 {
 		input.Views = 1
@@ -77,13 +77,13 @@ func CreatePassword(context echo.Context) (err error) {
 		input.TTL = 3600
 	}
 	if input.Password == "" {
-		return echo.NewHTTPError(http.StatusBadRequest)
+		return echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if err := ValidateSecretLength(input.Password); err != nil {
 		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Secret exceeds the maximum size")
 	}
 	if err := ValidateAPILimits(input.TTL, input.Views); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest)
+		return echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if admissionErr := admitSecretCreation(context); admissionErr != nil {
 		return admissionErr
@@ -95,7 +95,7 @@ func CreatePassword(context echo.Context) (err error) {
 		if err2.Code == http.StatusServiceUnavailable {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError)
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	baseUrl := GetBaseUrl(context) + "/"
@@ -114,11 +114,11 @@ func CreatePassword(context echo.Context) (err error) {
 /**
  * From a given token, remove password from Redis.
  */
-func DeletePassword(context echo.Context) error {
+func DeletePassword(context *echo.Context) error {
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {
-		return echo.NewHTTPError(http.StatusNotFound)
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	err := RemovePassword(p)
@@ -129,7 +129,7 @@ func DeletePassword(context echo.Context) error {
 		status = http.StatusOK
 	}
 	if status >= 400 {
-		return echo.NewHTTPError(status)
+		return echo.NewHTTPError(status, http.StatusText(status))
 	}
 	return context.NoContent(status)
 }

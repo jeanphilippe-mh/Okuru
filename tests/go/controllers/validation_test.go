@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"io"
 	"net/http/httptest"
 	"net/url"
@@ -11,7 +11,7 @@ import (
 
 type testRenderer struct{}
 
-func (testRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (testRenderer) Render(c *echo.Context, w io.Writer, name string, data interface{}) error {
 	_, err := io.WriteString(w, "invalid input")
 	return err
 }

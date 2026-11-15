@@ -13,7 +13,7 @@ import (
 	"time"
 
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"golang.org/x/net/http2"
 )
 
@@ -66,7 +66,7 @@ func TestHTTP2ProgressingUploadOutlivesIdleInterval(t *testing.T) {
 	configureHTTP2UploadStorage(t)
 	const idle = 800 * time.Millisecond
 	e := newLimitedHTTP2Router(idle)
-	e.POST("/file", func(c echo.Context) error {
+	e.POST("/file", func(c *echo.Context) error {
 		body, err := io.ReadAll(c.Request().Body)
 		if err != nil {
 			return err
@@ -116,7 +116,7 @@ func TestHTTP2StalledUploadDoesNotBlockAnotherStream(t *testing.T) {
 	e := newLimitedHTTP2Router(idle)
 	started := make(chan struct{})
 	readResult := make(chan error, 1)
-	e.POST("/file", func(c echo.Context) error {
+	e.POST("/file", func(c *echo.Context) error {
 		one := make([]byte, 1)
 		if _, err := io.ReadFull(c.Request().Body, one); err != nil {
 			return err
@@ -125,11 +125,11 @@ func TestHTTP2StalledUploadDoesNotBlockAnotherStream(t *testing.T) {
 		_, err := io.Copy(io.Discard, c.Request().Body)
 		readResult <- err
 		if err != nil {
-			return echo.NewHTTPError(http.StatusRequestTimeout)
+			return echo.NewHTTPError(http.StatusRequestTimeout, http.StatusText(http.StatusRequestTimeout))
 		}
 		return c.NoContent(http.StatusOK)
 	})
-	e.GET("/health", func(c echo.Context) error { return c.String(http.StatusOK, "ok") })
+	e.GET("/health", func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
 	client := newHTTP2Pipe(t, e)
 	reader, writer := io.Pipe()
 	defer reader.Close()
@@ -191,11 +191,11 @@ func TestHTTP2StalledUploadDoesNotBlockAnotherStream(t *testing.T) {
 func TestHTTP2MinimumRateStopsTricklingBody(t *testing.T) {
 	result := make(chan error, 1)
 	e := echo.New()
-	e.POST("/file", func(c echo.Context) error {
+	e.POST("/file", func(c *echo.Context) error {
 		start := time.Now()
 		body := &idleDeadlineBody{
 			ReadCloser: c.Request().Body,
-			controller: http.NewResponseController(c.Response().Writer),
+			controller: http.NewResponseController(c.Response()),
 			timeout:    5 * time.Second,
 			absolute:   start.Add(5 * time.Second),
 			rateStart:  start,
@@ -204,7 +204,7 @@ func TestHTTP2MinimumRateStopsTricklingBody(t *testing.T) {
 		}
 		_, err := io.Copy(io.Discard, body)
 		result <- err
-		return echo.NewHTTPError(http.StatusRequestTimeout)
+		return echo.NewHTTPError(http.StatusRequestTimeout, http.StatusText(http.StatusRequestTimeout))
 	})
 	client := newHTTP2Pipe(t, e)
 	reader, writer := io.Pipe()
@@ -243,7 +243,7 @@ func TestHTTP2SlowReaderReceivesCompleteDownload(t *testing.T) {
 	// Exceed the usual HTTP/2 receive window so a slow reader eventually
 	// applies stream-level backpressure, as in an actual archive download.
 	payload := bytes.Repeat([]byte("a"), 8<<20)
-	e.GET("/file/download", func(c echo.Context) error {
+	e.GET("/file/download", func(c *echo.Context) error {
 		http.ServeContent(c.Response(), c.Request(), "archive.zip", time.Time{}, bytes.NewReader(payload))
 		return nil
 	})
@@ -282,7 +282,7 @@ func TestHTTP2StalledDownloadIsBounded(t *testing.T) {
 	const idle = 350 * time.Millisecond
 	e := newLimitedHTTP2Router(idle)
 	writeResult := make(chan error, 1)
-	e.GET("/file/stall", func(c echo.Context) error {
+	e.GET("/file/stall", func(c *echo.Context) error {
 		chunk := bytes.Repeat([]byte("x"), 32<<10)
 		for i := 0; i < 1024; i++ {
 			if _, err := c.Response().Write(chunk); err != nil {
@@ -293,7 +293,7 @@ func TestHTTP2StalledDownloadIsBounded(t *testing.T) {
 		writeResult <- nil
 		return nil
 	})
-	e.GET("/health", func(c echo.Context) error { return c.String(http.StatusOK, "ok") })
+	e.GET("/health", func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
 	client := newHTTP2Pipe(t, e)
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
