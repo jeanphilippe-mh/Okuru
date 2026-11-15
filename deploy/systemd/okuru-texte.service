@@ -1,0 +1,22 @@
+[Unit]
+Description=Copie texte du journal Okuru
+Wants=systemd-journald@okuru.service
+After=systemd-journald@okuru.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+StateDirectory=okuru-texte
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/libexec/okuru/okuru-journal-mirror.py --output=/var/log/okuru.log --state-dir=/var/lib/okuru-texte --log-owner=freebox --log-group=freebox
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

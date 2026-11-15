@@ -1,5 +1,6 @@
 [Unit]
 Description=Okuru
+Wants=okuru-texte.service
 
 [Service]
 NoNewPrivileges=true
