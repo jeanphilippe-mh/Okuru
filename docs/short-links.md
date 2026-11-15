@@ -2,7 +2,7 @@
 
 Okuru can display a short redirect for newly created browser shares without changing the existing long share URL, its Fernet key, or its Redis record. New links have the form `https://share.example.com/<alias>`, without a path prefix. The browser follows a temporary redirect to the original relative path; the original share remains authoritative for expiration, view counts, deletion, and file downloads. Existing links, API links and deletion links remain unchanged. A separately created password link for a protected file can also be shortened. If alias creation fails, the confirmation page displays the original link instead.
 
-The root path handles both original secret tokens and short aliases. Exactly 43 Base64URL characters at the root are reserved as alias candidates; avoid introducing root routes or static files with that form, because routing may otherwise conflict. Current original share tokens have a distinct format.
+The root path handles both original secret tokens and short aliases. Exactly 22 or 43 Base64URL characters at the root are reserved as alias candidates; avoid introducing root routes or static files with either form, because routing may otherwise conflict. Current original share tokens have a distinct format. Previously issued 43-character aliases continue to resolve until they expire.
 
 ## Configuration
 
@@ -16,7 +16,7 @@ The short-link database has a fixed admission limit of 4096 keys; the check and 
 
 ## Security and lifecycle
 
-A random 32-byte bearer alias is encoded as 43 unpadded Base64URL characters. HKDF-SHA-256 with independent fixed domain labels derives a Redis lookup key and a per-alias AES-256-GCM key; Redis stores an authenticated encrypted record containing the share type and existing token, not the alias or the destination in clear. AES-GCM uses a 128-bit authentication tag; do not equate 256-bit alias randomness with 256-bit effective security for every component. The server receives the alias and reconstructs the long path: this is not end-to-end encryption.
+New bearer aliases contain either 16 random bytes (128 bits), encoded as 22 unpadded Base64URL characters, or 32 random bytes (256 bits), encoded as 43 characters, according to the configured setting. HKDF-SHA-256 with independent fixed domain labels derives a Redis lookup key and a per-alias AES-256-GCM key; Redis stores an authenticated encrypted record containing the share type and existing token, not the alias or the destination in clear. Deriving a 256-bit encryption key does not increase a 128-bit alias's entropy, and AES-GCM uses a 128-bit authentication tag. The server receives the alias and reconstructs the long path: this is not end-to-end encryption.
 
 Resolution accepts only canonical aliases and reconstructs one of two local paths from a validated existing token. It never accepts an arbitrary destination or fetches the target. GET and HEAD return a temporary redirect with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The browser then sees the original link. The alias itself is a bearer credential; anyone with it can resolve the original link. Do not disclose it in logs, analytics, issue reports or screenshots.
 
