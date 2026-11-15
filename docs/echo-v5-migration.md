@@ -1,6 +1,6 @@
 # Echo v5 migration
 
-Okuru uses Echo v5.4.4 with Go 1.27.4. The migration keeps the existing request limits, secure multipart processing before CSRF, cookie attributes, error formats and token-safe logging. The Go server continues to require TLS 1.3 and retains Go's default key-exchange groups. Changing the Echo version does not change the TLS policy of a separate Apache reverse proxy.
+Okuru uses Echo v5.4.6 with Go 1.27.4. The migration keeps the existing request limits, secure multipart processing before CSRF, cookie attributes, error formats and token-safe logging. The Go server continues to require TLS 1.3 and retains Go's default key-exchange groups. Changing the Echo version does not change the TLS policy of a separate Apache reverse proxy.
 
 The error handler uses Echo's status-code interface, including router-generated 404 and 405 errors, and does not append an error after a response has begun. If the response state cannot be determined, it aborts the response rather than returning an implicit success. The multipart handler also recognizes Echo v5's body-limit sentinel and retains HTTP 413. The transfer deadline middleware uses the underlying Echo response writer. The static middleware is explicitly rooted at the `public` directory next to the executable; its filesystem root must not depend on the service working directory. A local pre-routing middleware retains v4's handling of trailing slashes and encoded paths.
 
