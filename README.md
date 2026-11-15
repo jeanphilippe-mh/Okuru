@@ -61,6 +61,8 @@ You can configure the following via environment variables.
 
 **OKURU_SHORTLINK_REDIS_DB** and **OKURU_SHORTLINK_PUBLIC_ORIGIN**: Optional short-link storage database and canonical HTTPS public origin. Both must be configured to enable short links; see `docs/short-links.md`.
 
+**OKURU_SHORTLINK_BITS**: Randomness for new aliases: `128` (22 characters, default) or `256` (43 characters). Existing aliases remain valid when this changes.
+
 **OKURU_TOKEN_SEPARATOR**: The token that will separate the keys in the URL. You might not need to change this. It defaults to "~".
 
 **OKURU_DISCLAIMER**: If you want/need to display a disclaimer at the bottom of the page, add this. This can be html but need to be inline in this file. If you want only text, use \n to add breakline.
