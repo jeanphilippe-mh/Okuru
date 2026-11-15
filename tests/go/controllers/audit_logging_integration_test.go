@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,7 +22,7 @@ func TestSecretAuditEventsReflectRealOutcomesWithoutSecrets(t *testing.T) {
 	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
 	var output bytes.Buffer
 	logger.SetOutput(&output)
-	logger.SetFormatter(&log.JSONFormatter{})
+	logger.SetFormatter(utils.NewAuditJSONFormatter())
 	logger.SetLevel(log.InfoLevel)
 	t.Cleanup(func() {
 		logger.SetOutput(oldOutput)
@@ -61,15 +62,24 @@ func TestSecretAuditEventsReflectRealOutcomesWithoutSecrets(t *testing.T) {
 		if line == "" {
 			continue
 		}
+		payload := line
+		for _, label := range []string{"[INFO] ", "[WARNING] ", "[ERROR] "} {
+			payload = strings.TrimPrefix(payload, label)
+		}
+		action := strings.HasPrefix(payload, "[ACTION] ")
+		payload = strings.TrimPrefix(payload, "[ACTION] ")
 		var record map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			t.Fatalf("audit output is not JSON: %v", err)
+		if err := json.Unmarshal([]byte(payload), &record); err != nil {
+			t.Fatalf("audit output has invalid JSON payload: %v", err)
 		}
 		event, _ := record["event"].(string)
 		if event != "secret.create" && event != "secret.reveal" && event != "secret.reveal_unavailable" {
 			continue
 		}
 		counts[event]++
+		if !action || record["category"] != "user_action" {
+			t.Errorf("user event lacks action marker: %s", event)
+		}
 		if record["client_ip"] != "192.0.2.1" || record["client_ip_source"] != "peer" {
 			t.Fatalf("%s has incorrect direct client identity: %v", event, record["client_ip_source"])
 		}
