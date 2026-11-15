@@ -3,6 +3,7 @@ package router
 import (
 	"errors"
 	"github.com/jeanphilippe-mh/Okuru/routes"
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"log/slog"
@@ -95,6 +96,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		Debug: true,
 	}
 	e := echo.New()
+	e.Pre(shortLinkHeaders)
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Renderer = renderer
 	e.Validator = &CustomValidator{validator: validator.New()}
@@ -174,7 +176,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		// API errors must not enter the HTML5 fallback or become filesystem errors.
 		Skipper: func(c echo.Context) bool {
 			path := c.Request().URL.Path
-			return path == "/api" || strings.HasPrefix(path, "/api/")
+			return path == "/api" || strings.HasPrefix(path, "/api/") || utils.IsRootShortLinkPath(path)
 		},
 		Root:   publicfolder,
 		HTML5:  true,

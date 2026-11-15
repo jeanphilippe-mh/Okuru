@@ -12,6 +12,8 @@ controllers/file_path_test.go
 controllers/multiple_files_test.go
 controllers/new_archive_compatibility_test.go
 controllers/resource_security_test.go
+controllers/short_guard_test.go
+controllers/short_link_test.go
 controllers/resume_download_test.go
 controllers/upload_form_accessibility_test.go
 controllers/upload_security_test.go
@@ -42,6 +44,7 @@ utils/download_session_test.go
 utils/redis_pool_test.go
 utils/secure_multipart_test.go
 utils/security_limits_test.go
+utils/short_link_test.go
 utils/staging_lock_test.go
 utils/staging_lock_windows_test.go
 utils/storage_guard_security_windows_test.go

@@ -117,6 +117,7 @@ func run() error {
 
 	pool := NewPool()
 	defer CloseRedisPool()
+	defer CloseShortLinkPool()
 	c := pool.Get()
 	redisReady := Ping(c)
 	_ = c.Close()
