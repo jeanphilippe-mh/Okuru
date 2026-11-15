@@ -159,7 +159,7 @@ func ReadFile(context echo.Context) error {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"
-		deletableURL = GetBaseUrl(context) + "/file/remove/" + f.FileKey
+		deletableURL = sharePublicOrigin(context) + "/file/remove/" + f.FileKey
 	}
 
 	dataContext["f"] = f
@@ -312,7 +312,7 @@ func DownloadFile(context echo.Context) error {
 		dataContext["dlViews"] = GetDownloadsText(f.Views)
 		if f.Deletable {
 			dataContext["deletableText"] = "deletable"
-			dataContext["deletableURL"] = GetBaseUrl(context) + "/file/remove/" + f.FileKey
+			dataContext["deletableURL"] = sharePublicOrigin(context) + "/file/remove/" + f.FileKey
 		} else {
 			dataContext["deletableText"] = "not deletable"
 		}
@@ -713,14 +713,18 @@ func AddFile(context echo.Context) error {
 		log.Error("Failed to remove upload temporary directory")
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
-	baseURL := GetBaseUrl(context) + "/file/"
+	baseURL := sharePublicOrigin(context) + "/file/"
 	deletableText, deletableURL := "not deletable", ""
 	if f.Deletable {
 		deletableText = "deletable"
 		deletableURL = baseURL + "remove/" + fileToken
 	}
 	f.FileKey = ""
-	f.Link = baseURL + fileToken
+	fileLink, originalFileLink := shareLink(context, fileToken, true)
+	f.Link = fileLink
+	if fileLink != originalFileLink {
+		dataContext["originalFileLink"] = originalFileLink
+	}
 	f.Password = ""
 	dataContext["f"] = f
 	dataContext["ttl"] = GetTTLText(f.TTL)
@@ -729,7 +733,11 @@ func AddFile(context echo.Context) error {
 	dataContext["deletableText"] = deletableText
 	dataContext["deletableURL"] = deletableURL
 	if provided {
-		dataContext["passwordLink"] = GetBaseUrl(context) + "/" + passwordToken
+		passwordLink, originalPasswordLink := shareLink(context, passwordToken, false)
+		dataContext["passwordLink"] = passwordLink
+		if passwordLink != originalPasswordLink {
+			dataContext["originalPasswordLink"] = originalPasswordLink
+		}
 	} else {
 		dataContext["passwordLink"] = ""
 	}

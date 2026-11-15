@@ -152,7 +152,7 @@ func ReadIndex(context echo.Context) error {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"
-		deletableURL = GetBaseUrl(context) + "/remove/" + p.PasswordKey
+		deletableURL = sharePublicOrigin(context) + "/remove/" + p.PasswordKey
 	}
 
 	dataContext["p"] = p
@@ -273,14 +273,17 @@ func AddIndex(context echo.Context) error {
 		deletableURL string
 	)
 
-	baseUrl := GetBaseUrl(context) + "/"
+	baseUrl := sharePublicOrigin(context) + "/"
 	if !p.Deletable {
 		deletableText = "not deletable"
 	} else {
 		deletableText = "deletable"
 		deletableURL = baseUrl + "remove/" + token
 	}
-	link := baseUrl + token
+	link, originalLink := shareLink(context, token, false)
+	if link != originalLink {
+		dataContext["originalLink"] = originalLink
+	}
 	p.PasswordKey = token
 	p.Link = link
 	p.Password = ""

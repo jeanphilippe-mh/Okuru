@@ -19,6 +19,13 @@
             </button>
         </div>
     </div>
+    {% if originalLink %}
+    <details class="mt-3">
+        <summary>Original link</summary>
+        <label for="original-password-link">Use this link if the short link is unavailable.</label>
+        <input type="text" class="form-control" id="original-password-link" value="{{ originalLink }}" readonly="readonly">
+    </details>
+    {% endif %}
     <br>
 </section>
 {% endblock %}
