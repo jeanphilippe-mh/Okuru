@@ -51,3 +51,15 @@ test('service logs use the bounded dedicated journald namespace', () => {
   assert.ok(bytes(conf.get('RuntimeMaxFileSize')) < runtimeLimit);
   assert.match(conf.get('MaxRetentionSec') || '', /^[1-9]\d*(day|week|month)$/);
 });
+
+test('text copy keeps the journal and follows rotation at the historical log path', () => {
+  const main = settings('okuru.service', 'Unit');
+  const textUnit = settings('deploy/systemd/okuru-texte.service', 'Service');
+  assert.match(main.get('Wants') || '', /(?:^|\s)okuru-texte\.service(?:\s|$)/);
+  assert.match(textUnit.get('ExecStart') || '', /okuru-journal-mirror\.py/);
+  assert.match(textUnit.get('ExecStart') || '', /--output=\/var\/log\/okuru\.log/);
+  assert.match(textUnit.get('ExecStart') || '', /--state-dir=\/var\/lib\/okuru-texte/);
+  assert.match(textUnit.get('ExecStart') || '', /--log-owner=freebox/);
+  assert.match(textUnit.get('ExecStart') || '', /--log-group=freebox/);
+  assert.equal(textUnit.get('StateDirectoryMode'), '0700');
+});
