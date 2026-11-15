@@ -19,13 +19,6 @@
             </button>
         </div>
     </div>
-    {% if originalFileLink %}
-    <details class="mt-3">
-        <summary>Original file link</summary>
-        <label for="original-file-link">Use this link if the short link is unavailable.</label>
-        <input type="text" class="form-control" id="original-file-link" value="{{ originalFileLink }}" readonly="readonly">
-    </details>
-    {% endif %}
     <br>
     {% if passwordLink != "" %}
     <div class="row">
@@ -41,13 +34,6 @@
             </button>
         </div>
     </div>
-    {% if originalPasswordLink %}
-    <details class="mt-3">
-        <summary>Original password link</summary>
-        <label for="original-file-password-link">Use this link if the short link is unavailable.</label>
-        <input type="text" class="form-control" id="original-file-password-link" value="{{ originalPasswordLink }}" readonly="readonly">
-    </details>
-    {% endif %}
     <br>
     {% endif %}
 </section>
