@@ -34,8 +34,8 @@ func Flags() {
 }
 
 func configureLogging() {
-	// Log as JSON instead of the default ASCII formatter.
-	log.SetFormatter(&log.JSONFormatter{})
+	// Keep structured JSON and an explicit severity in every message.
+	log.SetFormatter(NewAuditJSONFormatter())
 
 	// Output to stdout instead of the default stderr.
 	// Can be any io.Writer, see below for File example.
@@ -44,26 +44,10 @@ func configureLogging() {
 	if DebugLevel {
 		log.SetLevel(log.DebugLevel)
 	} else {
-		log.SetLevel(log.WarnLevel)
+		log.SetLevel(log.InfoLevel)
 	}
 
 }
-
-const (
-	// Version of Echo.
-	version = echo.Version
-	website = "https://echo.labstack.com"
-	banner  = `
-   ____    __
-  / __/___/ /  ___
- / _// __/ _ \/ _ \
-/___/\__/_//_/\___/ %s
-High performance, minimalist Go web framework
-%s
-____________________________________O/_______
-                                    O\
-`
-)
 
 type httpTimeouts struct {
 	read, write, idle, transferIdle time.Duration
@@ -180,9 +164,6 @@ func run() error {
 		return err
 	}
 
-	// Print the banner message to the log.
-	fmt.Printf(banner, version, website)
-
 	listener, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		return err
@@ -191,7 +172,7 @@ func run() error {
 	defer listener.Close()
 	serverDone := make(chan error, 1)
 	go func() {
-		fmt.Printf("Starting https server at %s\n", s.Addr)
+		log.WithFields(log.Fields{"event": "server.start", "address": s.Addr, "echo_version": echo.Version, "tls_min": "1.3"}).Info("HTTPS server starting")
 		serverDone <- s.ServeTLS(listener, certFile, keyFile)
 	}()
 
@@ -207,7 +188,7 @@ func run() error {
 		}
 		return nil
 	}
-	fmt.Println("Shutting down server...")
+	log.WithField("event", "server.shutdown").Info("Server shutdown requested")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = s.Shutdown(ctx)
@@ -215,6 +196,6 @@ func run() error {
 		_ = s.Close()
 		return err
 	}
-	fmt.Println("Server gracefully stopped")
+	log.WithField("event", "server.stopped").Info("Server stopped gracefully")
 	return nil
 }

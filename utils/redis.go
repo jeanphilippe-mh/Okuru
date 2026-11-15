@@ -92,9 +92,6 @@ func Ping(c redis.Conn) bool {
 		return false
 	}
 
-	log.Infof("PING Response = %s\n", pong)
-	// Output: PONG
-
 	if pong == "PONG" {
 		return true
 	} else {
@@ -127,7 +124,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 	psc := redis.PubSubConn{Conn: c}
 
 	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		log.Printf("Error from subscribe redis channels : %s", err)
+		log.Warn("Redis subscription failed")
 		return err
 	}
 
@@ -144,7 +141,7 @@ func listenPubSubChannels(ctx context.Context, redisServerAddr string,
 				return
 
 			case redis.Message:
-				log.Debugf("Message from redis %s %s \n", string(v.Data), v.Channel)
+				log.Debug("Redis notification received")
 				if err := onMessage(v.Channel, v.Data); err != nil {
 					done <- err
 					return
