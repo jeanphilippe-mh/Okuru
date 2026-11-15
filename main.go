@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	stdlog "log"
 	"math/rand"
 	"net"
 	"net/http"
@@ -46,6 +47,11 @@ func configureLogging() {
 	} else {
 		log.SetLevel(log.InfoLevel)
 	}
+	// Go libraries that use the standard logger share the structured output.
+	// Logrus writes to stdout, never back to the standard logger.
+	stdlog.SetFlags(0)
+	stdlog.SetPrefix("")
+	stdlog.SetOutput(NewStandardDiagnosticWriter(log.StandardLogger()))
 	LogConfiguration()
 }
 
@@ -94,6 +100,7 @@ func newServerTLSConfig() *tls.Config {
 }
 
 func main() {
+
 	Flags()
 	configureLogging()
 	if err := run(); err != nil {
@@ -145,6 +152,7 @@ func run() error {
 
 	s := &http.Server{
 		Addr:              ":" + APP_PORT,
+		ErrorLog:          NewHTTPDiagnosticLogger(log.StandardLogger()),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       timeouts.read,
 		WriteTimeout:      timeouts.write,
