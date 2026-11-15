@@ -100,7 +100,24 @@ func newServerTLSConfig() *tls.Config {
 }
 
 func main() {
-
+	if len(os.Args) >= 2 && os.Args[1] == "--internal-log-supervisor" {
+		executable, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] {\"event\":\"logging.supervisor_failed\",\"level\":\"error\",\"time\":%q,\"msg\":\"Could not locate executable\"}\n", time.Now().UTC().Format(time.RFC3339Nano))
+			os.Exit(1)
+		}
+		workerArgs := append([]string{"--internal-worker"}, os.Args[2:]...)
+		status, err := RunLogSupervisor(executable, workerArgs, "/var/log/okuru.log", os.Stdout)
+		if err != nil {
+			// RunLogSupervisor reports the classified failure to every
+			// destination that remains available before returning.
+			os.Exit(1)
+		}
+		os.Exit(status)
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "--internal-worker" {
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
 	Flags()
 	configureLogging()
 	if err := run(); err != nil {
