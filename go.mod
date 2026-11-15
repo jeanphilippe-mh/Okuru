@@ -10,7 +10,7 @@ require (
 	github.com/flosch/pongo2 v0.0.0-20200913210552-0d938eb266f3
 	github.com/gomodule/redigo v1.9.3
 	github.com/google/uuid v1.6.0
-	github.com/labstack/echo/v5 v5.4.4
+	github.com/labstack/echo/v5 v5.4.6
 	github.com/labstack/gommon v0.5.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/pflag v1.1.0
