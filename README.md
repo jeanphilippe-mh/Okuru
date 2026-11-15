@@ -79,10 +79,6 @@ You can configure the following via environment variables.
 
 **OKURU_ZIP_AUTO_THRESHOLD_MB**: The ZIP compression threshold (in MB) for 'auto' mode (default 100 if unset or invalid).
 
-## Systemd logs
-
-Okuru can keep its dedicated journald namespace and mirror messages to `/var/log/okuru.log`. See the [text log setup](docs/okuru-texte.md) for installation, first-run backup, rotation and recovery limits.
-
 ## Credits
 
 * [Pinterest's snappass](https://github.com/pinterest/snappass) for the original software and idea.

@@ -1,6 +1,5 @@
 [Unit]
 Description=Okuru
-Wants=okuru-texte.service
 
 [Service]
 NoNewPrivileges=true
@@ -19,8 +18,8 @@ RestartSec=5s
 LogNamespace=okuru
 LogRateLimitIntervalSec=30s
 LogRateLimitBurst=1000
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/var/log/okuru.log
+StandardError=inherit
 SyslogIdentifier=Okuru
 RuntimeDirectory=Okuru
 RuntimeDirectoryMode=0755

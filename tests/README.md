@@ -62,16 +62,6 @@ python3 tests/tlsa/test_tlsa_terminal.py
 
 The suites use temporary certificates, a pseudo-terminal, and simulated Cloudflare, HTTPS endpoints and locking. They check interactive colours and uncoloured logs without contacting production. They do not establish that a real Debian/Certbot deployment, DNS propagation or Linux locking works.
 
-## Journal mirror tests
-
-Run the text log mirror tests with Python 3:
-
-```sh
-python3 -m unittest discover -s tests -p test_okuru_journal_mirror.py -v
-```
-
-The suite uses temporary files and simulated journal entries to check cursor recovery, existing-file safeguards and rotation. It does not verify a real systemd namespace, journal retention or logrotate configuration. For installation and operational limits, see the [text log setup](../docs/okuru-texte.md).
-
 ## Browser and Apache tests
 
 Run all JavaScript tests from the repository root with Node.js 18 or later:
