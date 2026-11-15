@@ -52,9 +52,19 @@ func redirectShortLink(c *echo.Context, alias string) error {
 	if err != nil {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
+	return redirectShortLinkTarget(c, target)
+}
+
+// redirectShortLinkTarget only redirects to a local path, even if the storage
+// layer were ever to return an unexpected value.
+func redirectShortLinkTarget(c *echo.Context, target string) error {
 	// A defense in depth check: the storage layer reconstructs a relative path
 	// from a validated token and resource type, never from an arbitrary URL.
-	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || strings.ContainsAny(target, "\\\r\n?#") {
+	// Browsers remove some ASCII controls while parsing URLs, so reject all of
+	// them before deciding whether the redirect remains on this origin.
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") ||
+		strings.HasPrefix(target, "/\\") || strings.ContainsAny(target, "\\?#") ||
+		strings.IndexFunc(target, func(r rune) bool { return r < ' ' || r == 0x7f }) >= 0 {
 		return c.NoContent(http.StatusNotFound)
 	}
 	return c.Redirect(http.StatusFound, target)

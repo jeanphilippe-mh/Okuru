@@ -8,6 +8,50 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+func TestShortLinkRedirectTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		target string
+		status int
+	}{
+		{"root", "/", http.StatusFound},
+		{"secret", "/01234567-89ab-cdef-0123-456789abcdef~key", http.StatusFound},
+		{"file", "/file/01234567-89ab-cdef-0123-456789abcdef~key", http.StatusFound},
+		{"empty", "", http.StatusNotFound},
+		{"relative", "abc", http.StatusNotFound},
+		{"absolute", "https://evil.example/path", http.StatusNotFound},
+		{"scheme_relative", "//evil.example/path", http.StatusNotFound},
+		{"backslash_authority", "/\\evil.example/path", http.StatusNotFound},
+		{"backslash_in_path", "/file\\evil", http.StatusNotFound},
+		{"tab_authority", "/\t/evil.example", http.StatusNotFound},
+		{"carriage_return", "/\r/evil.example", http.StatusNotFound},
+		{"newline", "/\n/evil.example", http.StatusNotFound},
+		{"null", "/file/abc\x00def", http.StatusNotFound},
+		{"delete_control", "/file/abc\x7fdef", http.StatusNotFound},
+		{"query", "/abc?next=evil", http.StatusNotFound},
+		{"fragment", "/abc#fragment", http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			rec := httptest.NewRecorder()
+			ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/alias", nil), rec)
+			if err := redirectShortLinkTarget(ctx, tc.target); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != tc.status {
+				t.Fatalf("status=%d, want %d", rec.Code, tc.status)
+			}
+			location := rec.Header().Get("Location")
+			if tc.status == http.StatusFound && location != tc.target {
+				t.Fatalf("location=%q, want %q", location, tc.target)
+			}
+			if tc.status != http.StatusFound && location != "" {
+				t.Fatalf("rejected target produced Location %q", location)
+			}
+		})
+	}
+}
+
 func TestShortLinkResolutionGuardSaturationAndRelease(t *testing.T) {
 	if len(shortLinkResolveSlots) != 0 {
 		t.Fatal("unexpected active short-link resolutions")
