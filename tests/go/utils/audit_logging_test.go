@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,8 +24,11 @@ func TestAuditJSONFormatterLevelsAndUTC(t *testing.T) {
 		{log.InfoLevel, "[INFO]"},
 		{log.WarnLevel, "[WARNING]"},
 		{log.ErrorLevel, "[ERROR]"},
+		{log.FatalLevel, "[ERROR]"},
+		{log.PanicLevel, "[ERROR]"},
+		{log.DebugLevel, "[DEBUG]"},
 	} {
-		t.Run(tc.label, func(t *testing.T) {
+		t.Run(tc.level.String(), func(t *testing.T) {
 			entry := &log.Entry{
 				Logger:  log.New(),
 				Data:    log.Fields{"event": "secret.preview"},
@@ -36,6 +40,10 @@ func TestAuditJSONFormatterLevelsAndUTC(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if !bytes.HasPrefix(result, []byte(tc.label+" ")) {
+				t.Fatalf("severity does not start the line: %s", result)
+			}
+			result = bytes.TrimPrefix(result, []byte(tc.label+" "))
 			if bytes.Count(result, []byte(`"time":`)) != 1 {
 				t.Fatalf("expected exactly one time field: %s", result)
 			}
@@ -43,7 +51,7 @@ func TestAuditJSONFormatterLevelsAndUTC(t *testing.T) {
 			if err := json.Unmarshal(result, &record); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
 			}
-			if got := record["msg"]; got != tc.label+" Secret page displayed" {
+			if got := record["msg"]; got != "Secret page displayed" {
 				t.Fatalf("message = %q", got)
 			}
 			if record["level"] != tc.level.String() || record["event"] != "secret.preview" {
@@ -62,6 +70,79 @@ func TestAuditJSONFormatterLevelsAndUTC(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuditUserActionsHaveVisibleMarkerAndStructuredCategory(t *testing.T) {
+	logger := log.StandardLogger()
+	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	var output bytes.Buffer
+	logger.SetOutput(&output)
+	logger.SetFormatter(NewAuditJSONFormatter())
+	logger.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		logger.SetOutput(oldOutput)
+		logger.SetFormatter(oldFormatter)
+		logger.SetLevel(oldLevel)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/private-token?password=private", nil)
+	request.RemoteAddr = "192.0.2.42:12345"
+	context := echo.New().NewContext(request, httptest.NewRecorder())
+	cases := []struct {
+		name, prefix, outcome, level string
+		emit                         func(*echo.Context, string, string)
+	}{
+		{"preview", "[INFO] [ACTION] ", "success", "info", AuditEvent},
+		{"denied", "[WARNING] [ACTION] ", "failure", "warning", AuditAlert},
+		{"failed", "[ERROR] [ACTION] ", "failure", "error", AuditError},
+		{"started", "[INFO] [ACTION] ", "started", "info", AuditStarted},
+	}
+	var requestID string
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			output.Reset()
+			tc.emit(context, "test."+tc.name, "Example action")
+			line := output.String()
+			if !strings.HasPrefix(line, tc.prefix) {
+				t.Fatalf("missing visible action prefix %q: %s", tc.prefix, line)
+			}
+			var record map[string]interface{}
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, tc.prefix)), &record); err != nil {
+				t.Fatalf("invalid JSON payload: %v", err)
+			}
+			if record["category"] != "user_action" || record["event"] != "test."+tc.name || record["outcome"] != tc.outcome || record["level"] != tc.level || record["msg"] != "Example action" {
+				t.Fatalf("unexpected action fields: %v", record)
+			}
+			id, ok := record["request_id"].(string)
+			if !ok || id == "" || (requestID != "" && id != requestID) {
+				t.Fatalf("invalid request correlation: %v", record["request_id"])
+			}
+			requestID = id
+			if strings.Contains(line, "private-token") || strings.Contains(line, "password=private") {
+				t.Fatal("concrete URL or query leaked into action log")
+			}
+		})
+	}
+}
+
+func TestAuditJSONFormatterCanBeUsedConcurrently(t *testing.T) {
+	formatter := NewAuditJSONFormatter()
+	var group sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for n := 0; n < 50; n++ {
+				entry := &log.Entry{Logger: log.New(), Data: log.Fields{"category": "user_action"}, Time: time.Now(), Level: log.InfoLevel, Message: "Action"}
+				line, err := formatter.Format(entry)
+				if err != nil || !bytes.HasPrefix(line, []byte("[INFO] [ACTION] ")) || !json.Valid(bytes.TrimPrefix(line, []byte("[INFO] [ACTION] "))) {
+					t.Errorf("invalid concurrent format: %s (%v)", line, err)
+					return
+				}
+			}
+		}()
+	}
+	group.Wait()
 }
 
 func TestAuditRequestFieldsUseTrustedIdentityAndServerRequestID(t *testing.T) {
