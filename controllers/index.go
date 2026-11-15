@@ -280,10 +280,7 @@ func AddIndex(context echo.Context) error {
 		deletableText = "deletable"
 		deletableURL = baseUrl + "remove/" + token
 	}
-	link, originalLink := shareLink(context, token, false)
-	if link != originalLink {
-		dataContext["originalLink"] = originalLink
-	}
+	link := shareLink(context, token, false)
 	p.PasswordKey = token
 	p.Link = link
 	p.Password = ""

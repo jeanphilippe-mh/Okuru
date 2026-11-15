@@ -3,7 +3,12 @@ package utils
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -34,6 +39,7 @@ func shortTestRedis(t *testing.T) (redis.Conn, redis.Conn, string) {
 	REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD = host, port, "10", ""
 	REDIS_PREFIX = "short_test_" + strings.ReplaceAll(uuid.NewString(), "-", "") + "_"
 	t.Setenv("OKURU_SHORTLINK_REDIS_DB", "11")
+	t.Setenv("OKURU_SHORTLINK_BITS", "")
 	t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "4096")
 	mainConn, err := redis.Dial("tcp", addr, redis.DialDatabase(10))
 	if err != nil {
@@ -87,11 +93,11 @@ func TestShortLinkEncryptedRoundTripAndExpiry(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create alias: %v", err)
 		}
-		if len(alias) != 43 {
-			t.Fatalf("alias length = %d, want 43", len(alias))
+		if len(alias) != 22 {
+			t.Fatalf("alias length = %d, want 22", len(alias))
 		}
-		if decoded, err := base64.RawURLEncoding.Strict().DecodeString(alias); err != nil || len(decoded) != 32 {
-			t.Fatal("alias is not a canonical 256-bit value")
+		if decoded, err := base64.RawURLEncoding.Strict().DecodeString(alias); err != nil || len(decoded) != 16 {
+			t.Fatal("alias is not a canonical 128-bit value")
 		}
 		another, err := CreateShortLink(context.Background(), token, isFile)
 		if err != nil || another == alias {
@@ -116,11 +122,11 @@ func TestShortLinkEncryptedRoundTripAndExpiry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		index, _, err := shortAliasMaterial(alias)
+		index, _, format, err := shortAliasMaterial(alias)
 		if err != nil {
 			t.Fatal(err)
 		}
-		aliasKey := shortStorageKey(index)
+		aliasKey := shortStorageKey(index, format)
 		aliasExpiry, err := redis.Int64(aliasConn.Do("PEXPIRETIME", aliasKey))
 		if err != nil || aliasExpiry != primaryExpiry {
 			t.Fatalf("alias expiry does not match original: %d != %d (%v)", aliasExpiry, primaryExpiry, err)
@@ -159,11 +165,11 @@ func TestShortLinkRejectsNonCanonicalAndWrongAliases(t *testing.T) {
 	}
 	alphabet := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	last := strings.IndexByte(alphabet, alias[len(alias)-1])
-	if last < 0 || last%4 != 0 {
+	if last < 0 || last%16 != 0 {
 		t.Fatal("unexpected base64 padding bits")
 	}
 	noncanonical := alias[:len(alias)-1] + string(alphabet[last+1])
-	for _, bad := range []string{"", alias + "=", alias[:42], "../" + alias, alias[:4] + "/" + alias[5:], noncanonical} {
+	for _, bad := range []string{"", alias + "=", alias[:len(alias)-1], "../" + alias, alias[:4] + "/" + alias[5:], noncanonical} {
 		if _, err := ResolveShortLink(context.Background(), bad); !errors.Is(err, ErrShortLinkNotFound) {
 			t.Fatalf("accepted invalid alias of length %d", len(bad))
 		}
@@ -176,6 +182,92 @@ func TestShortLinkRejectsNonCanonicalAndWrongAliases(t *testing.T) {
 	}
 	if _, err := ResolveShortLink(context.Background(), mutated); !errors.Is(err, ErrShortLinkNotFound) {
 		t.Fatal("unknown alias not rejected")
+	}
+}
+
+// This independently reconstructs the original deployed v1 storage format so
+// changing the configured strength cannot invalidate already-issued links.
+func TestShortLinkStrengthConfigurationAndRotation(t *testing.T) {
+	mainConn, aliasConn, _ := shortTestRedis(t)
+	token, httpErr := SetPassword("sample", 120, 2, false)
+	if httpErr != nil {
+		t.Fatal(httpErr)
+	}
+	aliases := make([]string, 0, 4)
+	for _, tc := range []struct {
+		setting string
+		length  int
+	}{
+		{"", 22},
+		{"128", 22},
+		{"256", 43},
+	} {
+		t.Setenv("OKURU_SHORTLINK_BITS", tc.setting)
+		alias, err := CreateShortLink(context.Background(), token, false)
+		if err != nil || len(alias) != tc.length {
+			t.Fatalf("setting %q returned alias length %d: %v", tc.setting, len(alias), err)
+		}
+		aliases = append(aliases, alias)
+	}
+
+	seed := bytes.Repeat([]byte{0x42}, 32)
+	legacyAlias := base64.RawURLEncoding.EncodeToString(seed)
+	index, err := hkdf.Key(sha256.New, seed, nil, "okuru/short-link/v1/lookup", 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := hkdf.Key(sha256.New, seed, nil, "okuru/short-link/v1/aes-256-gcm", 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aead, err := cipher.NewGCMWithRandomNonce(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aad := append([]byte("okuru/short-link/v1/record:"), index...)
+	ciphertext := aead.Seal(nil, nil, []byte("s"+token), aad)
+	id, _, err := ParseToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresAt, err := redis.Int64(mainConn.Do("PEXPIRETIME", REDIS_PREFIX+id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyKey := REDIS_PREFIX + "short_v1_" + hex.EncodeToString(index)
+	if _, err := aliasConn.Do("SET", legacyKey, ciphertext, "PXAT", expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	aliases = append(aliases, legacyAlias)
+
+	for _, setting := range []string{"128", "256", "", "invalid"} {
+		t.Setenv("OKURU_SHORTLINK_BITS", setting)
+		for _, alias := range aliases {
+			if got, err := ResolveShortLink(context.Background(), alias); err != nil || got != "/"+token {
+				t.Fatalf("setting %q could not resolve an existing alias: %v", setting, err)
+			}
+		}
+	}
+	for _, invalid := range []string{"129", " 128", "128 ", "garbage"} {
+		t.Setenv("OKURU_SHORTLINK_BITS", invalid)
+		if alias, err := CreateShortLink(context.Background(), token, false); err == nil || alias != "" {
+			t.Fatalf("invalid strength %q issued an alias", invalid)
+		}
+	}
+	actualExpiry, err := redis.Int64(aliasConn.Do("PEXPIRETIME", legacyKey))
+	if err != nil || actualExpiry != expiresAt {
+		t.Fatalf("legacy expiry changed: %v", err)
+	}
+	ciphertext[len(ciphertext)-1] ^= 1
+	if _, err := aliasConn.Do("SET", legacyKey, ciphertext, "KEEPTTL"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveShortLink(context.Background(), legacyAlias); !errors.Is(err, ErrShortLinkNotFound) {
+		t.Fatal("tampered legacy ciphertext was accepted")
 	}
 }
 
@@ -251,7 +343,7 @@ func TestShortLinkCanceledContextDoesNotIssueAlias(t *testing.T) {
 	if alias, err := CreateShortLink(ctx, token, false); err == nil || alias != "" {
 		t.Fatal("canceled creation returned an alias")
 	}
-	keys, err := redis.Strings(aliasConn.Do("KEYS", REDIS_PREFIX+"short_v1_*"))
+	keys, err := redis.Strings(aliasConn.Do("KEYS", REDIS_PREFIX+"short_v*_"+"*"))
 	if err != nil || len(keys) != 0 {
 		t.Fatal("canceled creation wrote alias metadata")
 	}
