@@ -20,6 +20,7 @@ controllers/upload_form_accessibility_test.go
 controllers/upload_security_test.go
 controllers/validation_test.go
 root/main_test.go
+root/output_pipeline_test.go
 root/tls_config_test.go
 router/advisory_regression_test.go
 router/echo_logging_test.go
@@ -38,6 +39,7 @@ utils/archive_crypto_compat_test.go
 utils/admission_rate_test.go
 utils/audit_logging_test.go
 utils/diagnostic_logging_test.go
+utils/log_supervisor_test.go
 utils/stderr_logging_test.go
 utils/client_identity_test.go
 utils/archive_crypto_password_test.go

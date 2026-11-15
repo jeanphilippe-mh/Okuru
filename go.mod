@@ -11,7 +11,6 @@ require (
 	github.com/gomodule/redigo v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v5 v5.4.6
-	github.com/labstack/gommon v0.5.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/spf13/pflag v1.1.0
 	golang.org/x/net v0.62.0
@@ -25,10 +24,6 @@ require (
 	github.com/go-playground/locales v0.14.2 // indirect
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
-	github.com/mattn/go-colorable v0.1.16 // indirect
-	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
