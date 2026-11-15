@@ -6,7 +6,6 @@ import (
 	"github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,6 +95,12 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		Debug: true,
 	}
 	e := echo.New()
+	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			utils.AuditRequestID(c)
+			return next(c)
+		}
+	})
 	e.Pre(shortLinkHeaders)
 	e.Pre(removeTrailingSlash)
 	e.Renderer = renderer
@@ -107,24 +112,12 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		log.Fatal(err)
 	}
 
-	// Protect parsing, including CSRF form extraction, before entering middleware.
-	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))
-
-	// Middleware BodyLimit
-	// Set the request body size limit to 1024MB to reflect ModSecurity - OWASP (WAF) setup.
-	e.Use(middleware.BodyLimit(maxUploadBodyBytes))
-
-	// Middleware RequestLogger (for Echo 4.14+)
-	slogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
-	slogger := slog.New(slogHandler)
-
+	// Capture rejected requests as well as successful ones. This middleware
+	// does not read the request body; size and upload admission remain inside it.
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		HandleError: true,
 
 		LogLatency:       true,
-		LogRemoteIP:      true,
 		LogHost:          true,
 		LogMethod:        true,
 		LogURI:           false,
@@ -134,27 +127,36 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		LogUserAgent:     true,
 
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
-			errMsg := ""
+			fields := utils.AuditRequestFields(c)
+			fields["event"] = "http.request"
+			fields["started_at"] = v.StartTime.UTC().Format(time.RFC3339Nano)
+			fields["host"] = boundedLogText(v.Host, maxLoggedHostBytes)
+			fields["status"] = v.Status
+			fields["duration_ms"] = float64(v.Latency.Microseconds()) / 1000
+			fields["bytes_in"] = boundedLogText(v.ContentLength, maxLoggedLengthBytes)
+			fields["bytes_out"] = v.ResponseSize
+			fields["user_agent"] = boundedLogText(v.UserAgent, maxLoggedUserAgentBytes)
 			if v.Error != nil {
-				errMsg = safeLogError(v.Error)
+				fields["error"] = safeLogError(v.Error)
 			}
-
-			slogger.LogAttrs(c.Request().Context(), slog.LevelInfo, "http_request",
-				slog.String("time", v.StartTime.UTC().Format(time.RFC3339Nano)),
-				slog.String("remote_ip", boundedLogText(v.RemoteIP, maxLoggedRemoteIPBytes)),
-				slog.String("host", boundedLogText(v.Host, maxLoggedHostBytes)),
-				slog.String("method", boundedLogText(v.Method, maxLoggedMethodBytes)),
-				slog.String("route", safeLogRoute(c)),
-				slog.Int("status", v.Status),
-				slog.String("error", errMsg),
-				slog.String("latency_human", v.Latency.String()),
-				slog.String("bytes_in", boundedLogText(v.ContentLength, maxLoggedLengthBytes)),
-				slog.Int64("bytes_out", v.ResponseSize),
-				slog.String("user_agent", boundedLogText(v.UserAgent, maxLoggedUserAgentBytes)),
-			)
+			entry := log.WithFields(fields)
+			switch {
+			case v.Status >= 500:
+				entry.Error("HTTP request completed")
+			case v.Status >= 400:
+				entry.Warn("HTTP request completed")
+			default:
+				entry.Info("HTTP request completed")
+			}
 			return nil
 		},
 	}))
+
+	// Protect parsing, including CSRF form extraction, before entering middleware.
+	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))
+
+	// Keep the established upload body limit before multipart and CSRF parsing.
+	e.Use(middleware.BodyLimit(maxUploadBodyBytes))
 
 	// Parse multipart file bodies without writing plaintext, before CSRF's
 	// FormValue lookup can invoke the standard multipart parser.

@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
+	log "github.com/sirupsen/logrus"
 )
 
 func TestSensitiveURLsAreNotLogged(t *testing.T) {
@@ -32,6 +36,103 @@ func TestSensitiveURLsAreNotLogged(t *testing.T) {
 	}
 	if safeLogError(echo.NewHTTPError(400, "private-payload")) != "Bad Request" {
 		t.Fatal("HTTP error body logged")
+	}
+}
+
+// Exercise the production middleware chain, including the request-size
+// rejection which runs before CSRF, without a Redis dependency.
+func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "")
+	logger := log.StandardLogger()
+	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	var output bytes.Buffer
+	logger.SetOutput(&output)
+	logger.SetFormatter(utils.NewAuditJSONFormatter())
+	logger.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		logger.SetOutput(oldOutput)
+		logger.SetFormatter(oldFormatter)
+		logger.SetLevel(oldLevel)
+	})
+
+	e := New()
+	e.GET("/audit-test/:token", func(c *echo.Context) error {
+		utils.AuditEvent(c, "test.operation", "Test operation completed")
+		return c.NoContent(http.StatusNoContent)
+	})
+	const secret = "private-token-should-not-appear"
+	const forgedID = "attacker-request-id"
+	good := httptest.NewRequest(http.MethodGet, "/audit-test/"+secret+"?password="+secret, nil)
+	good.RemoteAddr = "198.51.100.27:1234"
+	good.Header.Set("X-Request-ID", forgedID)
+	good.Header.Set("X-Forwarded-For", "203.0.113.99")
+	goodResult := httptest.NewRecorder()
+	e.ServeHTTP(goodResult, good)
+	if goodResult.Code != http.StatusNoContent {
+		t.Fatalf("unexpected test-route status: %d", goodResult.Code)
+	}
+
+	oversized := httptest.NewRequest(http.MethodPost, "/api/v1?password="+secret, strings.NewReader(strings.Repeat("x", maxSmallRequestBytes+1)))
+	oversized.RemoteAddr = "198.51.100.27:1235"
+	oversized.Header.Set("X-Request-ID", forgedID)
+	oversizedResult := httptest.NewRecorder()
+	e.ServeHTTP(oversizedResult, oversized)
+	if oversizedResult.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized request status = %d, want 413", oversizedResult.Code)
+	}
+
+	contents := output.String()
+	for _, forbidden := range []string{secret, forgedID, "/audit-test/" + secret, "203.0.113.99"} {
+		if strings.Contains(contents, forbidden) {
+			t.Errorf("logs contain an untrusted or sensitive value %q", forbidden)
+		}
+	}
+	var operationID, successfulID, rejectedID string
+	requests := 0
+	for _, line := range strings.Split(strings.TrimSpace(contents), "\n") {
+		if line == "" {
+			continue
+		}
+		var record map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("invalid structured log: %v", err)
+		}
+		event, _ := record["event"].(string)
+		if event != "http.request" && event != "test.operation" {
+			continue
+		}
+		id, ok := record["request_id"].(string)
+		if !ok || id == forgedID {
+			t.Fatalf("invalid request identifier: %v", record["request_id"])
+		}
+		if _, err := uuid.Parse(id); err != nil {
+			t.Fatalf("request identifier is not a UUID: %v", err)
+		}
+		if record["client_ip"] != "198.51.100.27" || record["peer_ip"] != "198.51.100.27" || record["client_ip_source"] != "peer" {
+			t.Errorf("direct request attributed incorrectly: %v", record)
+		}
+		if event == "test.operation" {
+			operationID = id
+			continue
+		}
+		requests++
+		switch record["status"] {
+		case float64(http.StatusNoContent):
+			successfulID = id
+			if record["route"] != "/audit-test/:token" || record["level"] != "info" {
+				t.Errorf("successful request logged incorrectly: %v", record)
+			}
+		case float64(http.StatusRequestEntityTooLarge):
+			rejectedID = id
+			if record["route"] != "/api/v1" || record["level"] != "warning" {
+				t.Errorf("rejected request logged incorrectly: %v", record)
+			}
+		default:
+			t.Errorf("unexpected logged status: %v", record["status"])
+		}
+	}
+	if requests != 2 || operationID == "" || successfulID != operationID || rejectedID == "" || rejectedID == successfulID {
+		t.Fatalf("unexpected request correlation: requests=%d operation=%q success=%q rejected=%q", requests, operationID, successfulID, rejectedID)
 	}
 }
 
