@@ -2,7 +2,7 @@ package utils
 
 import (
 	"github.com/flosch/pongo2"
-	"github.com/labstack/gommon/log"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -88,22 +88,6 @@ func init() {
 	}
 	MaxFileSize = MaxFileSize * 1024 * 1024 // bytes to megabytes
 
-	log.Debugf("REDIS_HOST : %+v\n", REDIS_HOST)
-	log.Debug("REDIS_PASSWORD configured: ", REDIS_PASSWORD != "")
-	log.Debugf("REDIS_PORT : %+v\n", REDIS_PORT)
-	log.Debugf("REDIS_DB : %+v\n", REDIS_DB)
-	log.Debugf("REDIS_PREFIX : %+v\n", REDIS_PREFIX)
-	log.Debugf("TOKEN_SEPARATOR : %+v\n", TOKEN_SEPARATOR)
-	log.Debugf("NO_SSL : %+v\n", NO_SSL)
-	log.Debugf("File folder : %+v\n", FILEFOLDER)
-	log.Debugf("APP_PORT : %+v\n", APP_PORT)
-	log.Debugf("COPYRIGHT : %+v\n", COPYRIGHT)
-	log.Debugf("LOGO : %+v\n", LOGO)
-	log.Debugf("DISCLAIMER : %+v\n", DISCLAIMER)
-	log.Debugf("APP_NAME : %+v\n", APP_NAME)
-	log.Debugf("ZIP_COMPRESSION : %+v\n", ZIP_COMPRESSION)
-	log.Debugf("ZIP_AUTO_THRESHOLD_MB : %+v\n", ZIP_AUTO_THRESHOLD_MB)
-
 	// Init data context that'll be passed to render to avoid creating it every time for those "global" variable
 	baseDataContext = pongo2.Context{
 		"logo":       LOGO,
@@ -121,4 +105,26 @@ func NewDataContext() pongo2.Context {
 		data[key] = value
 	}
 	return data
+}
+
+// LogConfiguration emits non-sensitive settings after application logging is
+// configured. Arbitrary environment values and credentials are never logged.
+func LogConfiguration() {
+	fields := log.Fields{
+		"event":                     "configuration.loaded",
+		"redis_password_configured": REDIS_PASSWORD != "",
+		"no_ssl":                    NO_SSL,
+		"max_file_size_bytes":       MaxFileSize,
+	}
+	if db, err := strconv.Atoi(REDIS_DB); err == nil && db >= 0 {
+		fields["redis_db"] = db
+	}
+	if port, err := strconv.Atoi(APP_PORT); err == nil && port > 0 && port <= 65535 {
+		fields["app_port"] = port
+	}
+	switch ZIP_COMPRESSION {
+	case "store", "deflate", "auto":
+		fields["zip_compression"] = ZIP_COMPRESSION
+	}
+	log.WithFields(fields).Debug("Environment configuration loaded")
 }

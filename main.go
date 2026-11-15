@@ -34,7 +34,7 @@ func Flags() {
 }
 
 func configureLogging() {
-	// Keep structured JSON and an explicit severity in every message.
+	// Keep severity visible before each structured JSON payload.
 	log.SetFormatter(NewAuditJSONFormatter())
 
 	// Output to stdout instead of the default stderr.
@@ -46,7 +46,7 @@ func configureLogging() {
 	} else {
 		log.SetLevel(log.InfoLevel)
 	}
-
+	LogConfiguration()
 }
 
 type httpTimeouts struct {
