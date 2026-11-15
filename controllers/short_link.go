@@ -62,7 +62,7 @@ func redirectShortLink(c echo.Context, alias string) error {
 
 // shareLink returns the existing URL when short-link creation is disabled or
 // unavailable, without making a successfully created secret inaccessible.
-func shareLink(c echo.Context, token string, isFile bool) (string, string) {
+func shareLink(c echo.Context, token string, isFile bool) string {
 	longPath := "/" + token
 	if isFile {
 		longPath = "/file/" + token
@@ -70,14 +70,14 @@ func shareLink(c echo.Context, token string, isFile bool) (string, string) {
 	origin, ok := shortLinkPublicOrigin(os.Getenv("OKURU_SHORTLINK_PUBLIC_ORIGIN"))
 	if !ok {
 		base := GetBaseUrl(c)
-		return base + longPath, base + longPath
+		return base + longPath
 	}
 	original := origin + longPath
 	alias, err := CreateShortLink(c.Request().Context(), token, isFile)
 	if err != nil {
-		return original, original
+		return original
 	}
-	return origin + "/" + alias, original
+	return origin + "/" + alias
 }
 
 // sharePublicOrigin keeps the historical origin when short-link configuration

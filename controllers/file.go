@@ -720,11 +720,7 @@ func AddFile(context echo.Context) error {
 		deletableURL = baseURL + "remove/" + fileToken
 	}
 	f.FileKey = ""
-	fileLink, originalFileLink := shareLink(context, fileToken, true)
-	f.Link = fileLink
-	if fileLink != originalFileLink {
-		dataContext["originalFileLink"] = originalFileLink
-	}
+	f.Link = shareLink(context, fileToken, true)
 	f.Password = ""
 	dataContext["f"] = f
 	dataContext["ttl"] = GetTTLText(f.TTL)
@@ -733,11 +729,7 @@ func AddFile(context echo.Context) error {
 	dataContext["deletableText"] = deletableText
 	dataContext["deletableURL"] = deletableURL
 	if provided {
-		passwordLink, originalPasswordLink := shareLink(context, passwordToken, false)
-		dataContext["passwordLink"] = passwordLink
-		if passwordLink != originalPasswordLink {
-			dataContext["originalPasswordLink"] = originalPasswordLink
-		}
+		dataContext["passwordLink"] = shareLink(context, passwordToken, false)
 	} else {
 		dataContext["passwordLink"] = ""
 	}

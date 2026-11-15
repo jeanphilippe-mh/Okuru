@@ -25,22 +25,32 @@ import (
 var ErrShortLinkNotFound = errors.New("short link not found")
 
 const (
-	shortAliasSize           = 32
-	shortAliasLength         = 43
+	shortAliasSize           = 16
+	shortAliasLength         = 22
+	shortLegacyAliasSize     = 32
+	shortLegacyAliasLength   = 43
 	shortMaxTokenLength      = 512
 	shortMaxCiphertextLength = 1024
 	shortMaxKeys             = 4096
-	shortLookupInfo          = "okuru/short-link/v1/lookup"
-	shortCipherInfo          = "okuru/short-link/v1/aes-256-gcm"
-	shortAADPrefix           = "okuru/short-link/v1/record:"
+)
+
+type shortAliasFormat struct {
+	size, length                      int
+	lookupInfo, cipherInfo, aadPrefix string
+	storagePrefix                     string
+}
+
+var (
+	shortFormatV1 = shortAliasFormat{shortLegacyAliasSize, shortLegacyAliasLength, "okuru/short-link/v1/lookup", "okuru/short-link/v1/aes-256-gcm", "okuru/short-link/v1/record:", "short_v1_"}
+	shortFormatV2 = shortAliasFormat{shortAliasSize, shortAliasLength, "okuru/short-link/v2/lookup", "okuru/short-link/v2/aes-256-gcm", "okuru/short-link/v2/record:", "short_v2_"}
 )
 
 // IsShortLinkCandidate recognizes the reserved root-segment shape. Validation
 // of the canonical Base64URL encoding remains the resolver's responsibility.
 // Existing password tokens contain a UUID, a separator and a Fernet key, so
-// their length cannot overlap this 43-character namespace.
+// their length cannot overlap either alias namespace.
 func IsShortLinkCandidate(value string) bool {
-	if len(value) != shortAliasLength {
+	if len(value) != shortAliasLength && len(value) != shortLegacyAliasLength {
 		return false
 	}
 	for i := 0; i < len(value); i++ {
@@ -117,39 +127,45 @@ func CloseShortLinkPool() error {
 	return err
 }
 
-func shortAliasMaterial(alias string) ([]byte, cipher.AEAD, error) {
-	if len(alias) != shortAliasLength {
-		return nil, nil, ErrShortLinkNotFound
+func shortAliasMaterial(alias string) ([]byte, cipher.AEAD, shortAliasFormat, error) {
+	var format shortAliasFormat
+	switch len(alias) {
+	case shortLegacyAliasLength:
+		format = shortFormatV1
+	case shortAliasLength:
+		format = shortFormatV2
+	default:
+		return nil, nil, format, ErrShortLinkNotFound
 	}
 	seed, err := base64.RawURLEncoding.Strict().DecodeString(alias)
-	if err != nil || len(seed) != shortAliasSize || base64.RawURLEncoding.EncodeToString(seed) != alias {
-		return nil, nil, ErrShortLinkNotFound
+	if err != nil || len(seed) != format.size || base64.RawURLEncoding.EncodeToString(seed) != alias {
+		return nil, nil, format, ErrShortLinkNotFound
 	}
-	index, err := hkdf.Key(sha256.New, seed, nil, shortLookupInfo, 32)
+	index, err := hkdf.Key(sha256.New, seed, nil, format.lookupInfo, 32)
 	if err != nil {
-		return nil, nil, errors.New("short link key derivation failed")
+		return nil, nil, format, errors.New("short link key derivation failed")
 	}
-	key, err := hkdf.Key(sha256.New, seed, nil, shortCipherInfo, 32)
+	key, err := hkdf.Key(sha256.New, seed, nil, format.cipherInfo, 32)
 	if err != nil {
-		return nil, nil, errors.New("short link key derivation failed")
+		return nil, nil, format, errors.New("short link key derivation failed")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, nil, errors.New("short link cipher failed")
+		return nil, nil, format, errors.New("short link cipher failed")
 	}
 	aead, err := cipher.NewGCMWithRandomNonce(block)
 	if err != nil {
-		return nil, nil, errors.New("short link cipher failed")
+		return nil, nil, format, errors.New("short link cipher failed")
 	}
-	return index, aead, nil
+	return index, aead, format, nil
 }
 
-func shortStorageKey(index []byte) string {
-	return REDIS_PREFIX + "short_v1_" + hex.EncodeToString(index)
+func shortStorageKey(index []byte, format shortAliasFormat) string {
+	return REDIS_PREFIX + format.storagePrefix + hex.EncodeToString(index)
 }
-func shortAAD(index []byte) []byte {
-	aad := make([]byte, 0, len(shortAADPrefix)+len(index))
-	aad = append(aad, shortAADPrefix...)
+func shortAAD(index []byte, format shortAliasFormat) []byte {
+	aad := make([]byte, 0, len(format.aadPrefix)+len(index))
+	aad = append(aad, format.aadPrefix...)
 	return append(aad, index...)
 }
 
@@ -197,6 +213,17 @@ func CreateShortLink(parent context.Context, token string, isFile bool) (string,
 	if err != nil {
 		return "", errors.New("invalid share token")
 	}
+	// Do not silently select a different strength for a malformed setting.
+	// Resolution is independent of this setting and supports both versions.
+	var seedSize int
+	switch os.Getenv("OKURU_SHORTLINK_BITS") {
+	case "", "128":
+		seedSize = shortAliasSize
+	case "256":
+		seedSize = shortLegacyAliasSize
+	default:
+		return "", errors.New("invalid short link strength")
+	}
 	pool, err := shortPool()
 	if err != nil {
 		return "", err
@@ -226,20 +253,20 @@ func CreateShortLink(parent context.Context, token string, isFile bool) (string,
 	}
 	defer conn.Close()
 	for attempt := 0; attempt < 3; attempt++ {
-		var seed [shortAliasSize]byte
-		if _, err := rand.Read(seed[:]); err != nil {
+		seed := make([]byte, seedSize)
+		if _, err := rand.Read(seed); err != nil {
 			return "", errors.New("short link randomness unavailable")
 		}
-		alias := base64.RawURLEncoding.EncodeToString(seed[:])
-		index, aead, err := shortAliasMaterial(alias)
+		alias := base64.RawURLEncoding.EncodeToString(seed)
+		index, aead, format, err := shortAliasMaterial(alias)
 		if err != nil {
 			return "", errors.New("short link creation failed")
 		}
 		plaintext := make([]byte, 1, 1+len(token))
 		plaintext[0] = kind
 		plaintext = append(plaintext, token...)
-		ciphertext := aead.Seal(nil, nil, plaintext, shortAAD(index))
-		result, err := redis.Int(shortCreateScript.DoContext(ctx, conn, shortStorageKey(index), ciphertext, expiresAt, shortMaxKeys))
+		ciphertext := aead.Seal(nil, nil, plaintext, shortAAD(index, format))
+		result, err := redis.Int(shortCreateScript.DoContext(ctx, conn, shortStorageKey(index, format), ciphertext, expiresAt, shortMaxKeys))
 		if err != nil {
 			return "", errors.New("short link storage unavailable")
 		}
@@ -267,7 +294,7 @@ return redis.call('GET', KEYS[1])
 // ResolveShortLink returns a same-origin relative path and never fetches it.
 // Wrong aliases, missing entries and altered ciphertext are indistinguishable.
 func ResolveShortLink(parent context.Context, alias string) (string, error) {
-	index, aead, err := shortAliasMaterial(alias)
+	index, aead, format, err := shortAliasMaterial(alias)
 	if err != nil {
 		return "", ErrShortLinkNotFound
 	}
@@ -282,7 +309,7 @@ func ResolveShortLink(parent context.Context, alias string) (string, error) {
 		return "", errors.New("short link storage unavailable")
 	}
 	defer conn.Close()
-	ciphertext, err := redis.Bytes(shortResolveScript.DoContext(ctx, conn, shortStorageKey(index), shortMaxCiphertextLength))
+	ciphertext, err := redis.Bytes(shortResolveScript.DoContext(ctx, conn, shortStorageKey(index, format), shortMaxCiphertextLength))
 	if errors.Is(err, redis.ErrNil) {
 		return "", ErrShortLinkNotFound
 	}
@@ -292,7 +319,7 @@ func ResolveShortLink(parent context.Context, alias string) (string, error) {
 	if len(ciphertext) == 0 || len(ciphertext) > shortMaxCiphertextLength {
 		return "", ErrShortLinkNotFound
 	}
-	plaintext, err := aead.Open(nil, nil, ciphertext, shortAAD(index))
+	plaintext, err := aead.Open(nil, nil, ciphertext, shortAAD(index, format))
 	if err != nil || len(plaintext) < 2 || len(plaintext) > shortMaxTokenLength+1 {
 		return "", ErrShortLinkNotFound
 	}
