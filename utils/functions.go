@@ -187,10 +187,7 @@ func SetPassword(password string, ttl, views int, deletable bool) (string, *echo
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Password was created by a user while an associated key has been stored in Redis /\n")
-
 	if !Ping(c) {
-		println("Ping failed")
 		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 	}
 
@@ -226,8 +223,6 @@ func RetrievePassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Password has been retrieved by a viewver /\n")
-
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
@@ -267,8 +262,6 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Password key was called from Redis and Secret page has been returned to a viewver /\n")
-
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
@@ -325,8 +318,6 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ Password key has been removed from Redis /\n")
-
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
@@ -442,8 +433,6 @@ func SetFile(password string, ttl, views int, deletable, provided bool, provided
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File was uploaded by a user while an associated key has been stored in Redis /\n")
-
 	if !Ping(c) {
 		return "", echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
@@ -484,8 +473,6 @@ func RetrieveFilePassword(f *models.File) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File has been downloaded by a viewver/\n")
-
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
@@ -527,8 +514,6 @@ func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 	pool := NewPool()
 	c := pool.Get()
 	defer c.Close()
-	println("\n/ File key was called from Redis and Secret File page has been returned to a viewver /\n")
-
 	if !Ping(c) {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}

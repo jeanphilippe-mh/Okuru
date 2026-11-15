@@ -52,13 +52,18 @@ func ReadPassword(context *echo.Context) error {
 	}
 	err := RetrievePassword(p)
 	if err != nil {
+		AuditAlert(context, "secret.reveal_unavailable", "Secret retrieval unavailable")
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
 	// Empty var so json response don't have them.
 	p.Token = []byte("")
 	p.PasswordKey = ""
-	return context.JSON(http.StatusOK, p)
+	if err := context.JSON(http.StatusOK, p); err != nil {
+		return err
+	}
+	AuditEvent(context, "secret.reveal", "Secret response written")
+	return nil
 }
 
 /**
@@ -92,11 +97,13 @@ func CreatePassword(context *echo.Context) (err error) {
 
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
 	if err2 != nil {
+		AuditError(context, "secret.create_failed", "Secret creation failed")
 		if err2.Code == http.StatusServiceUnavailable {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
+	AuditEvent(context, "secret.create", "Secret created")
 
 	baseUrl := GetBaseUrl(context) + "/"
 	p.PasswordKey = token
@@ -124,6 +131,9 @@ func DeletePassword(context *echo.Context) error {
 	err := RemovePassword(p)
 	var status int
 	if err != nil {
+		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
+			AuditAlert(context, "secret.delete_unavailable", "Secret deletion unavailable")
+		}
 		status = err.Code
 	} else {
 		status = http.StatusOK
@@ -131,6 +141,7 @@ func DeletePassword(context *echo.Context) error {
 	if status >= 400 {
 		return echo.NewHTTPError(status, http.StatusText(status))
 	}
+	AuditEvent(context, "secret.delete", "Secret deleted")
 	return context.NoContent(status)
 }
 

@@ -7,7 +7,6 @@ import (
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
-	log "github.com/sirupsen/logrus"
 )
 
 func Index(context *echo.Context) error {
@@ -139,7 +138,9 @@ func ReadIndex(context *echo.Context) error {
 
 	err := GetPassword(p)
 	if err != nil {
-		log.Error("Secret metadata retrieval failed")
+		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
+			AuditAlert(context, "secret.preview_unavailable", "Secret preview unavailable")
+		}
 		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
 
@@ -162,7 +163,11 @@ func ReadIndex(context *echo.Context) error {
 	dataContext["deletableText"] = deletableText
 	dataContext["deletableURL"] = deletableURL
 
-	return context.Render(http.StatusOK, "password.html", dataContext)
+	if err := context.Render(http.StatusOK, "password.html", dataContext); err != nil {
+		return err
+	}
+	AuditEvent(context, "secret.preview", "Secret preview rendered")
+	return nil
 }
 
 func RevealPassword(context *echo.Context) error {
@@ -171,7 +176,6 @@ func RevealPassword(context *echo.Context) error {
 	csrfToken := context.Get("csrf")
 	dataContext["csrfToken"] = csrfToken
 
-	println("\n/ Password has been revealed by a viewver /\n")
 	p := new(Password)
 	p.PasswordKey = context.Param("password_key")
 	if p.PasswordKey == "" {
@@ -189,11 +193,17 @@ func RevealPassword(context *echo.Context) error {
 
 	err := RetrievePassword(p)
 	if err != nil {
-		log.Errorf("%+v\n", err)
+		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
+			AuditAlert(context, "secret.reveal_unavailable", "Secret retrieval unavailable")
+		}
 		return context.NoContent(http.StatusNotFound)
 	}
 
-	return context.String(200, p.Password)
+	if err := context.String(http.StatusOK, p.Password); err != nil {
+		return err
+	}
+	AuditEvent(context, "secret.reveal", "Secret response written")
+	return nil
 }
 
 func AddIndex(context *echo.Context) error {
@@ -213,14 +223,14 @@ func AddIndex(context *echo.Context) error {
 
 	p.TTL, err = ParseWebNumber(context.FormValue("ttl"))
 	if err != nil {
-		log.Warn("Invalid duration field")
+		AuditAlert(context, "request.invalid_duration", "Invalid duration field")
 		dataContext["errors"] = "Invalid duration"
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
 
 	p.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
 	if err != nil {
-		log.Warn("Invalid attempt count field")
+		AuditAlert(context, "request.invalid_attempt_count", "Invalid attempt count field")
 		dataContext["errors"] = "Invalid attempt count"
 		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
 	}
@@ -236,7 +246,7 @@ func AddIndex(context *echo.Context) error {
 	}
 
 	if err := context.Validate(p); err != nil {
-		log.Errorf("%+v\n", err)
+		AuditAlert(context, "secret.invalid_metadata", "Invalid secret metadata")
 		dataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
 		return context.Render(http.StatusOK, "set_password.html", dataContext)
 	}
@@ -260,6 +270,7 @@ func AddIndex(context *echo.Context) error {
 	// Need to use err2 since it's not an error but an http error and it don't return nil otherwise.
 	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
 	if err2 != nil {
+		AuditError(context, "secret.create_failed", "Secret creation failed")
 		if err2.Code == http.StatusServiceUnavailable {
 			dataContext["errors"] = "Secret storage is temporarily unavailable"
 			return context.Render(http.StatusServiceUnavailable, "set_password.html", dataContext)
@@ -267,6 +278,7 @@ func AddIndex(context *echo.Context) error {
 		dataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
 		return context.Render(http.StatusOK, "set_password.html", dataContext)
 	}
+	AuditEvent(context, "secret.create", "Secret created")
 
 	var (
 		deletableText,
@@ -311,9 +323,13 @@ func DeleteIndex(context *echo.Context) error {
 	err := RemovePassword(p)
 	var status int
 	if err != nil {
+		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
+			AuditAlert(context, "secret.delete_unavailable", "Secret deletion unavailable")
+		}
 		status = err.Code
 		return context.Render(status, "403.html", dataContext)
 	} else {
+		AuditEvent(context, "secret.delete", "Secret deleted")
 		dataContext["type"] = "Password"
 		return context.Render(http.StatusOK, "removed.html", dataContext)
 	}
