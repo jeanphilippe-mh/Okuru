@@ -35,7 +35,7 @@ test('tmpfiles initialization preserves an existing file and rejects symlinks', 
   const file = path.join(directory, 'okuru.log');
   // The temporary path is controlled by this test, so the privileged unit
   // preparation can be exercised without touching /var/log or using sudo.
-  assert.match(file, /^\/[A-Za-z0-9/_-]+$/);
+  assert.match(file, /^\/[A-Za-z0-9/_.-]+$/);
   const prepare = prepCommand
     .replaceAll('/var/log/okuru.log', file)
     .replace(':freebox :freebox', `:${process.getuid()} :${process.getgid()}`);
