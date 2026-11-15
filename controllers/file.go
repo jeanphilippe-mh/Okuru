@@ -146,7 +146,9 @@ func ReadFile(context *echo.Context) error {
 
 	err := GetFile(f)
 	if err != nil {
-		log.Error("File metadata retrieval failed")
+		if _, _, parseErr := ParseToken(f.FileKey); parseErr == nil {
+			AuditAlert(context, "file.preview_unavailable", "File preview unavailable")
+		}
 		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
 
@@ -174,7 +176,11 @@ func ReadFile(context *echo.Context) error {
 		dataContext["passwordNeeded"] = false
 	}
 
-	return context.Render(http.StatusOK, "file.html", dataContext)
+	if err := context.Render(http.StatusOK, "file.html", dataContext); err != nil {
+		return err
+	}
+	AuditEvent(context, "file.preview", "File preview rendered")
+	return nil
 }
 
 // ArchiveNameFromToken reconstructs a filename from a canonical UUID rather than carrying user-supplied path components into the filesystem operation.
@@ -262,6 +268,7 @@ func DownloadFile(context *echo.Context) error {
 	// burns a recipient's last attempt while waiting for another derivation.
 	preview := &File{FileKey: f.FileKey}
 	if previewErr := GetFile(preview); previewErr != nil {
+		AuditAlert(context, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 	var releaseKDF func()
@@ -293,7 +300,7 @@ func DownloadFile(context *echo.Context) error {
 		}()
 	}
 	if retrieveErr != nil {
-		log.Error("File metadata retrieval failed")
+		AuditAlert(context, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 	// The authenticated record must be the same one whose format determined
@@ -303,6 +310,7 @@ func DownloadFile(context *echo.Context) error {
 	}
 
 	wrongPassword := func() error {
+		AuditAlert(context, "file.password_invalid", "File password verification failed")
 		// A wrong password consumes a view, including when the archive itself
 		// verifies the password instead of comparing stored metadata.
 		f.Password = ""
@@ -367,6 +375,7 @@ func DownloadFile(context *echo.Context) error {
 		MaxAge: lifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 	archive.etag = sessionETag(archive.etag, value)
+	AuditStarted(context, "file.download_started", "File download started")
 	if f.ArchiveFormat == "" {
 		// Preserve net/http's existing Range and conditional-request behavior
 		// for original unencrypted ZIPs, including authenticated POST ranges.
@@ -569,7 +578,11 @@ func AddFile(context *echo.Context) error {
 	dataContext["csrfToken"] = context.Get("csrf")
 	dataContext["maxFileSize"] = MaxFileSize
 	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
+	failureDetail := "File upload failed"
 	fail := func(status int, message string) error {
+		if status >= http.StatusInternalServerError {
+			AuditError(context, "file.upload_failed", failureDetail)
+		}
 		dataContext["errors"] = displayError(message)
 		return context.Render(status, "index_file.html", dataContext)
 	}
@@ -581,12 +594,12 @@ func AddFile(context *echo.Context) error {
 	}
 	f.TTL, err = ParseWebNumber(context.FormValue("ttl"))
 	if err != nil {
-		log.Warn("Invalid duration field")
+		AuditAlert(context, "request.invalid_duration", "Invalid duration field")
 		return fail(http.StatusBadRequest, "Invalid duration")
 	}
 	f.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
 	if err != nil {
-		log.Warn("Invalid attempt count field")
+		AuditAlert(context, "request.invalid_attempt_count", "Invalid attempt count field")
 		return fail(http.StatusBadRequest, "Invalid attempt count")
 	}
 	if err := ValidateWebLimits(f.TTL, f.Views); err != nil {
@@ -594,7 +607,7 @@ func AddFile(context *echo.Context) error {
 	}
 	f.Deletable = context.FormValue("deletable") == "on"
 	if err := context.Validate(f); err != nil {
-		log.Warn("Invalid upload metadata")
+		AuditAlert(context, "file.invalid_metadata", "Invalid upload metadata")
 		return fail(http.StatusBadRequest, "Invalid upload metadata")
 	}
 
@@ -615,7 +628,7 @@ func AddFile(context *echo.Context) error {
 	// The temporary directory is excluded from UUID.zip reconciliation.
 	stage, err := CreateLockedStagingDir(FILEFOLDER, ".okuru-upload-")
 	if err != nil {
-		log.Error("Failed to prepare upload")
+		failureDetail = "Failed to prepare upload"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
 	defer func() {
@@ -657,12 +670,12 @@ func AddFile(context *echo.Context) error {
 			context.Response().Header().Set("Retry-After", "1")
 			return fail(http.StatusServiceUnavailable, "Archive password processing is busy")
 		}
-		log.Error("Failed to create encrypted upload archive")
+		failureDetail = "Failed to create encrypted upload archive"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
 	// Remove the encrypted upload staging before confirming success.
 	if err := form.Close(); err != nil {
-		log.Error("Failed to remove encrypted multipart staging")
+		failureDetail = "Failed to remove encrypted multipart staging"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
 	f.TTL = GetTtlSeconds(f.TTL)
@@ -705,13 +718,13 @@ func AddFile(context *echo.Context) error {
 	// A hard link atomically publishes on the same filesystem without ever
 	// overwriting an existing archive. Metadata already exists for cleanup.
 	if err := os.Link(temporaryArchive, candidateArchive); err != nil {
-		log.Error("Failed to publish upload archive")
+		failureDetail = "Failed to publish upload archive"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
 	finalArchive = candidateArchive
 	// Remove the temporary encrypted archive after publication.
 	if err := stage.Close(); err != nil {
-		log.Error("Failed to remove upload temporary directory")
+		failureDetail = "Failed to remove upload temporary directory"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
 	baseURL := sharePublicOrigin(context) + "/file/"
@@ -738,6 +751,7 @@ func AddFile(context *echo.Context) error {
 		return err
 	}
 	published = true
+	AuditEvent(context, "file.upload", "File archive published")
 	return nil
 }
 func DeleteFile(context *echo.Context) error {
@@ -756,9 +770,13 @@ func DeleteFile(context *echo.Context) error {
 	err := RemoveFile(f)
 	var status int
 	if err != nil {
+		if _, _, parseErr := ParseToken(f.FileKey); parseErr == nil {
+			AuditAlert(context, "file.delete_unavailable", "File deletion unavailable")
+		}
 		status = err.Code
 		return context.Render(status, "403.html", dataContext)
 	} else {
+		AuditEvent(context, "file.delete", "File deleted")
 		dataContext["type"] = "File"
 		return context.Render(http.StatusOK, "removed.html", dataContext)
 	}
