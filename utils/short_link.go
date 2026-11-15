@@ -1,0 +1,311 @@
+package utils
+
+import (
+	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"net"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fernet/fernet-go"
+	"github.com/gomodule/redigo/redis"
+)
+
+// ErrShortLinkNotFound covers invalid, absent, expired and unauthentic aliases.
+var ErrShortLinkNotFound = errors.New("short link not found")
+
+const (
+	shortAliasSize           = 32
+	shortAliasLength         = 43
+	shortMaxTokenLength      = 512
+	shortMaxCiphertextLength = 1024
+	shortMaxKeys             = 4096
+	shortLookupInfo          = "okuru/short-link/v1/lookup"
+	shortCipherInfo          = "okuru/short-link/v1/aes-256-gcm"
+	shortAADPrefix           = "okuru/short-link/v1/record:"
+)
+
+// IsShortLinkCandidate recognizes the reserved root-segment shape. Validation
+// of the canonical Base64URL encoding remains the resolver's responsibility.
+// Existing password tokens contain a UUID, a separator and a Fernet key, so
+// their length cannot overlap this 43-character namespace.
+func IsShortLinkCandidate(value string) bool {
+	if len(value) != shortAliasLength {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// IsRootShortLinkPath applies the same classification to net/http's decoded
+// URL.Path before Echo normalizes trailing slashes.
+func IsRootShortLinkPath(path string) bool {
+	path = strings.TrimRight(path, "/")
+	return len(path) > 1 && path[0] == '/' && IsShortLinkCandidate(path[1:])
+}
+
+var shortPoolState struct {
+	sync.Mutex
+	config redisPoolConfig
+	pool   *redis.Pool
+}
+
+// shortPool uses an explicitly configured Redis database separate from the
+// share database. This isolates the application's DBSIZE admission limit.
+func shortPool() (*redis.Pool, error) {
+	database := os.Getenv("OKURU_SHORTLINK_REDIS_DB")
+	db, err := strconv.Atoi(database)
+	mainDB, mainErr := strconv.Atoi(REDIS_DB)
+	if err != nil || mainErr != nil || db < 0 || mainDB < 0 || db == mainDB {
+		return nil, errors.New("short link storage is not configured")
+	}
+	config := redisPoolConfig{REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, strconv.Itoa(db)}
+	shortPoolState.Lock()
+	defer shortPoolState.Unlock()
+	if shortPoolState.pool != nil && shortPoolState.config == config {
+		return shortPoolState.pool, nil
+	}
+	if shortPoolState.pool != nil {
+		_ = shortPoolState.pool.Close()
+	}
+	pool := &redis.Pool{
+		MaxIdle: 4, MaxActive: 16, Wait: false,
+		IdleTimeout: time.Minute, MaxConnLifetime: time.Hour,
+		DialContext: func(ctx context.Context) (redis.Conn, error) {
+			opts := []redis.DialOption{
+				redis.DialConnectTimeout(3 * time.Second),
+				redis.DialReadTimeout(5 * time.Second),
+				redis.DialWriteTimeout(5 * time.Second),
+				redis.DialDatabase(db),
+			}
+			if config.password != "" {
+				opts = append(opts, redis.DialPassword(config.password))
+			}
+			return redisDialContext(ctx, "tcp", net.JoinHostPort(config.host, config.port), opts...)
+		},
+	}
+	shortPoolState.config, shortPoolState.pool = config, pool
+	return pool, nil
+}
+
+// CloseShortLinkPool closes idle connections and marks checked-out ones for
+// closing when returned. Safe to call when no pool exists.
+func CloseShortLinkPool() error {
+	shortPoolState.Lock()
+	defer shortPoolState.Unlock()
+	if shortPoolState.pool == nil {
+		return nil
+	}
+	err := shortPoolState.pool.Close()
+	shortPoolState.pool = nil
+	shortPoolState.config = redisPoolConfig{}
+	return err
+}
+
+func shortAliasMaterial(alias string) ([]byte, cipher.AEAD, error) {
+	if len(alias) != shortAliasLength {
+		return nil, nil, ErrShortLinkNotFound
+	}
+	seed, err := base64.RawURLEncoding.Strict().DecodeString(alias)
+	if err != nil || len(seed) != shortAliasSize || base64.RawURLEncoding.EncodeToString(seed) != alias {
+		return nil, nil, ErrShortLinkNotFound
+	}
+	index, err := hkdf.Key(sha256.New, seed, nil, shortLookupInfo, 32)
+	if err != nil {
+		return nil, nil, errors.New("short link key derivation failed")
+	}
+	key, err := hkdf.Key(sha256.New, seed, nil, shortCipherInfo, 32)
+	if err != nil {
+		return nil, nil, errors.New("short link key derivation failed")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, nil, errors.New("short link cipher failed")
+	}
+	aead, err := cipher.NewGCMWithRandomNonce(block)
+	if err != nil {
+		return nil, nil, errors.New("short link cipher failed")
+	}
+	return index, aead, nil
+}
+
+func shortStorageKey(index []byte) string {
+	return REDIS_PREFIX + "short_v1_" + hex.EncodeToString(index)
+}
+func shortAAD(index []byte) []byte {
+	aad := make([]byte, 0, len(shortAADPrefix)+len(index))
+	aad = append(aad, shortAADPrefix...)
+	return append(aad, index...)
+}
+
+// shortValidateToken only admits canonical legacy share tokens generated by
+// this application. No input can become an arbitrary URL or HTTP header value.
+func shortValidateToken(token string) (string, error) {
+	if len(token) == 0 || len(token) > shortMaxTokenLength || strings.ContainsAny(token, "/\\?#%\r\n\x00") {
+		return "", ErrShortLinkNotFound
+	}
+	for _, r := range token {
+		if r < 0x21 || r > 0x7e {
+			return "", ErrShortLinkNotFound
+		}
+	}
+	id, key, err := ParseToken(token)
+	if err != nil {
+		return "", ErrShortLinkNotFound
+	}
+	keys, err := fernet.DecodeKeys(key)
+	if err != nil || len(keys) != 1 || keys[0].Encode() != key || token != id+TOKEN_SEPARATOR+key {
+		return "", ErrShortLinkNotFound
+	}
+	return id, nil
+}
+
+var shortCreateScript = redis.NewScript(1, `
+local max = tonumber(ARGV[3])
+local expiry = tonumber(ARGV[2])
+if not max or max < 1 or not expiry or expiry < 1 then return redis.error_reply('invalid short link parameters') end
+local now = redis.call('TIME')
+local nowMillis = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+-- Reject links that would be expired or nearly expired before the client can use them.
+if expiry <= nowMillis + 1000 then return -2 end
+if redis.call('DBSIZE') >= max then return 0 end
+local created = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'PXAT', ARGV[2])
+if not created then return -1 end
+return 1
+`)
+
+// CreateShortLink creates an alias for an existing expiring share. The absolute
+// expiry comes from the original Redis record; failures never affect that record.
+// OKURU_SHORTLINK_REDIS_DB must name a different database on the same server.
+func CreateShortLink(parent context.Context, token string, isFile bool) (string, error) {
+	id, err := shortValidateToken(token)
+	if err != nil {
+		return "", errors.New("invalid share token")
+	}
+	pool, err := shortPool()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	primary, err := NewPool().GetContext(ctx)
+	if err != nil {
+		return "", errors.New("share storage unavailable")
+	}
+	key := REDIS_PREFIX + id
+	kind := byte('s')
+	if isFile {
+		key = REDIS_PREFIX + "file_" + id
+		kind = 'f'
+	}
+	// PEXPIRETIME is available in Redis 7+, and PXAT uses the same server's
+	// clock across databases. Missing or non-expiring shares fail closed.
+	expiresAt, err := redis.Int64(redis.DoContext(primary, ctx, "PEXPIRETIME", key))
+	_ = primary.Close()
+	if err != nil || expiresAt <= 0 {
+		return "", errors.New("share expiration unavailable")
+	}
+	conn, err := pool.GetContext(ctx)
+	if err != nil {
+		return "", errors.New("short link storage unavailable")
+	}
+	defer conn.Close()
+	for attempt := 0; attempt < 3; attempt++ {
+		var seed [shortAliasSize]byte
+		if _, err := rand.Read(seed[:]); err != nil {
+			return "", errors.New("short link randomness unavailable")
+		}
+		alias := base64.RawURLEncoding.EncodeToString(seed[:])
+		index, aead, err := shortAliasMaterial(alias)
+		if err != nil {
+			return "", errors.New("short link creation failed")
+		}
+		plaintext := make([]byte, 1, 1+len(token))
+		plaintext[0] = kind
+		plaintext = append(plaintext, token...)
+		ciphertext := aead.Seal(nil, nil, plaintext, shortAAD(index))
+		result, err := redis.Int(shortCreateScript.DoContext(ctx, conn, shortStorageKey(index), ciphertext, expiresAt, shortMaxKeys))
+		if err != nil {
+			return "", errors.New("short link storage unavailable")
+		}
+		if result == 1 {
+			return alias, nil
+		}
+		if result == 0 {
+			return "", errors.New("short link storage at capacity")
+		}
+		if result == -2 {
+			return "", errors.New("share expires too soon")
+		}
+	}
+	return "", errors.New("short link creation failed")
+}
+
+// Avoid allocating an unbounded Redis value if the dedicated database is
+// corrupted or an attacker with write access replaces a stored record.
+var shortResolveScript = redis.NewScript(1, `
+local length = redis.call('STRLEN', KEYS[1])
+if length == 0 or length > tonumber(ARGV[1]) then return nil end
+return redis.call('GET', KEYS[1])
+`)
+
+// ResolveShortLink returns a same-origin relative path and never fetches it.
+// Wrong aliases, missing entries and altered ciphertext are indistinguishable.
+func ResolveShortLink(parent context.Context, alias string) (string, error) {
+	index, aead, err := shortAliasMaterial(alias)
+	if err != nil {
+		return "", ErrShortLinkNotFound
+	}
+	pool, err := shortPool()
+	if err != nil {
+		return "", errors.New("short link storage unavailable")
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	conn, err := pool.GetContext(ctx)
+	if err != nil {
+		return "", errors.New("short link storage unavailable")
+	}
+	defer conn.Close()
+	ciphertext, err := redis.Bytes(shortResolveScript.DoContext(ctx, conn, shortStorageKey(index), shortMaxCiphertextLength))
+	if errors.Is(err, redis.ErrNil) {
+		return "", ErrShortLinkNotFound
+	}
+	if err != nil {
+		return "", errors.New("short link storage unavailable")
+	}
+	if len(ciphertext) == 0 || len(ciphertext) > shortMaxCiphertextLength {
+		return "", ErrShortLinkNotFound
+	}
+	plaintext, err := aead.Open(nil, nil, ciphertext, shortAAD(index))
+	if err != nil || len(plaintext) < 2 || len(plaintext) > shortMaxTokenLength+1 {
+		return "", ErrShortLinkNotFound
+	}
+	kind, token := plaintext[0], string(plaintext[1:])
+	if _, err := shortValidateToken(token); err != nil {
+		return "", ErrShortLinkNotFound
+	}
+	switch kind {
+	case 's':
+		return "/" + token, nil
+	case 'f':
+		return "/file/" + token, nil
+	default:
+		return "", ErrShortLinkNotFound
+	}
+}
