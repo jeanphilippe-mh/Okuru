@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -69,6 +70,89 @@ func TestAuditJSONFormatterLevelsAndUTC(t *testing.T) {
 				t.Fatal("formatter mutated the original entry")
 			}
 		})
+	}
+}
+
+func TestAuditJSONFormatterPrioritizesProminentMessages(t *testing.T) {
+	const text = "Message \"quoted\"\nÉté <tag> 日本 \x1b[31m"
+	for _, tc := range []struct {
+		name, category, label string
+		level                 log.Level
+		first                 bool
+	}{
+		{"action", "user_action", "ACTION", log.InfoLevel, true},
+		{"security warning", "security", "SECURITY", log.WarnLevel, true},
+		{"security error", "security", "SECURITY", log.ErrorLevel, true},
+		{"error", "other", "ERROR", log.ErrorLevel, true},
+		{"fatal", "other", "ERROR", log.FatalLevel, true},
+		{"panic", "other", "ERROR", log.PanicLevel, true},
+		{"info", "other", "INFO", log.InfoLevel, false},
+		{"warning", "other", "WARNING", log.WarnLevel, false},
+		{"action warning", "user_action", "WARNING", log.WarnLevel, false},
+		{"security info", "security", "INFO", log.InfoLevel, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := &log.Entry{
+				Logger: log.New(), Time: time.Date(2026, 11, 16, 12, 0, 0, 42, time.UTC),
+				Level: tc.level, Message: text,
+				Data: log.Fields{"category": tc.category, "event": "test.event", "msg": "field collision", "aaa_nested": map[string]any{"msg": "nested, not the message", "value": 7}},
+			}
+			got, err := NewAuditJSONFormatter().Format(entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prefix := "[" + tc.label + "] "
+			if !bytes.HasPrefix(got, []byte(prefix)) {
+				t.Fatalf("unexpected label: %s", got)
+			}
+			payload := bytes.TrimPrefix(got, []byte(prefix))
+			if bytes.Contains(payload, []byte{0x1b}) {
+				t.Fatalf("JSON contains a raw terminal escape: %q", payload)
+			}
+			if tc.first && !bytes.HasPrefix(payload, []byte(`{"msg":`)) {
+				t.Fatalf("message is not the first field: %s", payload)
+			}
+			original := *entry
+			original.Time = original.Time.UTC()
+			baseline, err := (&log.JSONFormatter{TimestampFormat: time.RFC3339Nano}).Format(&original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.first && !bytes.Equal(payload, baseline) {
+				t.Fatalf("ordinary record changed: %s; want %s", payload, baseline)
+			}
+			var actual, expected map[string]any
+			if err := json.Unmarshal(payload, &actual); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if err := json.Unmarshal(baseline, &expected); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(actual, expected) || actual["msg"] != text || actual["fields.msg"] != "field collision" {
+				t.Fatalf("record values changed: got %v, want %v", actual, expected)
+			}
+		})
+	}
+}
+
+func TestPrioritizeAuditMessagePreservesRawJSON(t *testing.T) {
+	input := []byte("{\"alpha\":{\"msg\":\"nested\"},\"msg\":\"x\\\"y\",\"unicode\":\"\\u003c\"}\n")
+	want := "{\"msg\":\"x\\\"y\",\"alpha\":{\"msg\":\"nested\"},\"unicode\":\"\\u003c\"}\n"
+	if got := string(prioritizeAuditMessage(input)); got != want {
+		t.Fatalf("raw fields changed: got %q, want %q", got, want)
+	}
+	for _, malformed := range [][]byte{[]byte(`{"other":1}`), []byte(`{"msg":"first","msg":"second"}`), []byte(`{"msg":`)} {
+		if got := prioritizeAuditMessage(malformed); !bytes.Equal(got, malformed) {
+			t.Fatalf("invalid or ambiguous record changed: got %q, want %q", got, malformed)
+		}
+	}
+}
+
+func TestAuditJSONFormatterEmptyMessageComesFirst(t *testing.T) {
+	entry := &log.Entry{Logger: log.New(), Data: log.Fields{"category": "user_action", "event": "test.event"}, Time: time.Now(), Level: log.InfoLevel}
+	got, err := NewAuditJSONFormatter().Format(entry)
+	if err != nil || !bytes.HasPrefix(got, []byte(`[ACTION] {"msg":"",`)) || !json.Valid(bytes.TrimPrefix(got, []byte("[ACTION] "))) {
+		t.Fatalf("empty message record = %q, err = %v", got, err)
 	}
 }
 
