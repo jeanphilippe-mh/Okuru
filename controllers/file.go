@@ -147,7 +147,7 @@ func ReadFile(context *echo.Context) error {
 	err := GetFile(f)
 	if err != nil {
 		if _, _, parseErr := ParseToken(f.FileKey); parseErr == nil {
-			AuditAlert(context, "file.preview_unavailable", "File preview unavailable")
+			auditUnavailable(context, err, "file.preview_unavailable", "File preview unavailable")
 		}
 		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
@@ -268,7 +268,7 @@ func DownloadFile(context *echo.Context) error {
 	// burns a recipient's last attempt while waiting for another derivation.
 	preview := &File{FileKey: f.FileKey}
 	if previewErr := GetFile(preview); previewErr != nil {
-		AuditAlert(context, "file.download_unavailable", "File download unavailable")
+		auditUnavailable(context, previewErr, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 	var releaseKDF func()
@@ -300,7 +300,7 @@ func DownloadFile(context *echo.Context) error {
 		}()
 	}
 	if retrieveErr != nil {
-		AuditAlert(context, "file.download_unavailable", "File download unavailable")
+		auditUnavailable(context, retrieveErr, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 	// The authenticated record must be the same one whose format determined
@@ -771,7 +771,7 @@ func DeleteFile(context *echo.Context) error {
 	var status int
 	if err != nil {
 		if _, _, parseErr := ParseToken(f.FileKey); parseErr == nil {
-			AuditAlert(context, "file.delete_unavailable", "File deletion unavailable")
+			auditUnavailable(context, err, "file.delete_unavailable", "File deletion unavailable")
 		}
 		status = err.Code
 		return context.Render(status, "403.html", dataContext)

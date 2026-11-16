@@ -52,7 +52,7 @@ func ReadPassword(context *echo.Context) error {
 	}
 	err := RetrievePassword(p)
 	if err != nil {
-		AuditAlert(context, "secret.reveal_unavailable", "Secret retrieval unavailable")
+		auditUnavailable(context, err, "secret.reveal_unavailable", "Secret retrieval unavailable")
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
@@ -132,7 +132,7 @@ func DeletePassword(context *echo.Context) error {
 	var status int
 	if err != nil {
 		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
-			AuditAlert(context, "secret.delete_unavailable", "Secret deletion unavailable")
+			auditUnavailable(context, err, "secret.delete_unavailable", "Secret deletion unavailable")
 		}
 		status = err.Code
 	} else {
