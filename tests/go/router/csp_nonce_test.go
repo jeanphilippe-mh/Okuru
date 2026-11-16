@@ -1,10 +1,12 @@
 package router
 
 import (
+	"crypto/sha512"
 	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,17 +43,50 @@ func TestRendererNonceResponses(t *testing.T) {
 			}
 			copyNonceFixture(t, filepath.Join("../views", entry.Name()), filepath.Join(dir, "views", entry.Name()), 0600)
 		}
+		scriptsDir := filepath.Join(dir, "public", "scripts")
+		if err := os.MkdirAll(scriptsDir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		scripts, err := os.ReadDir("../public/scripts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range scripts {
+			if entry.Type().IsRegular() {
+				copyNonceFixture(t, filepath.Join("../public/scripts", entry.Name()), filepath.Join(scriptsDir, entry.Name()), 0600)
+			}
+		}
 		cmd := exec.Command(target, "-test.run=^TestRendererNonceResponses$", "-test.v")
 		cmd.Env = append(os.Environ(), "OKURU_CSP_TEST_HELPER=1")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("renderer subprocess failed: %v\n%s", err, output)
 		}
+		// A modified served asset must make the same rendered-page check fail.
+		bootstrap := filepath.Join(scriptsDir, "bootstrap.min.js")
+		asset, err := os.ReadFile(bootstrap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bootstrap, append(asset, '\n'), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cmd = exec.Command(target, "-test.run=^TestRendererNonceResponses$", "-test.v")
+		cmd.Env = append(os.Environ(), "OKURU_CSP_TEST_HELPER=1")
+		output, err = cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "integrity for") {
+			t.Fatalf("tampered asset was not rejected: %v\n%s", err, output)
+		}
 		return
 	}
 
 	e := echo.New()
 	e.Renderer = Renderer{Debug: true}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptsDir := filepath.Join(filepath.Dir(executable), "public", "scripts")
 	// A failed render must never emit a partial document under a missing or
 	// mismatched policy. Echo buffers the response until rendering succeeds.
 	for _, tc := range []struct {
@@ -114,18 +149,49 @@ func TestRendererNonceResponses(t *testing.T) {
 				t.Fatal(err)
 			}
 			count := 0
+			externalCount := 0
 			var visit func(*html.Node)
 			visit = func(n *html.Node) {
 				if n.Type == html.ElementNode && n.Data == "script" {
 					count++
 					nonce := ""
+					src := ""
+					integrity := ""
 					for _, attr := range n.Attr {
-						if attr.Key == "nonce" {
+						switch attr.Key {
+						case "nonce":
 							nonce = attr.Val
+						case "src":
+							src = attr.Val
+						case "integrity":
+							integrity = attr.Val
 						}
 					}
 					if nonce != source {
 						t.Errorf("%s: script nonce %q differs from policy", name, nonce)
+					}
+					if src != "" {
+						externalCount++
+						parsed, err := url.Parse(src)
+						if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+							t.Errorf("%s: unexpected script URL %q", name, src)
+						} else {
+							path := strings.TrimPrefix(parsed.Path, "/")
+							if !strings.HasPrefix(path, "scripts/") || strings.Contains(strings.TrimPrefix(path, "scripts/"), "/") {
+								t.Errorf("%s: unexpected script path %q", name, src)
+							} else {
+								asset, err := os.ReadFile(filepath.Join(scriptsDir, strings.TrimPrefix(path, "scripts/")))
+								if err != nil {
+									t.Errorf("%s: read script %q: %v", name, src, err)
+								} else {
+									digest := sha512.Sum512(asset)
+									want := "sha512-" + base64.StdEncoding.EncodeToString(digest[:])
+									if integrity != want {
+										t.Errorf("%s: integrity for %q = %q, want %q", name, src, integrity, want)
+									}
+								}
+							}
+						}
 					}
 				}
 				for child := n.FirstChild; child != nil; child = child.NextSibling {
@@ -135,6 +201,9 @@ func TestRendererNonceResponses(t *testing.T) {
 			visit(doc)
 			if count == 0 {
 				t.Errorf("%s: no script elements exercised", name)
+			}
+			if externalCount == 0 {
+				t.Errorf("%s: no external script elements exercised", name)
 			}
 		}
 	}
