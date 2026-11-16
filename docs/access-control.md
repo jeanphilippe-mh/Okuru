@@ -4,6 +4,8 @@ Share URLs retain the format `<canonical UUID>~<Fernet key>` and remain compatib
 
 Password previews verify the key without decrypting the password into the rendered model or consuming a view. Revelations and downloads authenticate the bearer key before reserving an attempt atomically against the same encrypted record; an incorrect bearer key does not consume a view. A wrong additional file password still consumes a download attempt after the bearer key is authenticated. Deletion authentication is read-only and does not consume attempts.
 
+For protected downloads, the password field identifies an existing password to the browser's password manager. Suggestions depend on the browser and saved credentials; a password saved for the site may not be the password for this particular archive. Check the selection before downloading because an incorrect file password consumes an attempt.
+
 Deletion verifies the cryptographic key before checking the deletable flag or deleting Redis/file data. Invalid keys return not found and leave both counters and content intact. Non-deletable records remain protected even with a valid key.
 
 File deletion reports an error if the archive cannot be removed or associated password metadata cannot be deleted. The file's Redis metadata may already have been removed at that point; the periodic archive reconciler retries physical cleanup when Redis and the filesystem are available. Do not treat an error response as proof that all related resources were removed.
