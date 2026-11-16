@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/md5"
+	"crypto/sha1"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -76,7 +79,44 @@ func testUpdater(t *testing.T, now time.Time, handler geoIPRoundTrip) *geoIPAuto
 	t.Cleanup(func() { _ = CloseGeoIPCountry() })
 	u := newGeoIPAutoUpdater(filepath.Join(updaterTestRoot(t), geoIPDatabaseFile))
 	u.now = func() time.Time { return now }
-	u.client = &http.Client{Transport: handler}
+	// Existing updater scenarios provide a fake archive response. Also serve
+	// matching vendor metadata so these tests exercise the same candidate data
+	// after the independent checksum gate has accepted it.
+	var archiveURL string
+	var archive []byte
+	u.client = &http.Client{Transport: geoIPRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() == geoIPChecksumsSource {
+			z, err := gzip.NewReader(bytes.NewReader(archive))
+			if err != nil {
+				t.Fatalf("checksum fixture: %v", err)
+			}
+			data, err := io.ReadAll(z)
+			if err != nil {
+				t.Fatalf("checksum fixture: %v", err)
+			}
+			if err := z.Close(); err != nil {
+				t.Fatalf("checksum fixture: %v", err)
+			}
+			monthText := strings.TrimSuffix(strings.TrimPrefix(archiveURL, geoIPUpdateSource), ".mmdb.gz")
+			month, err := time.Parse("2006-01", monthText)
+			if err != nil {
+				t.Fatalf("checksum fixture month: %v", err)
+			}
+			page := fmt.Sprintf(`<div class="card"><dl><dt>Format</dt><dd>MMDB</dd><dt>Release</dt><dd>%s</dd><dt>MD5SUM</dt><dd>%x</dd><dt>SHA1SUM</dt><dd>%x</dd></dl><a href="%s">Download</a></div>`, month.Format("January 2006"), md5.Sum(data), sha1.Sum(data), archiveURL)
+			return geoIPResponse(http.StatusOK, []byte(page)), nil
+		}
+		resp, err := handler(r)
+		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
+			archiveURL = r.URL.String()
+			archive, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			_ = resp.Body.Close()
+			resp.Body = io.NopCloser(bytes.NewReader(archive))
+		}
+		return resp, err
+	})}
 	return u
 }
 func geoIPResponse(code int, data []byte) *http.Response {
@@ -88,9 +128,9 @@ func TestGeoIPUpdaterMonthlyCacheAndNoIPNetwork(t *testing.T) {
 	// Build is deliberately from the previous month: freshness follows the URL, not build time.
 	data := fakeDBIP(t, time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC))
 	zipped := gzipDBIP(t, data)
-	requests := 0
+	downloadRequests := 0
 	u := testUpdater(t, now, func(r *http.Request) (*http.Response, error) {
-		requests++
+		downloadRequests++
 		if r.URL.String() != geoIPUpdateSource+"2026-11.mmdb.gz" {
 			t.Fatalf("unexpected URL %s", r.URL)
 		}
@@ -103,12 +143,12 @@ func TestGeoIPUpdaterMonthlyCacheAndNoIPNetwork(t *testing.T) {
 	if code, _, status := LookupGeoIPCountry("81.2.69.160"); code != "GB" || status != GeoIPFound {
 		t.Fatalf("lookup %q %q", code, status)
 	}
-	if _, err := u.updateOnce(context.Background()); err != nil || requests != 1 {
-		t.Fatalf("fresh month re-downloaded: %d %v", requests, err)
+	if _, err := u.updateOnce(context.Background()); err != nil || downloadRequests != 1 {
+		t.Fatalf("fresh month re-downloaded: %d %v", downloadRequests, err)
 	}
 	_ = CloseGeoIPCountry()
-	if _, err := u.updateOnce(context.Background()); err != nil || requests != 1 {
-		t.Fatalf("reload after restart: %d %v", requests, err)
+	if _, err := u.updateOnce(context.Background()); err != nil || downloadRequests != 1 {
+		t.Fatalf("reload after restart: %d %v", downloadRequests, err)
 	}
 	if code, _, _ := LookupGeoIPCountry("81.2.69.160"); code != "GB" {
 		t.Fatal("cache was not reloaded")
@@ -119,26 +159,26 @@ func TestGeoIPUpdaterFallbackRetryAndRestartThrottle(t *testing.T) {
 	now := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
 	data := fakeDBIP(t, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
 	zipped := gzipDBIP(t, data)
-	requests := 0
+	downloadRequests := 0
 	u := testUpdater(t, now, func(r *http.Request) (*http.Response, error) {
-		requests++
+		downloadRequests++
 		if strings.Contains(r.URL.Path, "2026-11") {
 			return geoIPResponse(404, nil), nil
 		}
 		return geoIPResponse(200, zipped), nil
 	})
 	result, err := u.updateOnce(context.Background())
-	if err != nil || !result.changed || !result.pending || requests != 2 {
-		t.Fatalf("fallback: %+v %v requests=%d", result, err, requests)
+	if err != nil || !result.changed || !result.pending || downloadRequests != 2 {
+		t.Fatalf("fallback: %+v %v downloads=%d", result, err, downloadRequests)
 	}
 	_, err = u.updateOnce(context.Background())
-	if !errors.Is(err, errGeoIPUpdateRecent) || requests != 2 {
-		t.Fatalf("throttle: %v %d", err, requests)
+	if !errors.Is(err, errGeoIPUpdateRecent) || downloadRequests != 2 {
+		t.Fatalf("throttle: %v %d", err, downloadRequests)
 	}
 	u.now = func() time.Time { return now.Add(16 * time.Minute) }
 	result, err = u.updateOnce(context.Background())
-	if err != nil || !result.pending || requests != 3 {
-		t.Fatalf("retry: %+v %v requests=%d", result, err, requests)
+	if err != nil || !result.pending || downloadRequests != 3 {
+		t.Fatalf("retry: %+v %v downloads=%d", result, err, downloadRequests)
 	}
 }
 

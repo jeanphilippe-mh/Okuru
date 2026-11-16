@@ -37,6 +37,7 @@ var (
 	errGeoIPUpdateNetwork    = errors.New("network")
 	errGeoIPUpdateHTTP       = errors.New("http_status")
 	errGeoIPUpdateCompressed = errors.New("invalid_compressed_data")
+	errGeoIPUpdateChecksum   = errors.New("checksum_verification_failed")
 	errGeoIPUpdateInvalid    = errors.New("invalid_database")
 	errGeoIPUpdateFilesystem = errors.New("filesystem")
 	errGeoIPUpdateRollback   = errors.New("older_database")
@@ -327,6 +328,10 @@ func (u *geoIPAutoUpdater) fetch(ctx context.Context, month, now time.Time) ([]b
 	if readErr != nil || closeErr != nil || len(data) == 0 || len(data) > maxGeoIPDatabaseBytes || limited.N <= 0 {
 		return nil, time.Time{}, errGeoIPUpdateCompressed
 	}
+	checksums, err := u.fetchGeoIPChecksums(ctx, url)
+	if err != nil || !verifyGeoIPChecksums(data, checksums) {
+		return nil, time.Time{}, errGeoIPUpdateChecksum
+	}
 	build, err := verifiedDBIPBuild(data, now)
 	if err != nil {
 		return nil, time.Time{}, err
@@ -558,7 +563,7 @@ func recordGeoIPAttempt(root string, now time.Time) error {
 }
 
 func geoIPUpdateErrorClass(err error) string {
-	for _, e := range []error{errGeoIPUpdateNetwork, errGeoIPUpdateHTTP, errGeoIPUpdateCompressed, errGeoIPUpdateInvalid, errGeoIPUpdateFilesystem, errGeoIPUpdateRollback, errGeoIPUpdateBusy, errGeoIPUpdateRecent} {
+	for _, e := range []error{errGeoIPUpdateNetwork, errGeoIPUpdateHTTP, errGeoIPUpdateCompressed, errGeoIPUpdateChecksum, errGeoIPUpdateInvalid, errGeoIPUpdateFilesystem, errGeoIPUpdateRollback, errGeoIPUpdateBusy, errGeoIPUpdateRecent} {
 		if errors.Is(err, e) {
 			return e.Error()
 		}
