@@ -195,6 +195,8 @@ func run() error {
 	}
 	listener = netutil.LimitListener(listener, 128)
 	defer listener.Close()
+	// Restore Echo's original startup artwork without fabricating audit events.
+	fmt.Fprint(os.Stdout, EchoStartupBanner())
 	serverDone := make(chan error, 1)
 	go func() {
 		log.WithFields(log.Fields{"event": "server.start", "address": s.Addr, "echo_version": echo.Version, "tls_min": "1.3"}).Info("HTTPS server starting")
