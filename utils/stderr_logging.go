@@ -171,6 +171,10 @@ func writeProcessOutput(output io.Writer, line []byte) error {
 // isStructuredProcessRecord checks the complete prefix and JSON object; it
 // never trusts a bare prefix or a JSON string supplied as process output.
 func isStructuredProcessRecord(line []byte) bool {
+	// Only the immutable Echo startup art is admitted as non-JSON stdout.
+	if IsEchoBannerLine(line) {
+		return true
+	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	labels := []struct {
 		prefix string
