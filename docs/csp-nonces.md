@@ -81,3 +81,7 @@ Removing the old hashes from Apache while the old application is serving
 requests blocks its inline scripts. Keeping the old enforced policy alongside
 the new application policy blocks those scripts as well. Perform the production
 switch only after the staging checks and an explicit deployment decision.
+
+For example commands and rollback steps on Debian, see
+[Debian CSP deployment](csp-deployment-debian.md). For the integrity update
+procedure and its limits, see [Subresource Integrity](subresource-integrity.md).
