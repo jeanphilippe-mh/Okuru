@@ -40,6 +40,8 @@ utils/admission_rate_test.go
 utils/audit_logging_test.go
 utils/banner_logging_test.go
 utils/diagnostic_logging_test.go
+utils/geoip_country_test.go
+utils/geoip_open_unix_test.go
 utils/log_supervisor_test.go
 utils/stderr_logging_test.go
 utils/client_identity_test.go
