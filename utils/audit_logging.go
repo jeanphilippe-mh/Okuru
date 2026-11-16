@@ -11,6 +11,11 @@ import (
 )
 
 const auditRequestIDKey = "okuru.audit.request_id"
+const auditCountryCacheKey = "okuru.audit.country"
+
+type auditCountryCache struct {
+	ip, code, name, status string
+}
 
 // AuditJSONFormatter writes a readable severity and optional action marker
 // followed by a structured JSON payload with a precise UTC timestamp.
@@ -65,6 +70,7 @@ func AuditRequestFields(c *echo.Context) log.Fields {
 	fields := log.Fields{"request_id": AuditRequestID(c)}
 	if c == nil || c.Request() == nil {
 		fields["client_ip_source"] = "unavailable"
+		fields["client_country_status"] = GeoIPAddressUnavailable
 		fields["route"] = "unmatched"
 		return fields
 	}
@@ -72,6 +78,21 @@ func AuditRequestFields(c *echo.Context) log.Fields {
 	fields["client_ip_source"] = address.Source
 	if address.ClientIP != "" {
 		fields["client_ip"] = address.ClientIP
+		country, ok := c.Get(auditCountryCacheKey).(auditCountryCache)
+		if !ok || country.ip != address.ClientIP {
+			country = auditCountryCache{ip: address.ClientIP}
+			country.code, country.name, country.status = LookupGeoIPCountry(address.ClientIP)
+			c.Set(auditCountryCacheKey, country)
+		}
+		fields["client_country_status"] = country.status
+		if country.code != "" {
+			fields["client_country_code"] = country.code
+		}
+		if country.name != "" {
+			fields["client_country_name"] = country.name
+		}
+	} else {
+		fields["client_country_status"] = GeoIPAddressUnavailable
 	}
 	if address.PeerIP != "" {
 		fields["peer_ip"] = address.PeerIP

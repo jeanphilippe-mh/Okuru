@@ -21,7 +21,8 @@ var carrierGradeNAT = netip.MustParsePrefix("100.64.0.0/10")
 // ClientAddress contains only validated, canonical IP addresses. Source is
 // "peer" when ClientIP comes directly from the TCP peer, "forwarded" when it
 // was selected from a trusted proxy's X-Forwarded-For chain, or "unavailable"
-// if validation failed. An IP address does not establish a person's identity.
+// if validation failed or a trusted proxy did not provide a client address.
+// An IP address does not establish a person's identity.
 type ClientAddress struct {
 	ClientIP string
 	PeerIP   string
@@ -30,18 +31,23 @@ type ClientAddress struct {
 
 // ResolveClientAddress returns the full client IP and immediate peer for
 // request logging. A trusted proxy must sanitize or append the actual peer in
-// X-Forwarded-For. On error, ClientIP is empty and the validated PeerIP, when
-// available, is returned with Source="unavailable". Raw headers are never
-// returned. Full IPv6 addresses are retained here; admission controls use
-// ClientIdentity to share an IPv6 /64 budget.
+// X-Forwarded-For. On error, or when an explicitly trusted proxy sends no
+// forwarding header, ClientIP is empty and the validated PeerIP, when
+// available, is returned with Source="unavailable". A missing header is not
+// itself an error. Raw headers are never returned. Full IPv6 addresses are
+// retained here; admission controls use ClientIdentity to share an IPv6 /64
+// budget and preserve their existing fallback to the peer.
 func ResolveClientAddress(r *http.Request) (ClientAddress, error) {
-	client, peer, forwarded, err := resolveClientAddress(r)
+	client, peer, forwarded, trustedPeer, err := resolveClientAddress(r)
 	result := ClientAddress{Source: "unavailable"}
 	if peer.IsValid() {
 		result.PeerIP = peer.String()
 	}
 	if err != nil {
 		return result, err
+	}
+	if trustedPeer && !forwarded {
+		return result, nil
 	}
 	result.ClientIP = client.String()
 	result.Source = "peer"
@@ -57,7 +63,7 @@ func ResolveClientAddress(r *http.Request) (ClientAddress, error) {
 // or replace that header with a value they generated themselves.
 // IPv6 addresses share a /64 budget to limit trivial privacy-address rotation.
 func ClientIdentity(r *http.Request) (string, error) {
-	client, _, _, err := resolveClientAddress(r)
+	client, _, _, _, err := resolveClientAddress(r)
 	if err != nil {
 		return "", err
 	}
@@ -66,36 +72,36 @@ func ClientIdentity(r *http.Request) (string, error) {
 
 // resolveClientAddress is shared by logging and admission to enforce the
 // same proxy trust boundary and forwarded-chain validation.
-func resolveClientAddress(r *http.Request) (netip.Addr, netip.Addr, bool, error) {
+func resolveClientAddress(r *http.Request) (client, peer netip.Addr, forwarded, trustedPeer bool, err error) {
 	if r == nil {
-		return netip.Addr{}, netip.Addr{}, false, ErrClientIdentity
+		return netip.Addr{}, netip.Addr{}, false, false, ErrClientIdentity
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return netip.Addr{}, netip.Addr{}, false, ErrClientIdentity
+		return netip.Addr{}, netip.Addr{}, false, false, ErrClientIdentity
 	}
-	peer, err := parseClientAddress(host)
+	peer, err = parseClientAddress(host)
 	if err != nil {
-		return netip.Addr{}, netip.Addr{}, false, err
+		return netip.Addr{}, netip.Addr{}, false, false, err
 	}
 	trusted, err := trustedProxyPrefixes(os.Getenv("OKURU_TRUSTED_PROXY_CIDRS"))
 	if err != nil {
-		return netip.Addr{}, peer, false, err
+		return netip.Addr{}, peer, false, false, err
 	}
 	if !isTrustedProxy(peer, trusted) {
-		return peer, peer, false, nil
+		return peer, peer, false, false, nil
 	}
 	values := r.Header.Values("X-Forwarded-For")
 	if len(values) == 0 {
-		return peer, peer, false, nil
+		return peer, peer, false, true, nil
 	}
-	forwarded := strings.Join(values, ",")
-	if len(forwarded) == 0 || len(forwarded) > maxForwardedAddressBytes {
-		return netip.Addr{}, peer, false, ErrClientIdentity
+	forwardedValue := strings.Join(values, ",")
+	if len(forwardedValue) == 0 || len(forwardedValue) > maxForwardedAddressBytes {
+		return netip.Addr{}, peer, false, true, ErrClientIdentity
 	}
-	hops := strings.Split(forwarded, ",")
+	hops := strings.Split(forwardedValue, ",")
 	if len(hops) > maxForwardedHops {
-		return netip.Addr{}, peer, false, ErrClientIdentity
+		return netip.Addr{}, peer, false, true, ErrClientIdentity
 	}
 	// Parse every hop, including ignored ones, so malformed attacker-supplied
 	// prefixes cannot produce inconsistent interpretations between processes.
@@ -103,15 +109,15 @@ func resolveClientAddress(r *http.Request) (netip.Addr, netip.Addr, bool, error)
 	for i, hop := range hops {
 		addresses[i], err = parseClientAddress(strings.TrimSpace(hop))
 		if err != nil {
-			return netip.Addr{}, peer, false, err
+			return netip.Addr{}, peer, false, true, err
 		}
 	}
 	for i := len(addresses) - 1; i >= 0; i-- {
 		if !isTrustedProxy(addresses[i], trusted) || i == 0 {
-			return addresses[i], peer, true, nil
+			return addresses[i], peer, true, true, nil
 		}
 	}
-	return netip.Addr{}, peer, false, ErrClientIdentity
+	return netip.Addr{}, peer, false, true, ErrClientIdentity
 }
 
 func parseClientAddress(raw string) (netip.Addr, error) {

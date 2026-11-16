@@ -225,3 +225,39 @@ func TestAuditRequestFieldsRejectUntrustedOrMalformedForwarding(t *testing.T) {
 	}
 }
 
+func TestAuditRequestFieldsUseValidatedClientCountry(t *testing.T) {
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+	if err := ConfigureGeoIPCountry("../tests/fixtures/geoip/GeoIP2-Country-Test.mmdb"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = CloseGeoIPCountry() })
+
+	r := httptest.NewRequest("GET", "/secret-value", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
+	// The rightmost untrusted hop is the real peer recorded by the trusted
+	// proxy; an attacker-controlled leftmost value must not be geolocated.
+	r.Header.Set("X-Forwarded-For", "1.1.1.1, 81.2.69.160")
+	c := echo.New().NewContext(r, httptest.NewRecorder())
+	fields := AuditRequestFields(c)
+	if fields["client_ip"] != "81.2.69.160" || fields["peer_ip"] != "127.0.0.1" || fields["client_ip_source"] != "forwarded" {
+		t.Fatalf("unexpected trusted client identity: %v", fields)
+	}
+	if fields["client_country_code"] != "GB" || fields["client_country_name"] != "Royaume-Uni" || fields["client_country_status"] != GeoIPFound {
+		t.Fatalf("country not attributed to validated client: %v", fields)
+	}
+	// Action and HTTP events for the same request retain the same estimate.
+	if err := ConfigureGeoIPCountry(""); err != nil {
+		t.Fatal(err)
+	}
+	cached := AuditRequestFields(c)
+	if cached["client_country_code"] != "GB" || cached["client_country_status"] != GeoIPFound {
+		t.Fatalf("request's country result was not cached: %v", cached)
+	}
+
+	local := httptest.NewRequest("GET", "/", nil)
+	local.RemoteAddr = "127.0.0.1:1234"
+	localFields := AuditRequestFields(echo.New().NewContext(local, httptest.NewRecorder()))
+	if localFields["client_country_status"] != GeoIPAddressUnavailable || localFields["client_ip_source"] != "unavailable" || localFields["peer_ip"] != "127.0.0.1" || localFields["client_country_code"] != nil {
+		t.Fatalf("loopback was incorrectly attributed to a country: %v", localFields)
+	}
+}
