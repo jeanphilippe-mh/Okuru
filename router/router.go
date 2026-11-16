@@ -138,6 +138,11 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	// Capture rejected requests as well as successful ones. This middleware
 	// does not read the request body; size and upload admission remain inside it.
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		// Reports have their own bounded logger; do not log every rejected or
+		// throttled report as an ordinary request.
+		Skipper: func(c *echo.Context) bool {
+			return c.Request().URL.Path == browserSecurityPath && c.Request().Method == http.MethodPost
+		},
 		HandleError: true,
 
 		LogLatency:       true,
@@ -176,6 +181,9 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 			return nil
 		},
 	}))
+
+	// Limit reporting requests before the general small-body buffer and CSRF.
+	e.Use(browserSecurityGuard(&processBrowserReportLimiter))
 
 	// Protect parsing, including CSRF form extraction, before entering middleware.
 	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))
@@ -216,6 +224,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	routes.Index(e)
 	routes.Password(apiGroup)
 	routes.File(fileGroup)
+	e.POST(browserSecurityPath, browserSecurityReport)
 
 	return e
 }
@@ -238,7 +247,7 @@ func publicAssets(publicfolder string) echo.MiddlewareFunc {
 		// API errors must not enter the HTML5 fallback or become filesystem errors.
 		Skipper: func(c *echo.Context) bool {
 			path := c.Request().URL.Path
-			return path == "/api" || strings.HasPrefix(path, "/api/") || utils.IsRootShortLinkPath(path)
+			return path == "/api" || strings.HasPrefix(path, "/api/") || path == browserSecurityPath || utils.IsRootShortLinkPath(path)
 		},
 		// Echo v5's default filesystem is rooted at the working directory.
 		// Okuru serves assets next to the executable, which can be elsewhere.
