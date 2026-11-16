@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func runFileCleanup(ctx context.Context, interval time.Duration) {
 	defer ticker.Stop()
 	for {
 		if err := CleanupExpiredArchives(ctx); err != nil && ctx.Err() == nil {
-			log.WithError(err).Warn("Archive reconciliation failed; existing files retained on Redis errors")
+			logCleanupFailure("archive.reconciliation_failed", "Archive reconciliation failed; existing files retained on Redis errors", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -161,7 +162,7 @@ func watchFileExpirations(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		log.WithError(err).Warn("Archive expiry subscription disconnected; reconciliation remains active")
+		logCleanupFailure("archive.subscription_disconnected", "Archive expiry subscription disconnected; reconciliation remains active", err)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -176,6 +177,33 @@ func watchFileExpirations(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// logCleanupFailure classifies known errors without recording paths, Redis
+// responses, credentials or any other untrusted error text.
+func logCleanupFailure(event, message string, err error) {
+	reason := "other"
+	var networkError net.Error
+	var redisError redis.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		reason = "timeout"
+	case errors.Is(err, io.EOF):
+		reason = "eof"
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		reason = "unexpected_eof"
+	case errors.Is(err, os.ErrPermission):
+		reason = "permission_denied"
+	case errors.Is(err, os.ErrNotExist):
+		reason = "not_found"
+	case errors.As(err, &networkError) && networkError.Timeout():
+		reason = "timeout"
+	case errors.As(err, &redisError):
+		reason = "redis_error"
+	case errors.As(err, &networkError):
+		reason = "network_error"
+	}
+	log.WithFields(log.Fields{"event": event, "reason_class": reason}).Warn(message)
 }
 func receiveFileExpirations(ctx context.Context) error {
 	c, err := cleanupConnection(ctx, 0)

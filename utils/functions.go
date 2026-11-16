@@ -122,6 +122,12 @@ func ParseToken(token string) (string, string, error) {
 	return id.String(), tokenFragments[1], nil
 }
 
+// logStorageFailure records only caller-supplied constants. Redis replies and
+// decoding errors can contain credentials or user data and must not be logged.
+func logStorageFailure(event, operation, message string) {
+	log.WithFields(log.Fields{"event": event, "operation": operation}).Error(message)
+}
+
 /*
 *
 Take a password string, encrypt it with Fernet symmetric encryption and return the result (bytes), with the decryption key (bytes).
@@ -131,13 +137,13 @@ func Encrypt(password string) ([]byte, string, error) {
 	var k fernet.Key
 	err := k.Generate()
 	if err != nil {
-		log.Errorf("Encrypt() Generate err : %+v\n", err)
+		log.WithFields(log.Fields{"event": "crypto.operation_failed", "operation": "generate_key"}).Error("Could not generate an encryption key")
 		return nil, "", err
 	}
 
 	tok, err := fernet.EncryptAndSign([]byte(password), &k)
 	if err != nil {
-		log.Errorf("Encrypt() EncryptAndSign err : %+v\n", err)
+		log.WithFields(log.Fields{"event": "crypto.operation_failed", "operation": "encrypt_token"}).Error("Could not encrypt a token")
 		return nil, "", err
 	}
 
@@ -268,18 +274,17 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
 	if err != nil {
-		log.Errorf("GetPassword() Redis err set : %+v\n", err)
+		logStorageFailure("redis.command_failed", "secret.preview_read", "Redis operation failed")
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = redis.ScanStruct(v, p)
 	if err != nil {
-		log.Errorf("GetPassword() Redis err scan struct : %+v\n", err)
+		logStorageFailure("storage.record_decode_failed", "secret.preview_decode", "Could not decode stored metadata")
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	if len(p.Token) == 0 {
-		log.Error("Empty token")
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
@@ -295,7 +300,7 @@ func GetPassword(p *models.Password) *echo.HTTPError {
 
 	p.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+storageKey))
 	if err != nil {
-		log.Errorf("GetPassword() Redis err GET views count TTL : %+v\n", err)
+		logStorageFailure("redis.command_failed", "secret.preview_ttl", "Redis operation failed")
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	p.Views = vcLeft
@@ -324,13 +329,13 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+storageKey))
 	if err != nil {
-		log.Errorf("RemovePassword() Redis err set : %+v\n", err)
+		logStorageFailure("redis.command_failed", "secret.delete_read", "Redis operation failed")
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = redis.ScanStruct(v, p)
 	if err != nil {
-		log.Errorf("RemovePassword() Redis err scan struct : %+v\n", err)
+		logStorageFailure("storage.record_decode_failed", "secret.delete_decode", "Could not decode stored metadata")
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
@@ -344,7 +349,7 @@ func RemovePassword(p *models.Password) *echo.HTTPError {
 
 	_, err = c.Do("DEL", REDIS_PREFIX+storageKey)
 	if err != nil {
-		log.Errorf("DeletePassword() Redis err : %+v\n", err)
+		logStorageFailure("redis.command_failed", "secret.delete", "Redis operation failed")
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 
@@ -530,14 +535,17 @@ func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+"file_"+storageKey))
-	if err != nil || f.TTL < 0 {
+	if err != nil {
+		logStorageFailure("redis.command_failed", "file.preview_ttl", "Redis operation failed")
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	}
+	if f.TTL < 0 {
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.Views -= f.ViewsCount
 
 	password, err := Decrypt(f.Token, decryptionKey, f.TTL)
 	if err != nil {
-		log.Error("Error while decrypting password")
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.Password = password
@@ -569,13 +577,13 @@ func RemoveFile(f *models.File) *echo.HTTPError {
 
 	v, err := redis.Values(c.Do("HGETALL", REDIS_PREFIX+"file_"+storageKey))
 	if err != nil {
-		log.Errorf("RemoveFile() Redis err set : %+v\n", err)
+		logStorageFailure("redis.command_failed", "file.delete_read", "Redis operation failed")
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
 	err = redis.ScanStruct(v, f)
 	if err != nil {
-		log.Errorf("RemoveFile() Redis err scan struct : %+v\n", err)
+		logStorageFailure("storage.record_decode_failed", "file.delete_decode", "Could not decode stored metadata")
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
