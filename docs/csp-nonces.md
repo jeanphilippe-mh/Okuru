@@ -11,6 +11,20 @@ The application owns the full CSP for its rendered HTML. Keep its policy in
 directives. A second enforced CSP is cumulative and may block the scripts even
 when the application nonce is correct.
 
+Each local JavaScript file loaded by a `<script src>` element also has a
+SHA-512 Subresource Integrity (SRI) value in its template. The browser refuses
+the file if its bytes do not match. These hashes are HTML attributes, not CSP
+hash sources; the per-response nonce remains responsible for script
+authorization. The SRI check does not cover inline scripts, or the worker
+script loaded separately by `navigator.serviceWorker.register()`. It does not
+protect against an attacker who can also change the document and its hashes.
+
+When updating a local script, update every associated `integrity` attribute and
+run `node --test tests/sri.test.cjs`. Deploy the executable, `views/` and
+`public/` from the same revision. A stale or modified asset, including one
+returned by a cache, fails integrity and will not execute. Normal HTTP content
+compression is supported; intermediaries must not rewrite JavaScript bytes.
+
 ## Apache fallback for the share.jeanphilippe.io virtual host
 
 Replace the existing unconditional `Header always set Content-Security-Policy`
@@ -43,18 +57,25 @@ never trust a nonce supplied in a request header.
 First rehearse the following sequence in a staging environment using the actual
 Apache HTTP/2 proxy and ModSecurity configuration. Expect a maintenance window:
 
-1. Save the currently deployed application and Apache configuration. Prepare
-   the new binary and Apache configuration without activating either, then check
-   the Apache syntax and effective virtual host.
+1. Save the currently deployed executable, `views/`, `public/` and Apache
+   configuration. Prepare the new binary, views, public assets and Apache
+   configuration in a separate directory without activating them, then check
+   the Apache syntax and effective virtual host. Do not run `git pull` in the
+   live directory: the running application loads views from disk.
 2. Stop or drain the old application before switching the Apache header. During
    this interval Apache may return an error page; this avoids serving old HTML
    under the fallback policy, which blocks its scripts.
-3. Activate the new Apache configuration, reload Apache, and start the new
-   application. Verify the single CSP, nonce rotation and browser flows described
-   above, as well as the service-worker fetch and cache behaviour.
+3. Replace the executable, `views/` and `public/` together while the application
+   is stopped, preserving `.env`, `data/` and all other installation state.
+   Activate the new Apache configuration and restart Apache in a planned window
+   before starting the new application. A graceful reload can leave old workers
+   or connections serving the old policy. A restart interrupts connections; do
+   not claim a zero-downtime transition. Verify the single CSP, nonce rotation,
+   SRI and browser flows above, plus the service-worker fetch and cache behaviour.
 4. If configuration validation, startup or verification fails, stop the new
    application, restore and validate the saved Apache configuration, reload it,
-   then restore and start the old application. Confirm recovery in a browser.
+   then restore the saved executable, views and public assets together and start
+   the old application. Confirm recovery in a browser.
 
 Removing the old hashes from Apache while the old application is serving
 requests blocks its inline scripts. Keeping the old enforced policy alongside

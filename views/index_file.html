@@ -57,7 +57,7 @@
 {% endblock %}
 
 {% block js %}
-<script nonce="{{ csp_nonce }}" type="text/javascript" src="scripts/purify.min.js"></script>
+<script nonce="{{ csp_nonce }}" type="text/javascript" src="scripts/purify.min.js" integrity="sha512-flQmhkXNRQ3iUfvtdCobtpMjCb6kE+zLnTiAulAQJ3WykVfy84JvCMOo6vhwWXHTXjR25h9Zj+LyGFRWKjRoag=="></script>
 <script nonce="{{ csp_nonce }}" type="application/javascript">
 (function() {
   // Check for Trusted Types Browser support and create a dedicated Policy if available, otherwise use DOMPurify.
