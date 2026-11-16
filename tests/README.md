@@ -12,6 +12,7 @@ This directory contains Okuru's Go tests, grouped by the source package they exe
 | `branding.test.js` | public assets | preview metadata, icons and robots policy |
 | `service_worker.test.js` | service worker | registration, Trusted Types and cache behavior |
 | `sri.test.cjs` | browser scripts | nonce presence and SHA-512 integrity of scripts referenced by the HTML templates |
+| `browser-security-report.test.cjs` | browser security reports | bounded classification, privacy settings and failure handling |
 | `apache_error_contract.py` | Apache configuration | local proxy and error response contract |
 
 The `tests/go` directory keeps test source files outside production package directories. The `ignore ./tests/go` directive in `go.mod` prevents Go from treating these stored files as separate packages when expanding patterns such as `./...`; it does not delete the files or prevent direct file access. The test runner uses a temporary Go overlay to project those files into their original Go packages, so tests retain their package-private access and original working directories. Keep each Go test's original filename, including platform suffixes and build constraints. When adding or removing a Go test, update `tests/suites.manifest` as well; the runner refuses missing or unlisted tests and rejects Go tests discovered outside `tests/` in project source directories. It excludes common generated, dependency and hidden directories from that check.
