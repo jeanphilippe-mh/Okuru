@@ -20,8 +20,17 @@ import urllib.request
 
 class Backend(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(400)
+        if self.path in ("/service-worker.js", "/scripts/purify.min.js"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.end_headers()
+            self.wfile.write(b"// static script sentinel\n")
+            return
+        status = {"/csp/ok": 200, "/csp/forbidden": 403}.get(self.path, 400)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        if self.path.startswith("/csp/"):
+            self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'nonce-backend-test'")
         self.end_headers()
         self.wfile.write(b'{"error":"backend sentinel"}')
     do_POST = do_GET
@@ -51,13 +60,24 @@ def main():
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
-        modules = ["mpm_prefork", "unixd", "authz_core", "authz_host", "log_config", "mime", "alias", "proxy", "proxy_http"]
+        modules = ["mpm_prefork", "unixd", "authz_core", "authz_host", "log_config", "mime", "alias", "proxy", "proxy_http", "headers"]
         config = [f'ServerRoot "{folder}"', f'DefaultRuntimeDir "{folder}"', f'PidFile "{folder}/httpd.pid"', f'Listen 127.0.0.1:{port}', "ServerName 127.0.0.1"]
         config += [f'LoadModule {name}_module "{args.module_dir}/mod_{name}.so"' for name in modules]
         config += [f'User "#{os.getuid()}"', f'Group "#{os.getgid()}"', f'TypesConfig "{folder}/mime.types"', f'Define APACHE_LOG_DIR "{folder}"', f'DocumentRoot "{folder}"']
         (folder / "mime.types").write_text("text/html html\napplication/json json\n")
         snippet = (root / "deploy/apache/share-errors.conf").read_text().replace("/var/www/errors", str(errors))
-        config += [snippet, '<Location "/api/generated400">\nRedirect 400\n</Location>', '<Location "/browser502">\nRedirect 502\n</Location>', f'ProxyPass / http://127.0.0.1:{backend.server_port}/', f'ProxyPassReverse / http://127.0.0.1:{backend.server_port}/']
+        # Production policy with script hashes removed and scripts denied on
+        # Apache-generated documents. A worker receives its own CSP from its
+        # script response, so it must still be allowed to fetch local assets.
+        fallback = (
+            "default-src 'none'; script-src 'none'; worker-src 'self'; "
+            "require-trusted-types-for 'script'; form-action 'self'; "
+            "connect-src 'self'; style-src 'self'; img-src 'self' data:; "
+            "manifest-src 'self'; font-src 'self'; base-uri 'none'; "
+            "child-src 'none'; frame-src 'none'; frame-ancestors 'none'; "
+            "object-src 'none'; upgrade-insecure-requests"
+        )
+        config += [snippet, f'Header always set Content-Security-Policy "{fallback}" "expr=-z %{{resp:Content-Security-Policy}}"', '<Location "/api/generated400">\nRedirect 400\n</Location>', '<Location "/browser403">\nRedirect 403\n</Location>', '<Location "/browser502">\nRedirect 502\n</Location>', f'ProxyPass / http://127.0.0.1:{backend.server_port}/', f'ProxyPassReverse / http://127.0.0.1:{backend.server_port}/']
         conf = folder / "httpd.conf"
         conf.write_text("\n".join(config))
         subprocess.run([args.apache, "-t", "-f", str(conf)], check=True)
@@ -68,7 +88,7 @@ def main():
                 response = client.open(f"http://127.0.0.1:{port}{path}", timeout=5)
             except urllib.error.HTTPError as exc:
                 response = exc
-            return response.code, dict(response.headers), response.read()
+            return response.code, response.headers, response.read()
         try:
             deadline = time.monotonic() + 5
             while True:
@@ -83,15 +103,29 @@ def main():
             status, headers, body = request("/api/upstream")
             assert status == 400 and json.loads(body)["error"] == "backend sentinel", (status, body)
             assert "Location" not in headers
+            assert headers.get_all("Content-Security-Policy") == [fallback], headers.get_all("Content-Security-Policy")
             status, headers, body = request("/api/generated400")
             assert status == 400 and "application/json" in headers.get("Content-Type", ""), (status, headers, body)
             assert json.loads(body)["error"] == "Bad Request" and "Location" not in headers
+            assert headers.get_all("Content-Security-Policy") == [fallback], headers.get_all("Content-Security-Policy")
+            status, headers, body = request("/browser403")
+            assert status == 403 and headers.get_all("Content-Security-Policy") == [fallback], (status, headers.get_all("Content-Security-Policy"))
             status, headers, body = request("/browser502")
             assert status == 502 and body == (errors / "502.html").read_bytes(), (status, body[:200])
+            assert headers.get_all("Content-Security-Policy") == [fallback], headers.get_all("Content-Security-Policy")
+            for route, expected in (("/csp/ok", 200), ("/csp/forbidden", 403)):
+                status, headers, body = request(route)
+                assert status == expected, (route, status)
+                assert headers.get_all("Content-Security-Policy") == ["default-src 'none'; script-src 'nonce-backend-test'"], (route, headers.get_all("Content-Security-Policy"))
+            for route in ("/service-worker.js", "/scripts/purify.min.js"):
+                status, headers, body = request(route)
+                assert status == 200 and headers.get("Content-Type") == "application/javascript", (route, status, headers)
+                assert headers.get_all("Content-Security-Policy") == [fallback], (route, headers.get_all("Content-Security-Policy"))
+                assert body == b"// static script sentinel\n", (route, body)
             request("/api/sensitive-audit-marker~private-key?secret=query-marker")
             access = (folder / "access.share.jeanphilippe.io.log").read_text()
             assert "sensitive-audit-marker" not in access and "private-key" not in access and "query-marker" not in access
-            print("PASS: backend JSON preserved; Apache API error JSON/status preserved; local 502 HTML preserved; access log omits URL secrets.")
+            print("PASS: backend CSP retained once for 200/403; missing CSP uses fallback; Apache 400/403/502 use fallback; error contracts and URL-safe logging preserved.")
         finally:
             server.terminate()
             server.communicate(timeout=5)
