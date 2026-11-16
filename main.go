@@ -115,37 +115,24 @@ func main() {
 		}
 		os.Exit(status)
 	}
-	if len(os.Args) >= 2 && os.Args[1] == "--internal-worker" {
+	supervisedWorker := len(os.Args) >= 2 && os.Args[1] == "--internal-worker"
+	if supervisedWorker {
 		os.Args = append(os.Args[:1], os.Args[2:]...)
 	}
 	Flags()
 	configureLogging()
-	if err := run(); err != nil {
+	if err := run(supervisedWorker); err != nil {
 		log.Error(err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(supervisedWorker bool) error {
 	rand.Seed(time.Now().UnixNano())
 	timeouts, err := loadHTTPTimeouts()
 	if err != nil {
 		return err
 	}
-
-	countryDB := os.Getenv(GeoIPCountryDatabaseEnv)
-	if err := ConfigureGeoIPCountry(countryDB); err != nil {
-		log.WithField("event", "geoip.database_unavailable").Warn("Local GeoIP country database unavailable")
-	} else if countryDB == "" {
-		log.WithField("event", "geoip.disabled").Info("Local GeoIP country lookup is not configured")
-	} else {
-		entry := log.WithField("event", "geoip.database_loaded")
-		if built, ok := GeoIPCountryBuildTime(); ok {
-			entry = entry.WithField("database_built_at", built.Format(time.RFC3339))
-		}
-		entry.Info("Local GeoIP country database loaded")
-	}
-	defer CloseGeoIPCountry()
 
 	pool := NewPool()
 	defer CloseRedisPool()
@@ -209,8 +196,21 @@ func run() error {
 	}
 	listener = netutil.LimitListener(listener, 128)
 	defer listener.Close()
+	geoPath, geoPathErr := GeoIPAutoDatabasePath()
+	if geoPathErr != nil {
+		MarkGeoIPDatabaseUnavailable()
+		log.WithField("event", "geoip.cache_unavailable").Warn("Local GeoIP cache unavailable")
+	} else {
+		geoContext, stopGeo := context.WithCancel(context.Background())
+		geoDone := StartGeoIPCountryUpdater(geoContext, geoPath)
+		defer func() {
+			stopGeo()
+			<-geoDone
+			_ = CloseGeoIPCountry()
+		}()
+	}
 	// Restore Echo's original startup artwork without fabricating audit events.
-	fmt.Fprint(os.Stdout, EchoStartupBanner())
+	fmt.Fprint(os.Stdout, EchoStartupOutput(supervisedWorker))
 	serverDone := make(chan error, 1)
 	go func() {
 		log.WithFields(log.Fields{"event": "server.start", "address": s.Addr, "echo_version": echo.Version, "tls_min": "1.3"}).Info("HTTPS server starting")

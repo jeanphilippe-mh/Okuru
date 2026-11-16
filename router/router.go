@@ -114,6 +114,10 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 		log.Fatal(err)
 	}
 
+	// Observe bounded security signals before the request limits and CSRF
+	// middleware, without storing request paths or blocking client traffic.
+	e.Use(securityObservations(processSecurityObserver))
+
 	// Capture rejected requests as well as successful ones. This middleware
 	// does not read the request body; size and upload admission remain inside it.
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{

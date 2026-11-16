@@ -72,6 +72,51 @@ func TestAuditJSONFormatterLevelsAndUTC(t *testing.T) {
 	}
 }
 
+func TestSecurityAlertKeepsSeverityAndTrustedRequestFields(t *testing.T) {
+	logger := log.StandardLogger()
+	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	var output bytes.Buffer
+	logger.SetOutput(&output)
+	logger.SetFormatter(NewAuditJSONFormatter())
+	logger.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		logger.SetOutput(oldOutput)
+		logger.SetFormatter(oldFormatter)
+		logger.SetLevel(oldLevel)
+	})
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "")
+	request := httptest.NewRequest(http.MethodGet, "/sensitive?token=never-log", nil)
+	request.RemoteAddr = "81.2.69.160:12345"
+	context := echo.New().NewContext(request, httptest.NewRecorder())
+	SecurityAlert(context, "security.probe", "Suspicious request pattern", log.Fields{
+		"client_ip": "198.51.100.9", "client_country_code": "FAKE", "client_country_name": "SPOOF", "category": "forged", "event": "forged", "count": 3,
+	})
+	line := output.String()
+	if !strings.HasPrefix(line, "[SECURITY] ") || strings.Contains(line, "never-log") || strings.Contains(line, "198.51.100.9") || strings.Contains(line, "SPOOF") || strings.Contains(line, "FAKE") {
+		t.Fatalf("security record leaked data or used untrusted fields: %s", line)
+	}
+	var record map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "[SECURITY] ")), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["category"] != "security" || record["event"] != "security.probe" || record["level"] != "warning" || record["client_ip"] != "81.2.69.160" {
+		t.Fatalf("unexpected security record: %v", record)
+	}
+	output.Reset()
+	SecurityAlert(nil, "security.high_request_rate", "High request rate observed", log.Fields{
+		"client_ip": "198.51.100.9", "peer_ip": "127.0.0.1", "client_country_code": "FR", "client_country_name": "France", "request_id": "forged", "trigger_request_id": "trusted-trigger",
+	})
+	line = output.String()
+	for _, forbidden := range []string{"198.51.100.9", "127.0.0.1", `"client_country_code"`, `"client_country_name"`, `"request_id"`} {
+		if strings.Contains(line, forbidden) {
+			t.Fatalf("global security record falsely attributes a client: %s", line)
+		}
+	}
+	if !strings.Contains(line, `"trigger_request_id":"trusted-trigger"`) {
+		t.Fatalf("global alert lost request correlation: %s", line)
+	}
+}
+
 func TestAuditUserActionsHaveVisibleMarkerAndStructuredCategory(t *testing.T) {
 	logger := log.StandardLogger()
 	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
