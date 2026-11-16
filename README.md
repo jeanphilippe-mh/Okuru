@@ -18,6 +18,10 @@ Passwords and text secrets are encrypted and authenticated with **Fernet** befor
 
 New uploads are packaged as ZIP archives and encrypted at rest with **age**. The file stored on the server is an age-encrypted envelope, even though its filename ends in `.zip`; it cannot be inspected as an ordinary ZIP until Okuru decrypts it.
 
+### Browser security observations
+
+Okuru can log bounded browser-reported CSP violations and script loading failures without sending share URLs, cookies, or nonces. These reports are best-effort, may be forged, and do not prove an SRI failure. See [browser security logging](docs/browser-security-logging.md) for coverage and privacy limits.
+
 ## Requirements
 
 * You can use **Debian 13** "Trixie" (https://www.debian.org/distrib/).
