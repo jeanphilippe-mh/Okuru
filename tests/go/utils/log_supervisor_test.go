@@ -54,9 +54,9 @@ func TestLogSupervisorWorker(t *testing.T) {
 	case "colors":
 		fmt.Fprintln(os.Stdout, `[INFO] {"event":"info","level":"info"}`)
 		fmt.Fprintln(os.Stdout, `[WARNING] {"event":"warning","level":"warning"}`)
-		fmt.Fprintln(os.Stdout, `[ERROR] {"event":"error","level":"error"}`)
-		fmt.Fprintln(os.Stdout, `[ACTION] {"category":"user_action","event":"action","level":"info"}`)
-		fmt.Fprintln(os.Stdout, `[SECURITY] {"category":"security","event":"security.example","level":"warning"}`)
+		fmt.Fprintln(os.Stdout, `[ERROR] {"event":"error","level":"error","msg":"Error detail"}`)
+		fmt.Fprintln(os.Stdout, `[ACTION] {"category":"user_action","event":"action","level":"info","msg":"Action detail"}`)
+		fmt.Fprintln(os.Stdout, `[SECURITY] {"category":"security","event":"security.example","level":"warning","msg":"Security detail"}`)
 		// Untrusted stderr attempts terminal control and action impersonation.
 		fmt.Fprintln(os.Stderr, "untrusted \x1b[2J "+supervisorFakeAction)
 		os.Exit(0)
@@ -342,5 +342,5 @@ func (w *supervisorTestJournal) String() string {
 
 // Only color sequences produced by colorLogPrefix may differ between sinks.
 func stripLogFileColors(value string) string {
-	return strings.NewReplacer("\x1b[34m", "", "\x1b[38;2;255;165;0m", "", "\x1b[31m", "", "\x1b[1;33m", "", "\x1b[1;38;2;180;180;180m", "", "\x1b[0m", "").Replace(value)
+	return strings.NewReplacer("\x1b[34m", "", "\x1b[38;2;255;165;0m", "", "\x1b[1;31m", "", "\x1b[1;38;2;180;120;255m", "", "\x1b[1;38;2;180;180;180m", "", "\x1b[1m", "", "\x1b[22m", "", "\x1b[0m", "").Replace(value)
 }

@@ -14,8 +14,8 @@ func TestColorLogPrefixUsesExactRequestedColors(t *testing.T) {
 	}{
 		{"info blue", `[INFO] {"level":"info"}`, "\x1b[34m[INFO]\x1b[0m "},
 		{"warning orange", `[WARNING] {"level":"warning"}`, "\x1b[38;2;255;165;0m[WARNING]\x1b[0m "},
-		{"error red", `[ERROR] {"level":"error"}`, "\x1b[31m[ERROR]\x1b[0m "},
-		{"action bold yellow", `[ACTION] {"category":"user_action","level":"info"}`, "\x1b[1;33m[ACTION]\x1b[0m "},
+		{"error bold red", `[ERROR] {"level":"error"}`, "\x1b[1;31m[ERROR]\x1b[0m "},
+		{"action bold purple", `[ACTION] {"category":"user_action","level":"info"}`, "\x1b[1;38;2;180;120;255m[ACTION]\x1b[0m "},
 		{"security bold gray", `[SECURITY] {"category":"security","level":"warning"}`, "\x1b[1;38;2;180;180;180m[SECURITY]\x1b[0m "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,6 +48,53 @@ func TestColorLogPrefixPreservesLargeRecord(t *testing.T) {
 	}
 	if got := stripLogFileColors(string(colored)); got != input {
 		t.Fatal("coloring changed a large structured record")
+	}
+}
+
+func TestBoldStructuredMessagePreservesJSONBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, styled string
+	}{
+		{"error msg first", `[ERROR] {"msg":"Failure","event":"test"}`, `"msg":"\x1b[1mFailure\x1b[22m"`},
+		{"action msg last", `[ACTION] {"event":"test","msg":"Secret viewed"}`, `"msg":"\x1b[1mSecret viewed\x1b[22m"`},
+		{"security utf8 and escaped", `[SECURITY] {"nested":{"msg":"decoy"},"msg":"Détecté : \"test\" \\path","event":"test"}`, `"msg":"\x1b[1mDétecté : \"test\" \\path\x1b[22m"`},
+		{"escaped field name", `[ERROR] {"m\u0073g" : "error\\nnext","nested":{"msg":"decoy"}}`, `"m\u0073g" : "\x1b[1merror\\nnext\x1b[22m"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := tc.input + "\n"
+			colored := string(colorLogPrefix([]byte(original)))
+			want := strings.ReplaceAll(tc.styled, `\x1b`, "\x1b")
+			if !strings.Contains(colored, want) {
+				t.Fatalf("message was not correctly styled: %q", colored)
+			}
+			if got := stripLogFileColors(colored); got != original {
+				t.Fatalf("ANSI removal changed the record: %q", got)
+			}
+		})
+	}
+}
+
+func TestBoldStructuredMessageSkipsAmbiguousOrNonStringFields(t *testing.T) {
+	for _, input := range []string{
+		`[ERROR] {"nested":{"msg":"decoy"},"event":"test"}`,
+		`[ACTION] {"msg":null}`,
+		`[SECURITY] {"msg":123}`,
+		`[ERROR] {"msg":{"msg":"nested"}}`,
+		`[ERROR] {"msg":"first","msg":"second"}`,
+		`[ERROR] {"msg":"first"} {"msg":"second"}`,
+		`[ERROR] {"msg":"unterminated}`,
+		`[INFO] {"msg":"not bold"}`,
+		`[WARNING] {"msg":"not bold"}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			colored := string(colorLogPrefix([]byte(input + "\n")))
+			if strings.Contains(colored, "\x1b[1m") || strings.Contains(colored, "\x1b[22m") {
+				t.Fatalf("unexpected message bolding: %q", colored)
+			}
+			if got := stripLogFileColors(colored); got != input+"\n" {
+				t.Fatalf("ANSI removal changed record: %q", got)
+			}
+		})
 	}
 }
 
@@ -88,9 +135,14 @@ func TestLogSupervisorColorFileAndPlainJournal(t *testing.T) {
 				t.Fatalf("file payload does not match journal: %q", string(file))
 			}
 			if tc.color {
-				for _, prefix := range []string{"\x1b[34m[INFO]\x1b[0m", "\x1b[38;2;255;165;0m[WARNING]\x1b[0m", "\x1b[31m[ERROR]\x1b[0m", "\x1b[1;33m[ACTION]\x1b[0m", "\x1b[1;38;2;180;180;180m[SECURITY]\x1b[0m"} {
+				for _, prefix := range []string{"\x1b[34m[INFO]\x1b[0m", "\x1b[38;2;255;165;0m[WARNING]\x1b[0m", "\x1b[1;31m[ERROR]\x1b[0m", "\x1b[1;38;2;180;120;255m[ACTION]\x1b[0m", "\x1b[1;38;2;180;180;180m[SECURITY]\x1b[0m"} {
 					if !strings.Contains(string(file), prefix) {
 						t.Errorf("file is missing requested color %q", prefix)
+					}
+				}
+				for _, message := range []string{"Error detail", "Action detail", "Security detail"} {
+					if !strings.Contains(string(file), "\x1b[1m"+message+"\x1b[22m") {
+						t.Errorf("file message is not bold: %q", message)
 					}
 				}
 			} else if bytes.Contains(file, []byte("\x1b")) {
