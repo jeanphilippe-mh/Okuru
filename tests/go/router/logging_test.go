@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -73,6 +74,7 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 	}
 
 	oversized := httptest.NewRequest(http.MethodPost, "/api/v1?password="+secret, strings.NewReader(strings.Repeat("x", maxSmallRequestBytes+1)))
+	oversized.Header.Set("Content-Length", strconv.Itoa(maxSmallRequestBytes+1))
 	oversized.RemoteAddr = "198.51.100.27:1235"
 	oversized.Header.Set("X-Request-ID", forgedID)
 	oversizedResult := httptest.NewRecorder()
@@ -132,14 +134,23 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 			continue
 		}
 		requests++
+		if _, exists := record["bytes_in"]; exists {
+			t.Errorf("request log reports unmeasured inbound bytes: %v", record)
+		}
 		switch record["status"] {
 		case float64(http.StatusNoContent):
 			successfulID = id
+			if _, exists := record["request_content_length"]; exists {
+				t.Errorf("GET without Content-Length unexpectedly logged one: %v", record)
+			}
 			if record["route"] != "/audit-test/:token" || record["level"] != "info" {
 				t.Errorf("successful request logged incorrectly: %v", record)
 			}
 		case float64(http.StatusRequestEntityTooLarge):
 			rejectedID = id
+			if record["request_content_length"] != float64(maxSmallRequestBytes+1) {
+				t.Errorf("declared request Content-Length missing or not numeric: %v", record)
+			}
 			if record["route"] != "/api/v1" || record["level"] != "warning" {
 				t.Errorf("rejected request logged incorrectly: %v", record)
 			}
@@ -149,6 +160,32 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 	}
 	if requests != 2 || operationID == "" || successfulID != operationID || rejectedID == "" || rejectedID == successfulID {
 		t.Fatalf("unexpected request correlation: requests=%d operation=%q success=%q rejected=%q", requests, operationID, successfulID, rejectedID)
+	}
+}
+
+func TestRequestContentLength(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want int64
+		ok   bool
+	}{
+		{"absent", "", 0, false},
+		{"zero", "0", 0, true},
+		{"leading zero", "00025", 25, true},
+		{"maximum", "9223372036854775807", 9223372036854775807, true},
+		{"negative", "-1", 0, false},
+		{"positive sign", "+1", 0, false},
+		{"whitespace", " 1", 0, false},
+		{"invalid", "1x", 0, false},
+		{"overflow", "9223372036854775808", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := requestContentLength(tc.raw)
+			if ok != tc.ok || (ok && got != tc.want) {
+				t.Fatalf("requestContentLength(%q) = %d, %t; want %d, %t", tc.raw, got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 
