@@ -53,6 +53,23 @@ func TestHTTPDiagnosticLoggerClassifiesAndProtectsInput(t *testing.T) {
 		name, input, event, level, peer, reason, location string
 	}{
 		{"ping", "timeout waiting for PING response", "http2.ping_timeout", "warning", "", "", ""},
+		{"settings IPv4", "timeout waiting for SETTINGS frames from 127.0.0.1:12345", "http2.settings_timeout", "warning", "127.0.0.1", "", ""},
+		{"settings IPv6", "timeout waiting for SETTINGS frames from [::1]:12345", "http2.settings_timeout", "warning", "::1", "", ""},
+		{"settings forged", "timeout waiting for SETTINGS frames from " + secret, "http2.settings_timeout", "warning", "", "", ""},
+		{"settings forged port", "timeout waiting for SETTINGS frames from 127.0.0.1:" + secret, "http2.settings_timeout", "warning", "", "", ""},
+		{"preface EOF", "http2: server: error reading preface from client 127.0.0.1:12345: EOF", "http2.preface_failed", "warning", "127.0.0.1", "peer_closed", ""},
+		{"preface IPv6", "http2: server: error reading preface from client [::1]:12345: unexpected EOF", "http2.preface_failed", "warning", "::1", "unexpected_eof", ""},
+		{"preface private", "http2: server: error reading preface from client " + secret + ": " + secret, "http2.preface_failed", "warning", "", "other", ""},
+		{"connection protocol", "http2: server connection error from 127.0.0.1:12345: " + secret, "http2.connection_error", "warning", "127.0.0.1", "other", ""},
+		{"connection closed", "http2: server closing client connection: read tcp: connection reset by peer", "http2.connection_closed", "warning", "", "connection_reset", ""},
+		{"connection close private", "http2: server closing client connection: " + secret, "http2.connection_closed", "warning", "", "other", ""},
+		{"goaway", "http2: received GOAWAY " + secret + ", starting graceful shutdown", "http2.peer_goaway", "warning", "", "", ""},
+		{"repeated headers", "http: superfluous response.WriteHeader call from " + secret, "http.response_header_repeated", "warning", "", "", ""},
+		{"header after hijack", "http: response.WriteHeader on hijacked connection from " + secret, "http.response_header_after_hijack", "warning", "", "", ""},
+		{"write after hijack", "http: response.Write on hijacked connection from " + secret, "http.response_write_after_hijack", "warning", "", "", ""},
+		{"invalid content length", "http: invalid Content-Length of \"" + secret + "\"", "http.response_invalid_content_length", "warning", "", "", ""},
+		{"conflicting framing", "http: WriteHeader called with both Transfer-Encoding of \"" + secret + "\" and a Content-Length of 42", "http.response_conflicting_framing", "warning", "", "", ""},
+		{"invalid trailer", "ignoring invalid trailer \"" + secret + "\"", "http2.invalid_trailer", "warning", "", "", ""},
 		{"TLS IPv4", "http: TLS handshake error from 127.0.0.1:12345: EOF", "tls.handshake_failed", "warning", "127.0.0.1", "peer_closed", ""},
 		{"TLS IPv6", "http: TLS handshake error from [2001:db8::1]:12345: tls: client offered only unsupported versions: [303]", "tls.handshake_failed", "warning", "2001:db8::1", "protocol_version", ""},
 		{"TLS unknown", "http: TLS handshake error from 127.0.0.1:12345: " + secret, "tls.handshake_failed", "warning", "127.0.0.1", "other", ""},
@@ -91,6 +108,33 @@ func TestHTTPDiagnosticLoggerBoundsOversizedInput(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "sensitive") {
 		t.Fatal("oversized diagnostic leaked its raw contents")
+	}
+}
+
+func TestHTTPDiagnosticLoggerDoesNotTrustTruncatedPanicStack(t *testing.T) {
+	const secret = "PRIVATEFAKEFUNCTIONNAME"
+	for _, tc := range []struct {
+		name, prefix, event string
+	}{
+		{"HTTP", "http: panic serving 127.0.0.1:12345: ", "http.handler_panic"},
+		{"HTTP2", "http2: panic serving 127.0.0.1:12345: ", "http2.handler_panic"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, output := diagnosticTestLogger()
+			// The attacker-controlled panic value can contain a fake stack
+			// before truncation hides the real goroutine header.
+			forged := tc.prefix + "panic value\ngoroutine 42 [running]:\n" +
+				"github.com/jeanphilippe-mh/Okuru/router." + secret + "()\n" +
+				strings.Repeat("padding", 20_000)
+			NewHTTPDiagnosticLogger(logger).Print(forged)
+			record := diagnosticRecord(t, []byte(output.String()))
+			if record["event"] != tc.event || record["diagnostic_truncated"] != true {
+				t.Fatalf("unexpected truncated panic event: %v", record)
+			}
+			if _, ok := record["panic_function"]; ok || strings.Contains(output.String(), secret) {
+				t.Fatal("truncated panic exposed a forged function")
+			}
+		})
 	}
 }
 
