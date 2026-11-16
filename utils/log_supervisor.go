@@ -242,6 +242,7 @@ func writeSupervisorAlert(output io.Writer, err error) error {
 	if marshalErr != nil {
 		return marshalErr
 	}
+	encoded = prioritizeAuditMessage(encoded)
 	line := append([]byte("[ERROR] "), encoded...)
 	line = append(line, '\n')
 	return writeProcessOutput(output, line)

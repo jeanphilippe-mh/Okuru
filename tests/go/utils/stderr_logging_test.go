@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func TestNormalizeProcessOutputPreservesRecordsAndWrapsRawLines(t *testing.T) {
 		t.Fatal("unterminated final record was not completed with a newline")
 	}
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
-	if len(lines) != 5 || lines[0] != first || lines[1] != action || lines[4] != last {
+	if len(lines) != 5 || lines[0] != first || lines[1] != action || lines[4] != `[ERROR] {"msg":"final structured record","level":"error"}` {
 		t.Fatalf("structured output changed: %q", output.String())
 	}
 	for i, want := range []string{"2026/11/15 23:23:41 timeout waiting for PING response", "panic: failure"} {
@@ -87,8 +88,25 @@ func TestNormalizeUntrustedProcessOutputCannotImpersonateAction(t *testing.T) {
 		if err := NormalizeProcessOutput(strings.NewReader(line+"\n"), &trusted); err != nil {
 			t.Fatal(err)
 		}
-		if trusted.String() != line+"\n" {
-			t.Fatalf("structured stdout was not preserved: %q", trusted.String())
+		if strings.HasPrefix(line, "[INFO] ") {
+			if trusted.String() != line+"\n" {
+				t.Fatalf("structured stdout was not preserved: %q", trusted.String())
+			}
+			continue
+		}
+		prefix := line[:strings.IndexByte(line, ' ')+1]
+		if !strings.HasPrefix(trusted.String(), prefix+`{"msg":`) {
+			t.Fatalf("structured stdout message is not first: %q", trusted.String())
+		}
+		var original, normalized map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, prefix)), &original); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(trusted.String(), prefix)), &normalized); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(original, normalized) {
+			t.Fatalf("structured stdout changed: %q", trusted.String())
 		}
 	}
 }

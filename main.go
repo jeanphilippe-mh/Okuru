@@ -103,7 +103,7 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "--internal-log-supervisor" {
 		executable, err := os.Executable()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] {\"event\":\"logging.supervisor_failed\",\"level\":\"error\",\"time\":%q,\"msg\":\"Could not locate executable\"}\n", time.Now().UTC().Format(time.RFC3339Nano))
+			fmt.Fprintf(os.Stderr, "[ERROR] {\"msg\":\"Could not locate executable\",\"event\":\"logging.supervisor_failed\",\"level\":\"error\",\"time\":%q}\n", time.Now().UTC().Format(time.RFC3339Nano))
 			os.Exit(1)
 		}
 		workerArgs := append([]string{"--internal-worker"}, os.Args[2:]...)

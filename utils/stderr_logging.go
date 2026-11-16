@@ -18,9 +18,10 @@ const (
 	maxUntrustedProcessOutputFragment = 512
 )
 
-// NormalizeProcessOutput preserves already structured records and wraps other
-// process output as structured error records. Long lines are split into bounded
-// fragments; arbitrary bytes that are not UTF-8 are preserved as base64.
+// NormalizeProcessOutput preserves structured records, moving msg first for
+// prominent categories, and wraps other output as structured error records.
+// Long lines are split into bounded fragments; arbitrary bytes that are not
+// UTF-8 are preserved as base64.
 //
 // This preserves diagnostic text. As with the original stderr, that text may
 // contain secrets or attacker-controlled content; callers must restrict access
@@ -61,9 +62,17 @@ func normalizeProcessOutput(input io.Reader, output io.Writer, preserveStructure
 				}
 			} else if preserveStructured && fragment == 0 && len(pending) == 0 && !errors.Is(readErr, bufio.ErrBufferFull) && isStructuredProcessRecord(line) {
 				record := line
+				for _, prefix := range []string{"[ACTION] ", "[SECURITY] ", "[ERROR] "} {
+					if bytes.HasPrefix(record, []byte(prefix)) {
+						if !bytes.HasPrefix(record[len(prefix):], []byte(`{"msg":`)) {
+							record = append([]byte(prefix), prioritizeAuditMessage(record[len(prefix):])...)
+						}
+						break
+					}
+				}
 				if !terminated {
 					// Ensure the next process append cannot merge two records.
-					record = append(append([]byte(nil), line...), '\n')
+					record = append(append([]byte(nil), record...), '\n')
 				}
 				if err := writeProcessOutput(output, record); err != nil {
 					return err
@@ -158,6 +167,7 @@ func writeUnstructuredProcessOutput(output io.Writer, content []byte, fragment i
 	if err != nil {
 		return err
 	}
+	encoded = prioritizeAuditMessage(encoded)
 	result := append([]byte("[ERROR] "), encoded...)
 	result = append(result, '\n')
 	return writeProcessOutput(output, result)
