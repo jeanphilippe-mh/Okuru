@@ -128,6 +128,13 @@ func parseClientAddress(raw string) (netip.Addr, error) {
 	return address.Unmap(), nil
 }
 
+// IsPublicClientIP reports whether a canonical client address is globally
+// reachable under the same conservative policy used for country lookups.
+func IsPublicClientIP(raw string) bool {
+	address, err := parseClientAddress(raw)
+	return err == nil && geoIPPublicAddress(address)
+}
+
 func trustedProxyPrefixes(raw string) ([]netip.Prefix, error) {
 	if raw == "" {
 		return nil, nil

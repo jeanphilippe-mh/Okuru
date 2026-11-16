@@ -104,6 +104,8 @@ func NewDataContext() pongo2.Context {
 	for key, value := range baseDataContext {
 		data[key] = value
 	}
+	// This is provider metadata only; never expose the request's IP or country.
+	data["geoip_dbip_attribution"] = GeoIPUsesDBIP()
 	return data
 }
 

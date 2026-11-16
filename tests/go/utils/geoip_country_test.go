@@ -210,6 +210,10 @@ func TestGeoIPCountryDatabaseSnapshotSurvivesReplacement(t *testing.T) {
 	if err := ConfigureGeoIPCountry(path); err != nil {
 		t.Fatal(err)
 	}
+	built, ok := GeoIPCountryBuildTime()
+	if !ok {
+		t.Fatal("verified database has no build time")
+	}
 	// A database updater may replace or truncate the file. Existing lookups
 	// use the immutable in-memory snapshot until an explicit reload.
 	if err := os.WriteFile(path, []byte("replacement is invalid"), 0600); err != nil {
@@ -221,9 +225,73 @@ func TestGeoIPCountryDatabaseSnapshotSurvivesReplacement(t *testing.T) {
 	if err := ConfigureGeoIPCountry(path); !errors.Is(err, ErrGeoIPDatabase) {
 		t.Fatalf("invalid replacement accepted: %v", err)
 	}
-	if _, _, status := LookupGeoIPCountry("81.2.69.160"); status != GeoIPDatabaseUnavailable {
-		t.Fatalf("invalid replacement not surfaced: %q", status)
+	if code, name, status := LookupGeoIPCountry("81.2.69.160"); code != "GB" || name != "Royaume-Uni" || status != GeoIPFound {
+		t.Fatalf("invalid replacement discarded verified snapshot: %q, %q, %q", code, name, status)
 	}
+	if got, ok := GeoIPCountryBuildTime(); !ok || !got.Equal(built) {
+		t.Fatalf("failed reload changed database build time: %v, %v", got, ok)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureGeoIPCountry(path); !errors.Is(err, ErrGeoIPDatabase) {
+		t.Fatalf("missing replacement not reported: %v", err)
+	}
+	if code, _, status := LookupGeoIPCountry("81.2.69.160"); code != "GB" || status != GeoIPFound {
+		t.Fatalf("missing replacement discarded verified snapshot: %q, %q", code, status)
+	}
+	if err := ConfigureGeoIPCountry(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, status := LookupGeoIPCountry("81.2.69.160"); status != GeoIPDisabled {
+		t.Fatalf("explicit disable retained an active snapshot: %q", status)
+	}
+}
+
+func TestMarkGeoIPDatabaseUnavailableKeepsVerifiedSnapshot(t *testing.T) {
+	t.Cleanup(func() { _ = CloseGeoIPCountry() })
+	if err := ConfigureGeoIPCountry(""); err != nil {
+		t.Fatal(err)
+	}
+	MarkGeoIPDatabaseUnavailable()
+	if _, _, status := LookupGeoIPCountry("81.2.69.160"); status != GeoIPDatabaseUnavailable {
+		t.Fatalf("failed initial setup not marked unavailable: %q", status)
+	}
+	if err := ConfigureGeoIPCountry(geoIPFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	MarkGeoIPDatabaseUnavailable()
+	if code, _, status := LookupGeoIPCountry("81.2.69.160"); code != "GB" || status != GeoIPFound {
+		t.Fatalf("initialization failure discarded verified snapshot: %q, %q", code, status)
+	}
+}
+
+func TestGeoIPCountryConcurrentFailedReloadKeepsVerifiedSnapshot(t *testing.T) {
+	t.Cleanup(func() { _ = CloseGeoIPCountry() })
+	if err := ConfigureGeoIPCountry(geoIPFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing.mmdb")
+	var group sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for j := 0; j < 200; j++ {
+				code, _, status := LookupGeoIPCountry("81.2.69.160")
+				if code != "GB" || status != GeoIPFound {
+					t.Errorf("failed concurrent reload changed snapshot: %q, %q", code, status)
+					return
+				}
+			}
+		}()
+	}
+	for i := 0; i < 40; i++ {
+		if err := ConfigureGeoIPCountry(missing); !errors.Is(err, ErrGeoIPDatabase) {
+			t.Errorf("missing reload = %v", err)
+		}
+	}
+	group.Wait()
 }
 
 func TestGeoIPCountryUnavailableAddressAndGlobalExceptions(t *testing.T) {

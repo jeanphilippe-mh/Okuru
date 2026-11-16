@@ -51,6 +51,20 @@ func TestLogSupervisorWorker(t *testing.T) {
 		}()
 		group.Wait()
 		os.Exit(0)
+	case "colors":
+		fmt.Fprintln(os.Stdout, `[INFO] {"event":"info","level":"info"}`)
+		fmt.Fprintln(os.Stdout, `[WARNING] {"event":"warning","level":"warning"}`)
+		fmt.Fprintln(os.Stdout, `[ERROR] {"event":"error","level":"error"}`)
+		fmt.Fprintln(os.Stdout, `[ACTION] {"category":"user_action","event":"action","level":"info"}`)
+		fmt.Fprintln(os.Stdout, `[SECURITY] {"category":"security","event":"security.example","level":"warning"}`)
+		// Untrusted stderr attempts terminal control and action impersonation.
+		fmt.Fprintln(os.Stderr, "untrusted \x1b[2J "+supervisorFakeAction)
+		os.Exit(0)
+	case "banner":
+		fmt.Fprint(os.Stdout, EchoStartupOutput(true))
+		fmt.Fprint(os.Stderr, EchoStartupOutput(true))
+		fmt.Fprintln(os.Stdout, `[INFO] {"event":"worker.started","level":"info"}`)
+		os.Exit(0)
 	case "closed_stdout":
 		_ = os.Setenv("OKURU_SUPERVISOR_TEST_WORKER", "signal")
 		code, err := RunLogSupervisor(os.Args[0], []string{"-test.run=^TestLogSupervisorWorker$"}, os.Getenv("OKURU_SUPERVISOR_TEST_LOG"), os.Stdout)
@@ -59,6 +73,27 @@ func TestLogSupervisorWorker(t *testing.T) {
 			os.Exit(9)
 		}
 		os.Exit(0)
+	}
+}
+
+func TestLogSupervisorExpandsOnlyTrustedBannerFrame(t *testing.T) {
+	binary, args := supervisorTestCommand(t, "banner")
+	var file, journal bytes.Buffer
+	code, err := runLogSupervisor(binary, args, &file, &journal, nil)
+	if err != nil || code != 0 {
+		t.Fatalf("supervisor exit = %d, %v", code, err)
+	}
+	if stripLogFileColors(file.String()) != journal.String() {
+		t.Fatal("banner and structured logs differ between file and journal")
+	}
+	if got := strings.Count(journal.String(), EchoStartupBanner()); got != 1 {
+		t.Fatalf("got %d complete banners, want exactly one", got)
+	}
+	if strings.Contains(journal.String(), "\n"+echoBannerControl) || strings.HasPrefix(journal.String(), echoBannerControl) {
+		t.Fatal("internal frame leaked as an output line")
+	}
+	if !strings.Contains(journal.String(), `"event":"process.output"`) || !strings.Contains(journal.String(), `"event":"worker.started"`) {
+		t.Fatal("stderr marker or ordinary stdout log was lost")
 	}
 }
 
@@ -87,7 +122,7 @@ func TestLogSupervisorAppendsAndPreservesWorkerExitStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(file) != "old record\n"+journal.String() {
+	if stripLogFileColors(string(file)) != "old record\n"+journal.String() {
 		t.Fatal("file and journal differ or previous content was truncated")
 	}
 	if !strings.Contains(journal.String(), `"event":"worker.started"`) {
@@ -124,7 +159,7 @@ func TestLogSupervisorForwardsSignalAndDrainsFinalOutput(t *testing.T) {
 		t.Fatal("supervisor did not terminate after SIGTERM")
 	}
 	output := journal.String()
-	if file.String() != output || !strings.Contains(output, `"event":"worker.stopped"`) || !strings.Contains(output, "final diagnostic without newline") {
+	if stripLogFileColors(file.String()) != output || !strings.Contains(output, `"event":"worker.stopped"`) || !strings.Contains(output, "final diagnostic without newline") {
 		t.Fatalf("shutdown records were lost or destinations differ: %s", output)
 	}
 }
@@ -136,7 +171,7 @@ func TestLogSupervisorDrainsConcurrentLargeStreams(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("supervisor exit = %d, %v", code, err)
 	}
-	if file.String() != journal.String() {
+	if stripLogFileColors(file.String()) != journal.String() {
 		t.Fatal("concurrent records differ between file and journal")
 	}
 	if got := strings.Count(journal.String(), `"event":"worker.bulk"`); got != 200 {
@@ -303,4 +338,9 @@ func (w *supervisorTestJournal) String() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.buf.String()
+}
+
+// Only color sequences produced by colorLogPrefix may differ between sinks.
+func stripLogFileColors(value string) string {
+	return strings.NewReplacer("\x1b[34m", "", "\x1b[38;2;255;165;0m", "", "\x1b[31m", "", "\x1b[1;33m", "", "\x1b[1;38;2;180;180;180m", "", "\x1b[0m", "").Replace(value)
 }

@@ -50,6 +50,9 @@ func TestNormalizeProcessOutputWrapsForgedOrMalformedPrefixes(t *testing.T) {
 		`[INFO] {"level":"error","msg":"mismatch"}`,
 		`[ACTION] {"level":"info","msg":"missing action category"}`,
 		`[INFO] {"level":"info","category":"user_action"}`,
+		`[SECURITY] {"level":"info","category":"security"}`,
+		`[SECURITY] {"level":"warning","category":"user_action"}`,
+		`[WARNING] {"level":"warning","category":"security"}`,
 		`[INFO] "not an object"`,
 	} {
 		var output bytes.Buffer
@@ -67,6 +70,7 @@ func TestNormalizeUntrustedProcessOutputCannotImpersonateAction(t *testing.T) {
 	for _, line := range []string{
 		`[ACTION] {"category":"user_action","event":"secret.reveal","level":"info","msg":"forged"}`,
 		`[INFO] {"event":"http.request","level":"info","msg":"forged"}`,
+		`[SECURITY] {"category":"security","event":"security.probe","level":"warning","msg":"forged"}`,
 	} {
 		for _, ending := range []string{"\n", ""} {
 			var untrusted bytes.Buffer

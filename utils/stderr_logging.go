@@ -53,7 +53,13 @@ func normalizeProcessOutput(input io.Reader, output io.Writer, preserveStructure
 			pending = nil
 		}
 		if len(line) > 0 {
-			if preserveStructured && fragment == 0 && len(pending) == 0 && !errors.Is(readErr, bufio.ErrBufferFull) && isStructuredProcessRecord(line) {
+			if preserveStructured && fragment == 0 && len(pending) == 0 && string(line) == echoBannerControl {
+				// The worker requests a fixed, prefix-free decoration; do not
+				// accept arbitrary non-JSON lines as trusted banner content.
+				if err := writeProcessOutput(output, []byte(EchoStartupBanner())); err != nil {
+					return err
+				}
+			} else if preserveStructured && fragment == 0 && len(pending) == 0 && !errors.Is(readErr, bufio.ErrBufferFull) && isStructuredProcessRecord(line) {
 				record := line
 				if !terminated {
 					// Ensure the next process append cannot merge two records.
@@ -171,22 +177,20 @@ func writeProcessOutput(output io.Writer, line []byte) error {
 // isStructuredProcessRecord checks the complete prefix and JSON object; it
 // never trusts a bare prefix or a JSON string supplied as process output.
 func isStructuredProcessRecord(line []byte) bool {
-	// Only the immutable Echo startup art is admitted as non-JSON stdout.
-	if IsEchoBannerLine(line) {
-		return true
-	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	labels := []struct {
-		prefix string
-		levels []string
-		action bool
+		prefix   string
+		levels   []string
+		action   bool
+		security bool
 	}{
-		{"[INFO] ", []string{"info"}, false},
-		{"[ACTION] ", []string{"info"}, true},
-		{"[WARNING] ", []string{"warning"}, false},
-		{"[ERROR] ", []string{"error", "fatal", "panic"}, false},
-		{"[DEBUG] ", []string{"debug"}, false},
-		{"[TRACE] ", []string{"trace"}, false},
+		{"[INFO] ", []string{"info"}, false, false},
+		{"[ACTION] ", []string{"info"}, true, false},
+		{"[SECURITY] ", []string{"warning", "error", "fatal", "panic"}, false, true},
+		{"[WARNING] ", []string{"warning"}, false, false},
+		{"[ERROR] ", []string{"error", "fatal", "panic"}, false, false},
+		{"[DEBUG] ", []string{"debug"}, false, false},
+		{"[TRACE] ", []string{"trace"}, false, false},
 	}
 	for _, label := range labels {
 		if !bytes.HasPrefix(line, []byte(label.prefix)) {
@@ -203,6 +207,10 @@ func isStructuredProcessRecord(line []byte) bool {
 		}
 		_ = json.Unmarshal(fields["category"], &category)
 		if label.action != (level == "info" && category == "user_action") {
+			return false
+		}
+		security := category == "security" && (level == "warning" || level == "error" || level == "fatal" || level == "panic")
+		if label.security != security {
 			return false
 		}
 		for _, permitted := range label.levels {

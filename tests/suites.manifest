@@ -28,6 +28,7 @@ router/echo_migration_csrf_test.go
 router/echo_migration_errors_test.go
 router/errors_test.go
 router/http2_security_test.go
+router/security_observer_test.go
 router/limits_test.go
 router/links_slash_regression_test.go
 router/logging_test.go
@@ -40,8 +41,12 @@ utils/admission_rate_test.go
 utils/audit_logging_test.go
 utils/banner_logging_test.go
 utils/diagnostic_logging_test.go
+utils/geoip_attribution_test.go
 utils/geoip_country_test.go
 utils/geoip_open_unix_test.go
+utils/geoip_update_test.go
+utils/geoip_update_windows_test.go
+utils/log_colors_test.go
 utils/log_supervisor_test.go
 utils/stderr_logging_test.go
 utils/client_identity_test.go

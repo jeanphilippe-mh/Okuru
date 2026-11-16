@@ -72,6 +72,9 @@
     {{ copyright }}
     {% endautoescape %}
     {% endif %}
+    {% if(geoip_dbip_attribution) %}
+    <p><a class="footer" href="https://db-ip.com/" rel="noreferrer noopener nofollow" target="_blank">IP Geolocation by DB-IP</a> · <a class="footer" href="https://creativecommons.org/licenses/by/4.0/" rel="noreferrer noopener nofollow" target="_blank">CC BY 4.0</a></p>
+    {% endif %}
   </footer>
 
   <script async src="/scripts/bootstrap.min.js"></script>

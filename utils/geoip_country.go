@@ -14,10 +14,6 @@ import (
 	maxminddb "github.com/oschwald/maxminddb-golang/v2"
 )
 
-// GeoIPCountryDatabaseEnv specifies the optional local MMDB file. No visitor
-// addresses are sent to a third party, and no database is downloaded by Okuru.
-const GeoIPCountryDatabaseEnv = "OKURU_GEOIP_DATABASE"
-
 const maxGeoIPDatabaseBytes = 64 << 20
 
 const (
@@ -81,8 +77,9 @@ var geoIPGlobalExceptions = []netip.Prefix{
 
 // ConfigureGeoIPCountry loads and validates an optional local country-capable
 // MMDB. It reads a bounded, immutable snapshot rather than memory-mapping a file
-// an updater might truncate in place. Empty path disables lookups. On failure,
-// lookups remain available and report GeoIPDatabaseUnavailable.
+// an updater might truncate in place. Empty path disables lookups. A failed
+// reload retains the previous verified snapshot; if none exists, lookups
+// report GeoIPDatabaseUnavailable.
 //
 // Updates are picked up by calling this again or by restarting the service.
 func ConfigureGeoIPCountry(path string) error {
@@ -112,6 +109,13 @@ func ConfigureGeoIPCountry(path string) error {
 		}
 	}
 
+	if result != nil {
+		// A transient download, filesystem or validation failure must never
+		// discard the last verified snapshot. Only mark the database as
+		// unavailable when no such snapshot is loaded.
+		MarkGeoIPDatabaseUnavailable()
+		return result
+	}
 	geoIPCountry.Lock()
 	old := geoIPCountry.reader
 	geoIPCountry.reader = reader
@@ -121,6 +125,17 @@ func ConfigureGeoIPCountry(path string) error {
 	}
 	geoIPCountry.Unlock()
 	return result
+}
+
+// MarkGeoIPDatabaseUnavailable records a failed initialization when no verified
+// snapshot exists, without discarding a snapshot used by concurrent requests.
+// It accepts no path or error and therefore cannot disclose private data.
+func MarkGeoIPDatabaseUnavailable() {
+	geoIPCountry.Lock()
+	if geoIPCountry.reader == nil {
+		geoIPCountry.status = GeoIPDatabaseUnavailable
+	}
+	geoIPCountry.Unlock()
 }
 
 // Country, City and Enterprise databases can provide country.iso_code. Avoid

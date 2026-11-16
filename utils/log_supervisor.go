@@ -53,7 +53,7 @@ type supervisorResult struct {
 // runLogSupervisor accepts injected writers and signals for subprocess tests.
 func runLogSupervisor(executable string, args []string, file, journal io.Writer, signals <-chan os.Signal) (int, error) {
 	failures := make(chan error, 2)
-	sink := &supervisorSink{file: file, journal: journal, failures: failures}
+	sink := &supervisorSink{file: file, journal: journal, failures: failures, colorFile: logFileColorsEnabled()}
 	cmd := exec.Command(executable, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -165,13 +165,18 @@ type supervisorSink struct {
 	failures   chan<- error
 	fileFailed bool
 	logFailed  bool
+	colorFile  bool
 }
 
 func (s *supervisorSink) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.fileFailed {
-		if err := writeProcessOutput(s.file, p); err != nil {
+		fileRecord := p
+		if s.colorFile {
+			fileRecord = colorLogPrefix(p)
+		}
+		if err := writeProcessOutput(s.file, fileRecord); err != nil {
 			s.fileFailed = true
 			notifySupervisorFailure(s.failures, newSupervisorFailure("write_log", err))
 		}
