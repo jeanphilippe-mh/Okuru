@@ -92,10 +92,10 @@ func TestAuditUserActionsHaveVisibleMarkerAndStructuredCategory(t *testing.T) {
 		name, prefix, outcome, level string
 		emit                         func(*echo.Context, string, string)
 	}{
-		{"preview", "[INFO] [ACTION] ", "success", "info", AuditEvent},
-		{"denied", "[WARNING] [ACTION] ", "failure", "warning", AuditAlert},
-		{"failed", "[ERROR] [ACTION] ", "failure", "error", AuditError},
-		{"started", "[INFO] [ACTION] ", "started", "info", AuditStarted},
+		{"preview", "[ACTION] ", "success", "info", AuditEvent},
+		{"denied", "[WARNING] ", "failure", "warning", AuditAlert},
+		{"failed", "[ERROR] ", "failure", "error", AuditError},
+		{"started", "[ACTION] ", "started", "info", AuditStarted},
 	}
 	var requestID string
 	for _, tc := range cases {
@@ -135,7 +135,7 @@ func TestAuditJSONFormatterCanBeUsedConcurrently(t *testing.T) {
 			for n := 0; n < 50; n++ {
 				entry := &log.Entry{Logger: log.New(), Data: log.Fields{"category": "user_action"}, Time: time.Now(), Level: log.InfoLevel, Message: "Action"}
 				line, err := formatter.Format(entry)
-				if err != nil || !bytes.HasPrefix(line, []byte("[INFO] [ACTION] ")) || !json.Valid(bytes.TrimPrefix(line, []byte("[INFO] [ACTION] "))) {
+				if err != nil || !bytes.HasPrefix(line, []byte("[ACTION] ")) || !json.Valid(bytes.TrimPrefix(line, []byte("[ACTION] "))) {
 					t.Errorf("invalid concurrent format: %s (%v)", line, err)
 					return
 				}
@@ -224,3 +224,4 @@ func TestAuditRequestFieldsRejectUntrustedOrMalformedForwarding(t *testing.T) {
 		})
 	}
 }
+

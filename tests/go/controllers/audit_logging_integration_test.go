@@ -63,11 +63,14 @@ func TestSecretAuditEventsReflectRealOutcomesWithoutSecrets(t *testing.T) {
 			continue
 		}
 		payload := line
-		for _, label := range []string{"[INFO] ", "[WARNING] ", "[ERROR] "} {
-			payload = strings.TrimPrefix(payload, label)
+		var label string
+		for _, candidate := range []string{"[INFO] ", "[ACTION] ", "[WARNING] ", "[ERROR] "} {
+			if strings.HasPrefix(payload, candidate) {
+				label = candidate
+				payload = strings.TrimPrefix(payload, candidate)
+				break
+			}
 		}
-		action := strings.HasPrefix(payload, "[ACTION] ")
-		payload = strings.TrimPrefix(payload, "[ACTION] ")
 		var record map[string]interface{}
 		if err := json.Unmarshal([]byte(payload), &record); err != nil {
 			t.Fatalf("audit output has invalid JSON payload: %v", err)
@@ -77,8 +80,8 @@ func TestSecretAuditEventsReflectRealOutcomesWithoutSecrets(t *testing.T) {
 			continue
 		}
 		counts[event]++
-		if !action || record["category"] != "user_action" {
-			t.Errorf("user event lacks action marker: %s", event)
+		if record["category"] != "user_action" || (record["level"] == "info" && label != "[ACTION] ") {
+			t.Errorf("user event lacks action category or prefix: %s", event)
 		}
 		if record["client_ip"] != "192.0.2.1" || record["client_ip_source"] != "peer" {
 			t.Fatalf("%s has incorrect direct client identity: %v", event, record["client_ip_source"])
