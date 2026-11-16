@@ -12,6 +12,9 @@ import (
 func ConfirmDeleteIndex(c *echo.Context) error {
 	p := &models.Password{PasswordKey: c.Param("password_key")}
 	if err := GetPassword(p); err != nil {
+		if err.Code >= http.StatusInternalServerError {
+			AuditError(c, "secret.delete_confirmation_unavailable", "Secret deletion confirmation unavailable")
+		}
 		return c.Render(http.StatusNotFound, "404.html", NewDataContext())
 	}
 	if !p.Deletable {
@@ -22,6 +25,9 @@ func ConfirmDeleteIndex(c *echo.Context) error {
 func ConfirmDeleteFile(c *echo.Context) error {
 	f := &models.File{FileKey: c.Param("file_key")}
 	if err := GetFileForDeletion(f); err != nil {
+		if err.Code >= http.StatusInternalServerError {
+			AuditError(c, "file.delete_confirmation_unavailable", "File deletion confirmation unavailable")
+		}
 		return c.Render(http.StatusNotFound, "404.html", NewDataContext())
 	}
 	if !f.Deletable {

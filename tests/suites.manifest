@@ -1,6 +1,7 @@
 # Relative paths of centralized Go tests; update when adding or removing a test.
 controllers/api_contract_test.go
 controllers/archive_encryption_test.go
+controllers/audit_failure_test.go
 controllers/audit_logging_integration_test.go
 controllers/benchmark_rss_darwin_test.go
 controllers/benchmark_rss_linux_test.go

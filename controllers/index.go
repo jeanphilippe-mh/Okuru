@@ -139,7 +139,7 @@ func ReadIndex(context *echo.Context) error {
 	err := GetPassword(p)
 	if err != nil {
 		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
-			AuditAlert(context, "secret.preview_unavailable", "Secret preview unavailable")
+			auditUnavailable(context, err, "secret.preview_unavailable", "Secret preview unavailable")
 		}
 		return context.Render(http.StatusForbidden, "403.html", dataContext)
 	}
@@ -194,7 +194,7 @@ func RevealPassword(context *echo.Context) error {
 	err := RetrievePassword(p)
 	if err != nil {
 		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
-			AuditAlert(context, "secret.reveal_unavailable", "Secret retrieval unavailable")
+			auditUnavailable(context, err, "secret.reveal_unavailable", "Secret retrieval unavailable")
 		}
 		return context.NoContent(http.StatusNotFound)
 	}
@@ -324,7 +324,7 @@ func DeleteIndex(context *echo.Context) error {
 	var status int
 	if err != nil {
 		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
-			AuditAlert(context, "secret.delete_unavailable", "Secret deletion unavailable")
+			auditUnavailable(context, err, "secret.delete_unavailable", "Secret deletion unavailable")
 		}
 		status = err.Code
 		return context.Render(status, "403.html", dataContext)
