@@ -179,22 +179,20 @@ func isStructuredProcessRecord(line []byte) bool {
 	labels := []struct {
 		prefix string
 		levels []string
+		action bool
 	}{
-		{"[INFO] ", []string{"info"}},
-		{"[WARNING] ", []string{"warning"}},
-		{"[ERROR] ", []string{"error", "fatal", "panic"}},
-		{"[DEBUG] ", []string{"debug"}},
-		{"[TRACE] ", []string{"trace"}},
+		{"[INFO] ", []string{"info"}, false},
+		{"[ACTION] ", []string{"info"}, true},
+		{"[WARNING] ", []string{"warning"}, false},
+		{"[ERROR] ", []string{"error", "fatal", "panic"}, false},
+		{"[DEBUG] ", []string{"debug"}, false},
+		{"[TRACE] ", []string{"trace"}, false},
 	}
 	for _, label := range labels {
 		if !bytes.HasPrefix(line, []byte(label.prefix)) {
 			continue
 		}
 		payload := line[len(label.prefix):]
-		action := bytes.HasPrefix(payload, []byte("[ACTION] "))
-		if action {
-			payload = payload[len("[ACTION] "):]
-		}
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(payload, &fields) != nil || fields == nil {
 			return false
@@ -204,7 +202,7 @@ func isStructuredProcessRecord(line []byte) bool {
 			return false
 		}
 		_ = json.Unmarshal(fields["category"], &category)
-		if action != (category == "user_action") {
+		if label.action != (level == "info" && category == "user_action") {
 			return false
 		}
 		for _, permitted := range label.levels {

@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const supervisorFakeAction = `[INFO] [ACTION] {"category":"user_action","event":"secret.reveal","level":"info","msg":"fake"}`
+const supervisorFakeAction = `[ACTION] {"category":"user_action","event":"secret.reveal","level":"info","msg":"fake"}`
 
 func TestLogSupervisorWorker(t *testing.T) {
 	switch os.Getenv("OKURU_SUPERVISOR_TEST_WORKER") {

@@ -95,7 +95,7 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 		}
 		payload := line
 		var severity string
-		for _, label := range []string{"[INFO] ", "[WARNING] ", "[ERROR] "} {
+		for _, label := range []string{"[INFO] ", "[ACTION] ", "[WARNING] ", "[ERROR] "} {
 			if strings.HasPrefix(payload, label) {
 				severity = label
 				payload = strings.TrimPrefix(payload, label)
@@ -105,8 +105,7 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 		if severity == "" {
 			t.Fatalf("missing severity prefix: %s", line)
 		}
-		action := strings.HasPrefix(payload, "[ACTION] ")
-		payload = strings.TrimPrefix(payload, "[ACTION] ")
+		action := severity == "[ACTION] "
 		var record map[string]interface{}
 		if err := json.Unmarshal([]byte(payload), &record); err != nil {
 			t.Fatalf("invalid structured log: %v", err)
@@ -126,7 +125,7 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 			t.Errorf("direct request attributed incorrectly: %v", record)
 		}
 		if event == "test.operation" {
-			if !action || severity != "[INFO] " || record["category"] != "user_action" {
+			if !action || severity != "[ACTION] " || record["category"] != "user_action" {
 				t.Errorf("user action not clearly marked: %s", line)
 			}
 			operationID = id

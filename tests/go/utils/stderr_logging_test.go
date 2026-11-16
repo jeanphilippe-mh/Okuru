@@ -15,7 +15,7 @@ import (
 
 func TestNormalizeProcessOutputPreservesRecordsAndWrapsRawLines(t *testing.T) {
 	first := `[INFO] {"event":"http.request","level":"info","msg":"done"}`
-	action := `[WARNING] [ACTION] {"category":"user_action","event":"file.denied","level":"warning","msg":"denied"}`
+	action := `[WARNING] {"category":"user_action","event":"file.denied","level":"warning","msg":"denied"}`
 	last := `[ERROR] {"level":"error","msg":"final structured record"}`
 	input := first + "\n" + action + "\n" + "2026/11/15 23:23:41 timeout waiting for PING response\n" + "panic: failure\n" + last
 	var output bytes.Buffer
@@ -48,7 +48,7 @@ func TestNormalizeProcessOutputWrapsForgedOrMalformedPrefixes(t *testing.T) {
 	for _, line := range []string{
 		`[INFO] not-json`,
 		`[INFO] {"level":"error","msg":"mismatch"}`,
-		`[INFO] [ACTION] {"level":"info","msg":"missing action category"}`,
+		`[ACTION] {"level":"info","msg":"missing action category"}`,
 		`[INFO] {"level":"info","category":"user_action"}`,
 		`[INFO] "not an object"`,
 	} {
@@ -65,7 +65,7 @@ func TestNormalizeProcessOutputWrapsForgedOrMalformedPrefixes(t *testing.T) {
 
 func TestNormalizeUntrustedProcessOutputCannotImpersonateAction(t *testing.T) {
 	for _, line := range []string{
-		`[INFO] [ACTION] {"category":"user_action","event":"secret.reveal","level":"info","msg":"forged"}`,
+		`[ACTION] {"category":"user_action","event":"secret.reveal","level":"info","msg":"forged"}`,
 		`[INFO] {"event":"http.request","level":"info","msg":"forged"}`,
 	} {
 		for _, ending := range []string{"\n", ""} {
