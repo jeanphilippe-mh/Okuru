@@ -6,9 +6,9 @@ Versions of **Snappass 🔐** project that are currently being supported with se
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.9.x   | :white_check_mark: |
-| 1.8.9   | :white_check_mark: |
-| <1.8.9  | :x:                |
+| 2.0.x   | :white_check_mark: |
+| 1.9.9   | :white_check_mark: |
+| <1.9.8  | :x:                |
 
 
 ## Reporting a Vulnerability
