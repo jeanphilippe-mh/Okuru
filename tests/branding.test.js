@@ -22,6 +22,7 @@ test('social metadata uses one shared English preview', () => {
   assert.deepEqual(getMeta('description'), getMeta('twitter:description'));
   assert.deepEqual(getMeta('og:image:type'), ['image/png']);
   assert.deepEqual(pngSize('images/okuru-preview-en@2x.png'), [2400, 1260]);
+  assert.deepEqual(pngSize('images/okuru-preview-en@3x.png'), [3600, 1890]);
   assert.equal(fs.existsSync(path.join(publicDir, 'images/okuru-preview-en.jpg')), true);
 });
 test('manifest and links resolve to real assets with the declared icon dimensions', () => {
@@ -29,9 +30,10 @@ test('manifest and links resolve to real assets with the declared icon dimension
     const size = Number(icon.sizes.split('x')[0]);
     assert.deepEqual(pngSize(icon.src.slice(1)), [size, size]);
   }
-  for (const [name, size] of [['images/apple-touch-icon.png', 180], ['images/apple-touch-icon@2x.png', 360], ['images/icon-192@2x.png', 384], ['images/icon-512@2x.png', 1024], ['images/logo.png', 45], ['images/logo@2x.png', 90]]) {
+  for (const [name, size] of [['images/apple-touch-icon.png', 180], ['images/apple-touch-icon@2x.png', 360], ['images/apple-touch-icon@3x.png', 540], ['images/icon-192@2x.png', 384], ['images/icon-192@3x.png', 576], ['images/icon-256@3x.png', 768], ['images/icon-512@2x.png', 1024], ['images/icon-512@3x.png', 1536], ['images/logo.png', 128], ['images/logo@2x.png', 256], ['images/logo@3x.png', 512]]) {
     assert.deepEqual(pngSize(name), [size, size]);
   }
+  assert.match(html, /<img\b[^>]*\bsrc="\/images\/logo\.png"[^>]*\bwidth="45"[^>]*\bheight="45"[^>]*\bsrcset="\/images\/logo@2x\.png 2x, \/images\/logo@3x\.png 3x"/);
   for (const match of html.matchAll(/(?:href|src)="(\/(?:images|css|scripts)\/[^" ]+|\/favicon\.ico|\/manifest\.webmanifest)"/g)) {
     assert.ok(fs.existsSync(path.join(publicDir, match[1])), match[1]);
   }
