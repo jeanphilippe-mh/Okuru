@@ -155,16 +155,20 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 			}
 
 			if !upload && r.Body != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if r.ContentLength > maxSmallRequestBytes {
+				bodyLimit := int64(maxSmallRequestBytes)
+				if r.Method == http.MethodPost && r.URL.Path == browserSecurityPath {
+					bodyLimit = maxBrowserReportBytes
+				}
+				if r.ContentLength > bodyLimit {
 					closeUnreadHTTP1(c)
 					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
 				}
-				body, err := io.ReadAll(io.LimitReader(r.Body, maxSmallRequestBytes+1))
+				body, err := io.ReadAll(io.LimitReader(r.Body, bodyLimit+1))
 				if err != nil {
 					closeUnreadHTTP1(c)
 					return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 				}
-				if len(body) > maxSmallRequestBytes {
+				if int64(len(body)) > bodyLimit {
 					closeUnreadHTTP1(c)
 					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
 				}
