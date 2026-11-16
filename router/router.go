@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,7 +140,9 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 			fields["host"] = boundedLogText(v.Host, maxLoggedHostBytes)
 			fields["status"] = v.Status
 			fields["duration_ms"] = float64(v.Latency.Microseconds()) / 1000
-			fields["bytes_in"] = boundedLogText(v.ContentLength, maxLoggedLengthBytes)
+			if length, ok := requestContentLength(v.ContentLength); ok {
+				fields["request_content_length"] = length
+			}
 			fields["bytes_out"] = v.ResponseSize
 			fields["user_agent"] = boundedLogText(v.UserAgent, maxLoggedUserAgentBytes)
 			if v.Error != nil {
@@ -199,6 +202,17 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	routes.File(fileGroup)
 
 	return e
+}
+
+// requestContentLength reports the declared Content-Length header, not bytes
+// actually read. Unknown, malformed, negative and out-of-range values are
+// omitted from the audit record.
+func requestContentLength(raw string) (int64, bool) {
+	if raw == "" || strings.Trim(raw, "0123456789") != "" {
+		return 0, false
+	}
+	length, err := strconv.ParseInt(raw, 10, 64)
+	return length, err == nil
 }
 
 // publicAssets keeps filesystem lookup anchored to the executable's public

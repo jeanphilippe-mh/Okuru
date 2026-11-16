@@ -13,7 +13,6 @@ const (
 	maxLoggedUserAgentBytes = 256
 	maxLoggedRemoteIPBytes  = 64
 	maxLoggedMethodBytes    = 32
-	maxLoggedLengthBytes    = 32
 )
 
 // boundedLogText limits attacker-controlled request metadata without making an
