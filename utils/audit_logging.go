@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -46,7 +48,59 @@ func (f *AuditJSONFormatter) Format(entry *log.Entry) ([]byte, error) {
 	if entry.Data["category"] == "security" && (entry.Level == log.WarnLevel || entry.Level == log.ErrorLevel || entry.Level == log.FatalLevel || entry.Level == log.PanicLevel) {
 		label = "SECURITY"
 	}
+	if label == "ACTION" || label == "SECURITY" || label == "ERROR" {
+		message = prioritizeAuditMessage(message)
+	}
 	return append([]byte("["+label+"] "), message...), nil
+}
+
+// prioritizeAuditMessage moves the top-level message field without re-encoding
+// any values. Logrus retains responsibility for escaping and field collisions.
+// If the formatter output cannot be parsed, keep the original record intact.
+func prioritizeAuditMessage(record []byte) []byte {
+	decoder := json.NewDecoder(bytes.NewReader(record))
+	open, err := decoder.Token()
+	if err != nil || open != json.Delim('{') {
+		return record
+	}
+	var message, others []byte
+	for decoder.More() {
+		start := decoder.InputOffset()
+		key, err := decoder.Token()
+		if err != nil {
+			return record
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return record
+		}
+		end := decoder.InputOffset()
+		field := bytes.TrimSpace(record[start:end])
+		field = bytes.TrimSpace(bytes.TrimPrefix(field, []byte(",")))
+		if key == "msg" {
+			if message != nil {
+				return record
+			}
+			message = field
+			continue
+		}
+		if len(others) != 0 {
+			others = append(others, ',')
+		}
+		others = append(others, field...)
+	}
+	close, err := decoder.Token()
+	if err != nil || close != json.Delim('}') || message == nil {
+		return record
+	}
+	ordered := []byte{'{'}
+	ordered = append(ordered, message...)
+	if len(others) != 0 {
+		ordered = append(ordered, ',')
+		ordered = append(ordered, others...)
+	}
+	ordered = append(ordered, '}')
+	return append(ordered, record[decoder.InputOffset():]...)
 }
 
 // SecurityAlert records a bounded, non-secret observation. Detection is
