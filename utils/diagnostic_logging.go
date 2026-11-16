@@ -5,6 +5,7 @@ import (
 	stdlog "log"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,35 @@ func (w diagnosticWriter) Write(p []byte) (int, error) {
 	switch {
 	case message == "timeout waiting for PING response":
 		entry.WithField("event", "http2.ping_timeout").Warn("HTTP/2 PING response timed out")
+	case strings.HasPrefix(message, "timeout waiting for SETTINGS frames from "):
+		peer := strings.TrimPrefix(message, "timeout waiting for SETTINGS frames from ")
+		entry = diagnosticPeerAddress(entry, peer)
+		entry.WithField("event", "http2.settings_timeout").Warn("HTTP/2 SETTINGS frames timed out")
+	case strings.HasPrefix(message, "http2: server: error reading preface from client "):
+		details := strings.TrimPrefix(message, "http2: server: error reading preface from client ")
+		entry = diagnosticPeer(entry, details)
+		entry.WithFields(logrus.Fields{"event": "http2.preface_failed", "reason_class": http2DiagnosticClass(diagnosticReason(details))}).Warn("HTTP/2 client preface could not be read")
+	case strings.HasPrefix(message, "http2: server connection error from "):
+		details := strings.TrimPrefix(message, "http2: server connection error from ")
+		entry = diagnosticPeer(entry, details)
+		entry.WithFields(logrus.Fields{"event": "http2.connection_error", "reason_class": http2DiagnosticClass(diagnosticReason(details))}).Warn("HTTP/2 connection error")
+	case strings.HasPrefix(message, "http2: server closing client connection: "):
+		details := strings.TrimPrefix(message, "http2: server closing client connection: ")
+		entry.WithFields(logrus.Fields{"event": "http2.connection_closed", "reason_class": http2DiagnosticClass(details)}).Warn("HTTP/2 client connection closed after an error")
+	case strings.HasPrefix(message, "http2: received GOAWAY ") && strings.HasSuffix(message, ", starting graceful shutdown"):
+		entry.WithField("event", "http2.peer_goaway").Warn("HTTP/2 peer sent GOAWAY; connection is closing")
+	case strings.HasPrefix(message, "http: superfluous response.WriteHeader call from "):
+		entry.WithField("event", "http.response_header_repeated").Warn("HTTP response headers were written more than once")
+	case strings.HasPrefix(message, "http: response.WriteHeader on hijacked connection from "):
+		entry.WithField("event", "http.response_header_after_hijack").Warn("HTTP response headers were written after connection hijack")
+	case strings.HasPrefix(message, "http: response.Write on hijacked connection from "):
+		entry.WithField("event", "http.response_write_after_hijack").Warn("HTTP response was written after connection hijack")
+	case strings.HasPrefix(message, "http: invalid Content-Length of "):
+		entry.WithField("event", "http.response_invalid_content_length").Warn("HTTP response had an invalid Content-Length")
+	case strings.HasPrefix(message, "http: WriteHeader called with both Transfer-Encoding of ") && strings.Contains(message, " and a Content-Length of "):
+		entry.WithField("event", "http.response_conflicting_framing").Warn("HTTP response declared conflicting message framing")
+	case strings.HasPrefix(message, "ignoring invalid trailer "):
+		entry.WithField("event", "http2.invalid_trailer").Warn("HTTP/2 ignored an invalid response trailer")
 	case strings.HasPrefix(message, "http: TLS handshake error from "):
 		details := strings.TrimPrefix(message, "http: TLS handshake error from ")
 		entry = diagnosticPeer(entry, details)
@@ -65,12 +95,16 @@ func (w diagnosticWriter) Write(p []byte) (int, error) {
 	case strings.HasPrefix(message, "http2: panic serving "):
 		details := strings.TrimPrefix(message, "http2: panic serving ")
 		entry = diagnosticPeer(entry, details)
-		entry = diagnosticPanicLocation(entry, details)
+		if !truncated {
+			entry = diagnosticPanicLocation(entry, details)
+		}
 		entry.WithFields(logrus.Fields{"event": "http2.handler_panic", "stack_trace_present": strings.Contains(details, "\n")}).Error("HTTP/2 handler panicked")
 	case strings.HasPrefix(message, "http: panic serving "):
 		details := strings.TrimPrefix(message, "http: panic serving ")
 		entry = diagnosticPeer(entry, details)
-		entry = diagnosticPanicLocation(entry, details)
+		if !truncated {
+			entry = diagnosticPanicLocation(entry, details)
+		}
 		entry.WithFields(logrus.Fields{"event": "http.handler_panic", "stack_trace_present": strings.Contains(details, "\n")}).Error("HTTP handler panicked")
 	default:
 		if w.component == "go.standard" {
@@ -80,6 +114,35 @@ func (w diagnosticWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// diagnosticReason discards the untrusted peer address and returns only the
+// diagnostic suffix for classification; the suffix itself is never logged.
+func diagnosticReason(details string) string {
+	_, reason, ok := strings.Cut(details, ": ")
+	if !ok {
+		return ""
+	}
+	return reason
+}
+
+// http2DiagnosticClass returns a small fixed vocabulary without exposing
+// protocol bytes, request content, private paths, or arbitrary error text.
+func http2DiagnosticClass(reason string) string {
+	switch {
+	case reason == "EOF":
+		return "peer_closed"
+	case reason == "unexpected EOF":
+		return "unexpected_eof"
+	case strings.HasSuffix(reason, ": i/o timeout") || reason == "i/o timeout":
+		return "timeout"
+	case strings.HasSuffix(reason, ": connection reset by peer") || reason == "connection reset by peer":
+		return "connection_reset"
+	case strings.HasSuffix(reason, ": broken pipe") || reason == "broken pipe":
+		return "broken_pipe"
+	default:
+		return "other"
+	}
 }
 
 // acceptDiagnosticClass is deliberately limited to broad known error families;
@@ -165,8 +228,17 @@ func diagnosticPeer(entry *logrus.Entry, details string) *logrus.Entry {
 	if !ok {
 		return entry
 	}
-	host, _, err := net.SplitHostPort(peer)
+	return diagnosticPeerAddress(entry, peer)
+}
+
+// diagnosticPeerAddress accepts only a canonical IP and numeric port from a
+// known diagnostic format, not a raw peer-controlled string.
+func diagnosticPeerAddress(entry *logrus.Entry, peer string) *logrus.Entry {
+	host, port, err := net.SplitHostPort(peer)
 	if err != nil {
+		return entry
+	}
+	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
 		return entry
 	}
 	ip, err := netip.ParseAddr(host)
