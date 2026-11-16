@@ -3,6 +3,99 @@
 <head>
     <title>Snappass | Secure sharing</title>
     <meta charset="utf-8">
+    <script nonce="{{ csp_nonce }}" data-okuru-security-reporter>
+      (() => {
+        const endpoint = '/.well-known/okuru-browser-security';
+        const limit = 5;
+        const pending = [];
+        let sent = 0;
+        let inFlight = false;
+        let disabled = false;
+
+        // Never send telemetry if the browser cannot honor the privacy options.
+        try {
+          if (typeof fetch !== 'function' || typeof Request !== 'function') return;
+          const probe = new Request(window.location.origin + endpoint, {
+            method: 'POST', mode: 'same-origin', credentials: 'omit',
+            referrer: '', referrerPolicy: 'no-referrer', redirect: 'error'
+          });
+          if (probe.mode !== 'same-origin' || probe.credentials !== 'omit' ||
+              probe.referrer !== '' || probe.referrerPolicy !== 'no-referrer' ||
+              probe.redirect !== 'error') return;
+        } catch (_) {
+          return;
+        }
+
+        function stop() {
+          disabled = true;
+          inFlight = false;
+          pending.length = 0;
+        }
+
+        function sendNext() {
+          if (disabled || inFlight || pending.length === 0) return;
+          inFlight = true;
+          const body = JSON.stringify(pending.shift());
+          try {
+            fetch(endpoint, {
+              method: 'POST', mode: 'same-origin', credentials: 'omit',
+              referrer: '', referrerPolicy: 'no-referrer', redirect: 'error',
+              keepalive: true, headers: { 'Content-Type': 'application/json' }, body
+            }).then((response) => {
+              inFlight = false;
+              if (!response.ok) return stop();
+              sendNext();
+            }, stop);
+          } catch (_) {
+            stop();
+          }
+        }
+
+        function report(kind, category) {
+          if (disabled || sent >= limit) return;
+          sent++;
+          pending.push({ kind, category });
+          sendNext();
+        }
+
+        document.addEventListener('securitypolicyviolation', (event) => {
+          let category;
+          switch (event.effectiveDirective) {
+            case 'script-src': case 'script-src-elem': case 'script-src-attr': category = 'script'; break;
+            case 'style-src': case 'style-src-elem': case 'style-src-attr': category = 'style'; break;
+            case 'connect-src': category = 'connect'; break;
+            case 'worker-src': category = 'worker'; break;
+            case 'frame-src': case 'frame-ancestors': category = 'frame'; break;
+            case 'form-action': category = 'form'; break;
+            case 'base-uri': category = 'base'; break;
+            case 'object-src': category = 'object'; break;
+            case 'trusted-types': case 'require-trusted-types-for': category = 'trusted_types'; break;
+            case 'img-src': category = 'img'; break;
+            case 'font-src': category = 'font'; break;
+            case 'media-src': category = 'media'; break;
+            case 'manifest-src': category = 'manifest'; break;
+            default: category = 'other';
+          }
+          report('csp_violation', category);
+        });
+
+        // A resource error does not identify its cause: it can be SRI,
+        // network failure, CSP, a browser extension, or another error.
+        window.addEventListener('error', (event) => {
+          const element = event.target;
+          if (!element || element.tagName !== 'SCRIPT' || typeof element.getAttribute !== 'function') return;
+          let category;
+          switch (element.getAttribute('src')) {
+            case '/scripts/bootstrap.min.js': case 'scripts/bootstrap.min.js': category = 'bootstrap'; break;
+            case '/scripts/purify.min.js': case 'scripts/purify.min.js': category = 'purify'; break;
+            case '/scripts/clipboard.min.js': case 'scripts/clipboard.min.js': category = 'clipboard'; break;
+            case '/scripts/service-worker-register.js': case 'scripts/service-worker-register.js': category = 'worker_registration'; break;
+            default: category = 'other';
+          }
+          report('script_load_failure', category);
+        }, true);
+      })();
+    </script>
 
     <meta name="description" content="Share passwords and files securely with temporary links.">
     <meta name="author" content="Jean-Philippe MENCH">
