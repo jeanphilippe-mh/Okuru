@@ -2,7 +2,7 @@
 
 The admission helpers provide address buckets and Redis-backed, fixed-window counters to the routes that enforce upload, archive and secret-creation limits.
 
-By default, client-provided forwarding headers are ignored. `OKURU_TRUSTED_PROXY_CIDRS` may list only reverse proxies known to overwrite or append the actual client's address to `X-Forwarded-For`. Use explicit `/32` or `/128` proxy addresses, never untrusted client ranges. Validate the deployed proxy's forwarding behavior before enabling trust: a trusted proxy that forwards an unmodified header makes its value forgeable. Malformed configuration and forwarded chains fail closed. IPv6 client addresses are grouped by `/64` for admission; logs retain the validated full address.
+When `OKURU_TRUSTED_PROXY_CIDRS` is unset or empty, client-provided forwarding headers are ignored. The distributed `.env.dist` configures `127.0.0.1/32` for a local reverse proxy; remove or change that value if it does not match your deployment. List only reverse proxies known to overwrite or append the actual client's address to `X-Forwarded-For`. Use explicit `/32` or `/128` proxy addresses, never untrusted client ranges. Validate the deployed proxy's forwarding behavior before enabling trust: a trusted proxy that forwards an unmodified header makes its value forgeable. Malformed configuration and forwarded chains fail closed. IPv6 client addresses are grouped by `/64` for admission; logs retain the validated full address.
 
 ## Direct Apache reverse proxy
 
@@ -23,7 +23,7 @@ Only after that verification, an operator may explicitly set the immediate Apach
 OKURU_TRUSTED_PROXY_CIDRS="127.0.0.1/32"
 ```
 
-This example does not enable trust by default. If Apache actually connects over IPv6 loopback, `::1/128` must be considered separately. Restart the Okuru service after changing its environment. Trusting loopback authenticates an address, not an Apache process: **any local process that can reach the backend using the trusted address can forge the header**. Restrict backend access through appropriate process/network isolation or an authenticated proxy connection; a firewall for external traffic alone does not authenticate local processes.
+If Apache actually connects over IPv6 loopback, `::1/128` must be considered separately. Restart the Okuru service after changing its environment. Trusting loopback authenticates an address, not an Apache process: **any local process that can reach the backend using the trusted address can forge the header**. Restrict backend access through appropriate process/network isolation or an authenticated proxy connection; a firewall for external traffic alone does not authenticate local processes.
 
 Enabling this variable changes **both** the client address recorded in the request/action logs and the identity used for upload and rate-limit admission. Validate the effect on client and shared budgets before production use. Check at least one request from a known external IPv4 client and, where applicable, IPv6; compare `client_ip` with the independently known egress address while `peer_ip` remains the Apache address and `client_ip_source` is `forwarded`. Repeat with a deliberately forged inbound `X-Forwarded-For` header: the logged client must still be the actual test client's address, not the injected value. Avoid sending tokens or secrets during this test. A VPN, NAT, network relay or upstream gateway may legitimately mean the observed IP differs from a user's device address.
 
