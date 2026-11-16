@@ -1,0 +1,161 @@
+package router
+
+import (
+	"encoding/base64"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/flosch/pongo2"
+	"github.com/labstack/echo/v5"
+	"golang.org/x/net/html"
+)
+
+// Renderer loads templates alongside the executable. A copied test binary lets
+// this exercise the real renderer against the real views without altering any
+// shared build cache or relying on the current process working directory.
+func TestRendererNonceResponses(t *testing.T) {
+	if os.Getenv("OKURU_CSP_TEST_HELPER") != "1" {
+		dir := t.TempDir()
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(dir, "router.test")
+		copyNonceFixture(t, exe, target, 0700)
+		entries, err := os.ReadDir("../views")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(dir, "views"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			copyNonceFixture(t, filepath.Join("../views", entry.Name()), filepath.Join(dir, "views", entry.Name()), 0600)
+		}
+		cmd := exec.Command(target, "-test.run=^TestRendererNonceResponses$", "-test.v")
+		cmd.Env = append(os.Environ(), "OKURU_CSP_TEST_HELPER=1")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("renderer subprocess failed: %v\n%s", err, output)
+		}
+		return
+	}
+
+	e := echo.New()
+	e.Renderer = Renderer{Debug: true}
+	// A failed render must never emit a partial document under a missing or
+	// mismatched policy. Echo buffers the response until rendering succeeds.
+	for _, tc := range []struct {
+		name string
+		data any
+	}{
+		{"does-not-exist.html", pongo2.Context{}},
+		{"set_password.html", "invalid template context"},
+	} {
+		rec := httptest.NewRecorder()
+		c := e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec)
+		if err := c.Render(http.StatusOK, tc.name, tc.data); err == nil {
+			t.Fatalf("%s: expected rendering failure", tc.name)
+		}
+		if rec.Body.Len() != 0 || rec.Header().Get("Content-Security-Policy") != "" {
+			t.Fatalf("%s: failed render exposed output", tc.name)
+		}
+	}
+	seen := map[string]bool{}
+	for _, name := range []string{"set_password.html", "index_file.html", "confirm.html", "confirm_file.html", "password.html", "403.html", "file.html"} {
+		for attempt := 0; attempt < 2; attempt++ {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			// Conditional requests must not reuse a nonce-bearing HTML body.
+			req.Header.Set("If-None-Match", `"stale"`)
+			c := e.NewContext(req, rec)
+			if err := c.Render(http.StatusOK, name, pongo2.Context{}); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s: status %d", name, rec.Code)
+			}
+			policy := rec.Header().Get("Content-Security-Policy")
+			if strings.Contains(strings.ToLower(policy), "sha256-") {
+				t.Fatalf("%s: SHA remains in CSP: %s", name, policy)
+			}
+			if !strings.Contains(strings.ToLower(rec.Header().Get("Cache-Control")), "no-store") {
+				t.Fatalf("%s: cache policy %q", name, rec.Header().Get("Cache-Control"))
+			}
+			var source string
+			for _, directive := range strings.Split(policy, ";") {
+				fields := strings.Fields(directive)
+				if len(fields) > 0 && fields[0] == "script-src" {
+					if len(fields) != 2 || !strings.HasPrefix(fields[1], "'nonce-") || !strings.HasSuffix(fields[1], "'") {
+						t.Fatalf("%s: non-strict script policy %q", name, directive)
+					}
+					source = strings.TrimSuffix(strings.TrimPrefix(fields[1], "'nonce-"), "'")
+				}
+			}
+			raw, err := base64.StdEncoding.DecodeString(source)
+			if err != nil || len(raw) < 16 {
+				t.Fatalf("%s: invalid nonce %q", name, source)
+			}
+			if seen[source] {
+				t.Fatalf("%s: reused nonce", name)
+			}
+			seen[source] = true
+			doc, err := html.Parse(strings.NewReader(rec.Body.String()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			count := 0
+			var visit func(*html.Node)
+			visit = func(n *html.Node) {
+				if n.Type == html.ElementNode && n.Data == "script" {
+					count++
+					nonce := ""
+					for _, attr := range n.Attr {
+						if attr.Key == "nonce" {
+							nonce = attr.Val
+						}
+					}
+					if nonce != source {
+						t.Errorf("%s: script nonce %q differs from policy", name, nonce)
+					}
+				}
+				for child := n.FirstChild; child != nil; child = child.NextSibling {
+					visit(child)
+				}
+			}
+			visit(doc)
+			if count == 0 {
+				t.Errorf("%s: no script elements exercised", name)
+			}
+		}
+	}
+}
+
+func copyNonceFixture(t *testing.T, src, dst string, mode os.FileMode) {
+	t.Helper()
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

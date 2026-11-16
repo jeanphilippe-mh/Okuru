@@ -57,8 +57,8 @@
 {% endblock %}
 
 {% block js %}
-<script type="text/javascript" src="scripts/purify.min.js"></script>
-<script type="application/javascript">
+<script nonce="{{ csp_nonce }}" type="text/javascript" src="scripts/purify.min.js"></script>
+<script nonce="{{ csp_nonce }}" type="application/javascript">
 (function() {
   // Check for Trusted Types Browser support and create a dedicated Policy if available, otherwise use DOMPurify.
   const sanitizeHTML = (function() {

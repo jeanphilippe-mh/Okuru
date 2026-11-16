@@ -24,8 +24,8 @@
 {% endblock %}
 
 {% block js %}
-<script src="/scripts/clipboard.min.js"></script>
-<script>
+<script nonce="{{ csp_nonce }}" src="/scripts/clipboard.min.js"></script>
+<script nonce="{{ csp_nonce }}">
     new ClipboardJS("#copy-clipboard-btn");
 </script>
 {% endblock %}

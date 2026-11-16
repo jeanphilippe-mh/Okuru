@@ -74,8 +74,8 @@
     {% endif %}
   </footer>
 
-  <script async src="/scripts/bootstrap.min.js"></script>
-  <script defer src="/scripts/service-worker-register.js"></script>
+  <script nonce="{{ csp_nonce }}" async src="/scripts/bootstrap.min.js"></script>
+  <script nonce="{{ csp_nonce }}" defer src="/scripts/service-worker-register.js"></script>
   {% block js %}{% endblock %}
 </body>
 </html>

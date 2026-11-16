@@ -1,6 +1,6 @@
 # Apache and ModSecurity deployment proposal
 
-These are reviewable templates, not an automatic deployment or a replacement for the complete current virtualhost. Preserve the existing certificate configuration, reverse-proxy TLS verification, CSP hashes, security headers and upload limits. No JavaScript or slider changes are required.
+These are reviewable templates, not an automatic deployment or a replacement for the complete current virtualhost. Preserve the existing certificate configuration, reverse-proxy TLS verification, security headers and upload limits. The nonce-based CSP requires the coordinated application and Apache migration in [csp-nonces.md](csp-nonces.md); do not retain the old enforced hash policy alongside it.
 
 ## Capture and validate the active configuration
 

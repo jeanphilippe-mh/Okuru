@@ -33,7 +33,7 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 	return cv.validator.Struct(i)
 }
 
-func (r Renderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
+func (r Renderer) Render(c *echo.Context, w io.Writer, name string, data interface{}) error {
 	var ctx pongo2.Context
 	var t *pongo2.Template
 	var err error
@@ -49,12 +49,17 @@ func (r Renderer) Render(_ *echo.Context, w io.Writer, name string, data interfa
 
 	templates := pongo2.NewSet("request", loader)
 
+	ctx = make(pongo2.Context)
 	if data != nil {
 		var ok bool
-		ctx, ok = data.(pongo2.Context)
+		var supplied pongo2.Context
+		supplied, ok = data.(pongo2.Context)
 
 		if !ok {
 			return errors.New("No pongo2.Context data was passed")
+		}
+		for key, value := range supplied {
+			ctx[key] = value
 		}
 	}
 
@@ -64,14 +69,27 @@ func (r Renderer) Render(_ *echo.Context, w io.Writer, name string, data interfa
 		t, err = templates.FromCache(name)
 	}
 
-	// Add some static values
-	ctx["version_number"] = "v0.0.1-beta"
-
 	if err != nil {
 		return err
 	}
 
-	return t.ExecuteWriter(ctx, w)
+	if c == nil {
+		return errors.New("Cannot render without a request context")
+	}
+	nonce, err := newCSPNonce()
+	if err != nil {
+		return err
+	}
+	ctx["version_number"] = "v0.0.1-beta"
+	ctx["csp_nonce"] = nonce
+	if err := t.ExecuteWriter(ctx, w); err != nil {
+		return err
+	}
+	// Echo buffers the rendered template, so the policy is set before any
+	// response bytes are sent. Never let caches reuse a nonce-bearing page.
+	c.Response().Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return nil
 }
 
 func New() *echo.Echo {

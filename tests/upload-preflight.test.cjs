@@ -18,7 +18,7 @@ function makeForm() {
   }
   const error = { textContent: '' };
   const source = fs.readFileSync(path.join(__dirname, '../views/index_file.html'), 'utf8');
-  const script = source.match(/<script type="application\/javascript">([\s\S]*?)<\/script>/)[1]
+  const script = source.match(/<script\b(?=[^>]*\btype="application\/javascript")[^>]*>([\s\S]*?)<\/script>/)[1]
     .replace('{{ maxFileSize }}', '1048576');
   vm.runInNewContext(script, {
     TextEncoder, window: {}, DOMPurify: { sanitize: value => value },
