@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -177,13 +178,25 @@ func AuditRequestFields(c *echo.Context) log.Fields {
 	if address.PeerIP != "" {
 		fields["peer_ip"] = address.PeerIP
 	}
-	fields["method"] = boundedAuditText(c.Request().Method, 32)
+	fields["method"] = auditRequestMethod(c.Request().Method)
 	route := c.Path()
 	if route == "" {
 		route = "unmatched"
 	}
 	fields["route"] = boundedAuditText(route, 256)
 	return fields
+}
+
+// Method tokens are supplied by clients and can themselves contain sensitive
+// data. Keep only standard method names in audit records.
+func auditRequestMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace, http.MethodPatch:
+		return method
+	default:
+		return "OTHER"
+	}
 }
 
 // AuditEvent records successful application events without resource tokens,

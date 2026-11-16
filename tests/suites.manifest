@@ -32,6 +32,7 @@ router/security_observer_test.go
 router/limits_test.go
 router/links_slash_regression_test.go
 router/logging_test.go
+router/request_abort_logging_test.go
 router/secure_multipart_test.go
 router/staging_recovery_test.go
 router/upload_end_to_end_test.go

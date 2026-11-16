@@ -71,10 +71,7 @@ func (r Renderer) Render(_ *echo.Context, w io.Writer, name string, data interfa
 		return err
 	}
 
-	// return t.ExecuteWriter(ctx, w)
-	result := t.ExecuteWriter(ctx, w)
-	log.Debugf("%+v\n", result)
-	return result
+	return t.ExecuteWriter(ctx, w)
 }
 
 func New() *echo.Echo {
@@ -98,6 +95,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	}
 	e := echo.New()
 	e.Logger = slog.New(&echoLogHandler{})
+	e.Pre(observeRequestAbort)
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			utils.AuditRequestID(c)

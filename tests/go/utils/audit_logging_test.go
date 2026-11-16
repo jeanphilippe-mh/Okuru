@@ -156,6 +156,58 @@ func TestAuditJSONFormatterEmptyMessageComesFirst(t *testing.T) {
 	}
 }
 
+func TestAuditRequestMethodKeepsOnlyStandardMethods(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace, http.MethodPatch} {
+		if got := auditRequestMethod(method); got != method {
+			t.Errorf("standard method %q logged as %q", method, got)
+		}
+	}
+	for _, method := range []string{"", "get", "CUSTOM-SECRET", strings.Repeat("X", 4096)} {
+		if got := auditRequestMethod(method); got != "OTHER" {
+			t.Errorf("non-standard method was retained: %q", got)
+		}
+	}
+}
+
+func TestAuditActionAndErrorDoNotExposeCustomMethod(t *testing.T) {
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "")
+	logger := log.StandardLogger()
+	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	var output bytes.Buffer
+	logger.SetOutput(&output)
+	logger.SetFormatter(NewAuditJSONFormatter())
+	logger.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		logger.SetOutput(oldOutput)
+		logger.SetFormatter(oldFormatter)
+		logger.SetLevel(oldLevel)
+	})
+	const secret = "CUSTOM-METHOD-SECRET"
+	request := httptest.NewRequest(secret, "/private?secret=private", nil)
+	context := echo.New().NewContext(request, httptest.NewRecorder())
+	for _, tc := range []struct {
+		prefix string
+		emit   func(*echo.Context, string, string)
+	}{
+		{"[ACTION] ", AuditEvent},
+		{"[ERROR] ", AuditError},
+	} {
+		output.Reset()
+		tc.emit(context, "test.method", "Test action")
+		line := output.String()
+		if strings.Contains(line, secret) || !strings.HasPrefix(line, tc.prefix) {
+			t.Fatalf("unexpected audit output: %q", line)
+		}
+		var record map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, tc.prefix)), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["method"] != "OTHER" || request.Method != secret {
+			t.Fatalf("audit changed request or exposed custom method: %#v", record)
+		}
+	}
+}
+
 func TestSecurityAlertKeepsSeverityAndTrustedRequestFields(t *testing.T) {
 	logger := log.StandardLogger()
 	oldOutput, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
