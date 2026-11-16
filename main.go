@@ -133,6 +133,20 @@ func run() error {
 		return err
 	}
 
+	countryDB := os.Getenv(GeoIPCountryDatabaseEnv)
+	if err := ConfigureGeoIPCountry(countryDB); err != nil {
+		log.WithField("event", "geoip.database_unavailable").Warn("Local GeoIP country database unavailable")
+	} else if countryDB == "" {
+		log.WithField("event", "geoip.disabled").Info("Local GeoIP country lookup is not configured")
+	} else {
+		entry := log.WithField("event", "geoip.database_loaded")
+		if built, ok := GeoIPCountryBuildTime(); ok {
+			entry = entry.WithField("database_built_at", built.Format(time.RFC3339))
+		}
+		entry.Info("Local GeoIP country database loaded")
+	}
+	defer CloseGeoIPCountry()
+
 	pool := NewPool()
 	defer CloseRedisPool()
 	defer CloseShortLinkPool()
