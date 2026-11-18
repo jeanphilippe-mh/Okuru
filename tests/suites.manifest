@@ -46,6 +46,7 @@ utils/audit_logging_test.go
 utils/banner_logging_test.go
 utils/cleanup_logging_test.go
 utils/diagnostic_logging_test.go
+utils/direct_file_multipart_test.go
 utils/geoip_checksums_test.go
 utils/geoip_country_test.go
 utils/geoip_open_unix_test.go
