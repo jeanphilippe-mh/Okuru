@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/jeanphilippe-mh/Okuru/utils"
@@ -15,21 +16,36 @@ func secureMultipart(next echo.HandlerFunc) echo.HandlerFunc {
 		if !multipartFileUpload(c.Request()) {
 			return next(c)
 		}
-		form, err := utils.ParseSecureMultipart(c.Request(), utils.FILEFOLDER, utils.MaxFileSize, 100)
+		r := c.Request()
+		parse := utils.ParseSecureMultipart
+		maxFileBytes := utils.MaxFileSize
+		if r.URL.Path == directFilePath {
+			parse = utils.ParseDirectFileMultipart
+			maxFileBytes = min(maxFileBytes, directRequestLimit)
+		}
+		form, err := parse(r, utils.FILEFOLDER, maxFileBytes, 100)
+		if err == nil {
+			defer func() {
+				if err := form.Close(); err != nil {
+					log.Error("Failed to remove encrypted multipart staging")
+				}
+			}()
+			// Multipart parsing stops at the closing boundary. Count the MIME
+			// epilogue too, including when the client omitted Content-Length.
+			if r.URL.Path == directFilePath {
+				_, err = io.Copy(io.Discard, r.Body)
+			}
+		}
 		if err != nil {
 			closeUnreadHTTP1(c)
 			// Echo v5 BodyLimit returns a status sentinel rather than an
 			// *echo.HTTPError. Parsing may wrap it with errors.Join.
-			if errors.Is(err, utils.ErrSecureMultipartTooLarge) || echo.StatusCode(err) == http.StatusRequestEntityTooLarge {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) || errors.Is(err, utils.ErrSecureMultipartTooLarge) || echo.StatusCode(err) == http.StatusRequestEntityTooLarge {
 				return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Multipart upload too large")
 			}
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload")
 		}
-		defer func() {
-			if err := form.Close(); err != nil {
-				log.Error("Failed to remove encrypted multipart staging")
-			}
-		}()
 		return next(c)
 	}
 }

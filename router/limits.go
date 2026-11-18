@@ -39,7 +39,7 @@ func closeUnreadHTTP1(c *echo.Context) {
 }
 
 func multipartFileUpload(r *http.Request) bool {
-	if r.Method != http.MethodPost || (r.URL.Path != "/file" && r.URL.Path != "/file/") {
+	if r.Method != http.MethodPost || (r.URL.Path != "/file" && r.URL.Path != "/file/" && r.URL.Path != directFilePath) {
 		return false
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get(echo.HeaderContentType))
@@ -102,6 +102,9 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 				}
 				if bodyBytes < 0 {
 					bodyBytes = maxUploadBodyBytes
+					if r.URL.Path == directFilePath {
+						bodyBytes = directRequestLimit
+					}
 				}
 				// Remove only abandoned, lock-protected staging directories;
 				// active transfers in this or another process retain their locks.

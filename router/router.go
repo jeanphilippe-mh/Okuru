@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"github.com/jeanphilippe-mh/Okuru/controllers"
 	"github.com/jeanphilippe-mh/Okuru/routes"
 	"github.com/jeanphilippe-mh/Okuru/utils"
 	log "github.com/sirupsen/logrus"
@@ -184,6 +185,8 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 
 	// Limit reporting requests before the general small-body buffer and CSRF.
 	e.Use(browserSecurityGuard(&processBrowserReportLimiter))
+	directEnabled, _ := strconv.ParseBool(os.Getenv("OKURU_FILE_API"))
+	e.Use(directUploadGuard(directEnabled))
 
 	// Protect parsing, including CSRF form extraction, before entering middleware.
 	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))
@@ -197,6 +200,10 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 
 	// Middleware CSRF
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
+		Skipper: func(c *echo.Context) bool {
+			path := c.Request().URL.Path
+			return path == directFilePath || path == uploadBootstrapPath
+		},
 		TokenLength:    32,
 		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
 		CookieSecure:   true,
@@ -224,6 +231,8 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	routes.Index(e)
 	routes.Password(apiGroup)
 	routes.File(fileGroup)
+	e.GET(uploadBootstrapPath, directUploadBootstrap)
+	e.POST(directFilePath, controllers.AddDirectFile)
 	e.POST(browserSecurityPath, browserSecurityReport)
 
 	return e
