@@ -121,3 +121,67 @@ footer {
   padding-top: calc(var(--bs-navbar-padding-y, .5rem) + env(safe-area-inset-top));
   background-clip: padding-box;
 }
+
+.upload-progress {
+  --upload-fill: #1558bd;
+  --upload-highlight: #0878b8;
+  --upload-track: #d5e0ed;
+  --upload-muted: #475569;
+  margin-block: 1rem 1.75rem;
+}
+.upload-progress__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block-end: .5rem;
+  font-weight: 600;
+}
+#upload-percent {
+  color: var(--upload-fill);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+#upload-meter {
+  display: block;
+  inline-size: 100%;
+  block-size: .625rem;
+  accent-color: var(--upload-fill);
+}
+#upload-meter[value] {
+  appearance: none;
+  border: 0;
+  border-radius: 1rem;
+  overflow: clip;
+  background: var(--upload-track);
+}
+#upload-meter[value]::-webkit-progress-bar {
+  background: transparent;
+}
+#upload-meter[value]::-webkit-progress-value {
+  border-radius: 1rem;
+  background: linear-gradient(90deg, var(--upload-fill), var(--upload-highlight));
+}
+#upload-meter[value]::-moz-progress-bar {
+  border-radius: 1rem;
+  background: linear-gradient(90deg, var(--upload-fill), var(--upload-highlight));
+}
+#upload-status {
+  color: var(--upload-muted);
+  font-size: .875rem;
+  margin-block-start: .45rem;
+}
+@media (prefers-color-scheme: dark) {
+  .upload-progress {
+    --upload-fill: #85b8ff;
+    --upload-highlight: #64c8f2;
+    --upload-track: #344456;
+    --upload-muted: #c1ccda;
+  }
+}
+@media (forced-colors: active) {
+  #upload-meter[value] {
+    appearance: auto;
+    background: revert;
+  }
+}
