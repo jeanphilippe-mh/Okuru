@@ -49,3 +49,9 @@ test('every script loaded by a template has a nonce and matches its local SHA-51
   }
   assert.ok(count > 0, 'no external script tags were checked');
 });
+
+test('the pinned tus browser build matches the upstream artifact', () => {
+  const script = fs.readFileSync(path.join(publicDir, 'scripts/tus.min.js'));
+  const digest = createHash('sha512').update(script).digest('base64');
+  assert.equal(digest, 'ANMDrIMUl7SJ3/ykWfb5U5ZluVTPwgUEDxxLVcHSE4ATJXqUEsdlfbhtnyoSZbsBNb/aLsFzO/iWZZZTlMWr+w==');
+});
