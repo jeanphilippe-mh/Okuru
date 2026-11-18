@@ -3,6 +3,8 @@
 All API responses containing tokens, passwords, or errors use `Cache-Control: no-store`.
 Browser forms keep their existing `_csrf` field. API clients use the same CSRF protection through `X-CSRF-Token` plus the matching secure cookie. No route is exempted from CSRF checks.
 
+File uploads have a separate [v2 direct upload endpoint](file-transfer-api.md).
+
 ## Create a secret with curl
 
 Use a private working directory for the cookie jar and response files. The examples use fictitious secrets.
