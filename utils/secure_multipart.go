@@ -80,11 +80,12 @@ func (r *secureMultipartReader) Close() error {
 type secureMultipartContextKey struct{}
 
 type SecureMultipart struct {
-	Files   []*SecureMultipartFile
-	stage   *LockedStagingDir
-	mu      sync.Mutex
-	readers int
-	closed  bool
+	Files          []*SecureMultipartFile
+	DirectMetadata *DirectFileMetadata
+	stage          *LockedStagingDir
+	mu             sync.Mutex
+	readers        int
+	closed         bool
 }
 
 func (f *SecureMultipart) Close() error {
@@ -137,18 +138,53 @@ var ErrSecureMultipartFilename = errors.New("Invalid or duplicate file name")
 // plaintext to os.TempDir. It consumes the body once before CSRF extraction.
 // Independent random public-key encryption bounds memory and permits any
 // order of file, password, and CSRF fields without persisting plaintext.
-func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int) (_ *SecureMultipart, resultErr error) {
+func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int) (*SecureMultipart, error) {
+	return parseSecureMultipart(r, storageDir, maxFileBytes, maxFiles, false)
+}
+
+// ParseDirectFileMultipart requires a validated JSON manifest followed by its
+// files in order. It shares encrypted staging and cleanup with the HTML form.
+func ParseDirectFileMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int) (*SecureMultipart, error) {
+	return parseSecureMultipart(r, storageDir, maxFileBytes, maxFiles, true)
+}
+
+func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int, direct bool) (_ *SecureMultipart, resultErr error) {
 	if existing := GetSecureMultipart(r); existing != nil {
+		if direct != (existing.DirectMetadata != nil) {
+			return nil, ErrSecureMultipart
+		}
 		return existing, nil
 	}
 	if r.MultipartForm != nil || r.Form != nil || maxFileBytes <= 0 || maxFiles <= 0 {
 		return nil, ErrSecureMultipart
+	}
+	var directBody *directMultipartBody
+	if direct {
+		if r.Body == nil {
+			return nil, ErrSecureMultipart
+		}
+		directBody = &directMultipartBody{ReadCloser: r.Body}
+		r.Body = directBody
+		defer func() {
+			r.Body = directBody.ReadCloser
+			if resultErr != nil && directBody.readErr != nil && !errors.Is(resultErr, directBody.readErr) {
+				resultErr = errors.Join(resultErr, directBody.readErr)
+			}
+		}()
 	}
 	mr, err := r.MultipartReader()
 	if err != nil {
 		return nil, ErrSecureMultipart
 	}
 	form := &SecureMultipart{}
+	nextPart := mr.NextPart
+	if direct {
+		nextPart = mr.NextRawPart
+		form.DirectMetadata, err = readDirectFileMetadata(r, mr, maxFileBytes, maxFiles)
+		if err != nil {
+			return nil, err
+		}
+	}
 	defer func() {
 		if resultErr != nil {
 			_ = form.Close()
@@ -161,7 +197,7 @@ func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 	var fieldBytes int64
 	fieldCount := 0
 	for {
-		part, err := mr.NextPart()
+		part, err := nextPart()
 		if err == io.EOF {
 			break
 		}
@@ -169,6 +205,18 @@ func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 			return nil, errors.Join(ErrSecureMultipart, err)
 		}
 		name, filename := part.FormName(), part.FileName()
+		limit := maxFileBytes - total
+		if direct {
+			specs := form.DirectMetadata.Files
+			if len(form.Files) >= len(specs) {
+				return nil, ErrSecureMultipart
+			}
+			spec := specs[len(form.Files)]
+			if name != "files" || filename == "" || !directPartMatches(part, spec.Name) {
+				return nil, ErrSecureMultipart
+			}
+			limit = spec.Size
+		}
 		if len(name) == 0 || len(name) > 128 {
 			return nil, ErrSecureMultipart
 		}
@@ -219,13 +267,27 @@ func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 			_ = out.Close()
 			return nil, ErrSecureMultipart
 		}
-		n, copyErr := io.Copy(encrypted, io.LimitReader(part, maxFileBytes-total+1))
+		n, copyErr := io.Copy(encrypted, io.LimitReader(part, limit))
 		finishErr := errors.Join(encrypted.Close(), out.Close())
-		if n > maxFileBytes-total {
-			return nil, errors.Join(ErrSecureMultipartTooLarge, copyErr, finishErr)
-		}
 		if copyErr != nil || finishErr != nil {
 			return nil, errors.Join(ErrSecureMultipart, copyErr, finishErr)
+		}
+		if direct && n != limit {
+			return nil, ErrSecureMultipart
+		}
+		if n == limit {
+			// Probe one byte without encrypting it or draining an oversized part.
+			var probe [1]byte
+			_, probeErr := io.ReadFull(part, probe[:])
+			if probeErr == nil {
+				if direct && limit < maxFileBytes-total {
+					return nil, ErrSecureMultipart
+				}
+				return nil, ErrSecureMultipartTooLarge
+			}
+			if probeErr != io.EOF {
+				return nil, errors.Join(ErrSecureMultipart, probeErr)
+			}
 		}
 		// io.Copy reached the part's actual EOF, so Close cannot drain a
 		// rejected or stalled request. Never close a partially read part.
@@ -234,6 +296,14 @@ func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 		}
 		total += n
 		form.Files = append(form.Files, &SecureMultipartFile{Filename: filename, Size: n, path: path, identity: identity, owner: form})
+	}
+	if direct {
+		if directBody.readErr != nil {
+			return nil, errors.Join(ErrSecureMultipart, directBody.readErr)
+		}
+		if len(form.Files) != len(form.DirectMetadata.Files) {
+			return nil, ErrSecureMultipart
+		}
 	}
 	// Populate the net/http cache, so CSRF and downstream handlers cannot
 	// reparse the original body with the standard disk-spilling parser.
