@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"github.com/labstack/echo/v5"
 	"net/http"
@@ -31,6 +32,19 @@ func ConfigureErrorHandler(e *echo.Echo, viewDir string) {
 			return
 		}
 		path := c.Request().URL.Path
+		if path == directFilePath || path == uploadBootstrapPath {
+			c.Response().Header().Set("Cache-Control", "private, no-store")
+			statusText := http.StatusText(code)
+			message := statusText
+			var publicError *echo.HTTPError
+			if errors.As(err, &publicError) && publicError.Message != "" {
+				message = publicError.Message
+			}
+			_ = c.JSON(code, map[string]string{
+				"code": strings.ToLower(strings.ReplaceAll(statusText, " ", "_")), "message": message,
+			})
+			return
+		}
 		if path == "/api" || strings.HasPrefix(path, "/api/") {
 			c.Response().Header().Set("Cache-Control", "no-store")
 			_ = c.JSON(code, map[string]string{"error": http.StatusText(code)})

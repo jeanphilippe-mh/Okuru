@@ -26,6 +26,7 @@ root/output_pipeline_test.go
 root/tls_config_test.go
 router/advisory_regression_test.go
 router/browser_security_test.go
+router/direct_upload_guard_test.go
 router/echo_logging_test.go
 router/echo_migration_csrf_test.go
 router/echo_migration_errors_test.go
