@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -572,6 +573,12 @@ func TestShortLinkWebFallbackWhenAliasDatabaseUnavailable(t *testing.T) {
 }
 
 func TestShortLinkProtectedUploadReturnsShortLinks(t *testing.T) {
+	for _, mode := range []string{"native", "progress"} {
+		t.Run(mode, func(t *testing.T) { testShortLinkProtectedUpload(t, mode == "progress") })
+	}
+}
+
+func testShortLinkProtectedUpload(t *testing.T, progress bool) {
 	e := shortLinkWebTest(t)
 	t.Setenv("OKURU_STORAGE_MIN_FREE_BYTES", "1")
 	t.Setenv("OKURU_STORAGE_QUOTA_BYTES", "268435456")
@@ -608,11 +615,55 @@ func TestShortLinkProtectedUploadReturnsShortLinks(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "https://attacker.invalid/file", bytes.NewReader(body.Bytes()))
 	req.Header.Set("Content-Type", w.FormDataContentType())
+	if progress {
+		req.Header.Set("Accept", "application/json")
+	}
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload creation failed: status %d", rec.Code)
+	}
+	if progress {
+		var result map[string]string
+		if json.Unmarshal(rec.Body.Bytes(), &result) != nil || len(result) != 1 || result["receipt"] == "" ||
+			rec.Header().Get("Cache-Control") != "private, no-store" || renderer.fileLink != "" {
+			t.Fatal("expected a private receipt response")
+		}
+		receipt := result["receipt"]
+		_, encoded, _ := strings.Cut(receipt, ".")
+		payload, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil || bytes.Contains(payload, []byte("synthetic-file-password")) {
+			t.Fatal("invalid receipt or plaintext archive password in receipt")
+		}
+		path := "/file/confirmation"
+		missingCSRF := httptest.NewRequest(http.MethodPost, path, strings.NewReader(url.Values{"receipt": {receipt}}.Encode()))
+		missingCSRF.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		missingCSRF.AddCookie(cookie)
+		rejected := httptest.NewRecorder()
+		e.ServeHTTP(rejected, missingCSRF)
+		if rejected.Code != http.StatusBadRequest {
+			t.Fatalf("missing CSRF token: status=%d", rejected.Code)
+		}
+		if res := requestWithCSRF(t, e, path+"?receipt="+url.QueryEscape(receipt), nil); res.Code != http.StatusNotFound {
+			t.Fatalf("accepted receipt from URL: status=%d", res.Code)
+		}
+		values := url.Values{"receipt": {receipt}}
+		var firstFile, firstPassword string
+		for i := 0; i < 2; i++ {
+			res := requestWithCSRF(t, e, path, values)
+			if res.Code != http.StatusOK || res.Header().Get("Cache-Control") != "private, no-store" {
+				t.Fatalf("confirmation returned status=%d", res.Code)
+			}
+			if i != 0 && (renderer.fileLink != firstFile || renderer.passwordLink != firstPassword) {
+				t.Fatal("reloading confirmation changed the share links")
+			}
+			firstFile, firstPassword = renderer.fileLink, renderer.passwordLink
+		}
+		archives, err := filepath.Glob(filepath.Join(u.FILEFOLDER, "*.zip"))
+		if err != nil || len(archives) != 1 {
+			t.Fatal("confirming twice did not preserve exactly one archive")
+		}
 	}
 	for _, link := range []string{renderer.fileLink, renderer.passwordLink} {
 		requireRootShortLink(t, link)
@@ -624,6 +675,18 @@ func TestShortLinkProtectedUploadReturnsShortLinks(t *testing.T) {
 	}
 	requireLongSecretLink(t, passwordOriginal.Path)
 	fileToken := strings.TrimPrefix(fileOriginal.Path, "/file/")
+	conn := u.NewPool().Get()
+	defer conn.Close()
+	fileID, _, _ := u.ParseToken(fileToken)
+	passwordID, _, _ := u.ParseToken(strings.TrimPrefix(passwordOriginal.Path, "/"))
+	for _, key := range []string{u.REDIS_PREFIX + "file_" + fileID, u.REDIS_PREFIX + passwordID} {
+		if views, err := redis.Int(conn.Do("HGET", key, "views_count")); err != nil || views != 0 {
+			t.Fatal("confirmation consumed a view")
+		}
+	}
+	if stored, err := redis.Bool(conn.Do("HEXISTS", u.REDIS_PREFIX+"file_"+fileID, "confirmation_digest")); err != nil || stored != progress {
+		t.Fatal("unexpected receipt metadata for the selected upload mode")
+	}
 	if renderer.deleteFile != "https://share.example.test/file/remove/"+fileToken {
 		t.Fatal("untrusted Host changed file deletion-link origin or target")
 	}
