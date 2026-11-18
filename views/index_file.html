@@ -3,12 +3,12 @@
 {% block content %}
 <section>
     <div class="pb-2 mt-4 mb-2 border-bottom">
-        <h2>Set Secret</h2>
+        <h2 id="file-title">Set Secret</h2>
     </div>
     <div>
         <p><span role="alert">{% if (errors) %}&#128683; {{ errors }}{% endif %}</span> </p>
     </div>
-<form id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
+<form id="file_create" action="/file" aria-labelledby="file-title" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->
     <input type="hidden" name="_csrf" value="{{ csrfToken }}">
     <!-- Hidden CSRF Token -->
@@ -53,6 +53,18 @@
                 </div>
             </div>
         </div>
+    </form>
+    <div id="upload-progress" class="upload-progress" hidden>
+        <div class="upload-progress__heading">
+            <label for="upload-meter">File transfer</label>
+            <span id="upload-percent" aria-hidden="true"></span>
+        </div>
+        <progress id="upload-meter" max="100"></progress>
+        <div id="upload-status" role="status"></div>
+    </div>
+    <form id="upload-confirmation" action="/file/confirmation" method="post" hidden>
+        <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+        <input type="hidden" name="receipt">
     </form>
 </section>
 {% endblock %}
@@ -151,4 +163,5 @@
   });
 })();
 </script>
+<script nonce="{{ csp_nonce }}" src="/scripts/upload-progress.js" integrity="sha512-4QdBupmNr8npYGAnYYS5sfZk51k+qTCDJryM1UVYKuriiXE4FpsCWhbkqunIxHPiPb1bTYUDKYAmewa482XFrQ=="></script>
 {% endblock %}

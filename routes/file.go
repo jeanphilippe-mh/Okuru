@@ -26,5 +26,6 @@ func File(g *echo.Group) {
 	g.GET("/:file_key", controllers.ReadFile)
 	g.POST("/:file_key", controllers.DownloadFile)
 	g.POST("", controllers.AddFile)
+	g.POST("/confirmation", controllers.ConfirmUploadedFile)
 	g.DELETE("/:file_key", controllers.DeleteFile)
 }
