@@ -555,16 +555,66 @@ func discardUnpublishedUpload(fileToken, passwordToken string) {
 	}
 }
 
+type fileUploadMode uint8
+
+const (
+	webFileUpload fileUploadMode = iota
+	progressFileUpload
+	directFileUpload
+)
+
 func AddFile(context *echo.Context) error {
+	mode := webFileUpload
+	if context.Request().Header.Get(echo.HeaderAccept) == echo.MIMEApplicationJSON {
+		mode = progressFileUpload
+	}
+	return addFile(context, mode)
+}
+
+func AddDirectFile(context *echo.Context) error {
+	return addFile(context, directFileUpload)
+}
+
+func addFile(context *echo.Context, mode fileUploadMode) error {
+	if mode != webFileUpload {
+		context.Response().Header().Set("Cache-Control", "private, no-store")
+	}
+	failureDetail := "File upload failed"
+	fail := func(status int, message string) error {
+		if status >= http.StatusInternalServerError {
+			AuditError(context, "file.upload_failed", failureDetail)
+		}
+		switch mode {
+		case directFileUpload:
+			return echo.NewHTTPError(status, message)
+		case progressFileUpload:
+			return context.JSON(status, map[string]string{"error": displayError(message)})
+		}
+		data := NewDataContext()
+		data["csrfToken"] = context.Get("csrf")
+		data["maxFileSize"] = MaxFileSize
+		data["maxFileSizeText"] = GetMaxFileSizeText()
+		data["errors"] = displayError(message)
+		return context.Render(status, "index_file.html", data)
+	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
+		if mode != webFileUpload {
+			return fail(http.StatusInternalServerError, "There was a problem during file processing")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer guard.Close()
 	form := GetSecureMultipart(context.Request())
+	if mode == directFileUpload && (form == nil || form.DirectMetadata == nil) {
+		return fail(http.StatusBadRequest, "Invalid multipart upload")
+	}
 	if form == nil {
 		form, err = ParseSecureMultipart(context.Request(), FILEFOLDER, MaxFileSize, maxUploadFiles)
 		if err != nil {
+			if mode == progressFileUpload {
+				return fail(http.StatusBadRequest, "Invalid multipart upload")
+			}
 			return context.NoContent(http.StatusBadRequest)
 		}
 		defer func() {
@@ -573,42 +623,42 @@ func AddFile(context *echo.Context) error {
 			}
 		}()
 	}
-	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	dataContext["csrfToken"] = context.Get("csrf")
-	dataContext["maxFileSize"] = MaxFileSize
-	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
-	failureDetail := "File upload failed"
-	fail := func(status int, message string) error {
-		if status >= http.StatusInternalServerError {
-			AuditError(context, "file.upload_failed", failureDetail)
-		}
-		dataContext["errors"] = displayError(message)
-		return context.Render(status, "index_file.html", dataContext)
-	}
-
 	f := new(File)
-	f.Password = context.FormValue("password")
+	if mode == directFileUpload {
+		options := form.DirectMetadata
+		f.TTL, f.Views, f.Deletable, f.Password = options.TTLSeconds, options.Views, options.Deletable, options.Password
+	} else {
+		f.Password = context.FormValue("password")
+	}
 	if err := ValidateSecretLength(f.Password); err != nil {
 		return fail(http.StatusRequestEntityTooLarge, "Password exceeds the maximum size")
 	}
-	f.TTL, err = ParseWebNumber(context.FormValue("ttl"))
-	if err != nil {
-		AuditAlert(context, "request.invalid_duration", "Invalid duration field")
-		return fail(http.StatusBadRequest, "Invalid duration")
+	if mode == directFileUpload {
+		if err := ValidateAPILimits(f.TTL, f.Views); err != nil {
+			return fail(http.StatusBadRequest, err.Error())
+		}
+	} else {
+		f.TTL, err = ParseWebNumber(context.FormValue("ttl"))
+		if err != nil {
+			AuditAlert(context, "request.invalid_duration", "Invalid duration field")
+			return fail(http.StatusBadRequest, "Invalid duration")
+		}
+		f.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
+		if err != nil {
+			AuditAlert(context, "request.invalid_attempt_count", "Invalid attempt count field")
+			return fail(http.StatusBadRequest, "Invalid attempt count")
+		}
+		if err := ValidateWebLimits(f.TTL, f.Views); err != nil {
+			return fail(http.StatusBadRequest, err.Error())
+		}
+		f.Deletable = context.FormValue("deletable") == "on"
 	}
-	f.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
-	if err != nil {
-		AuditAlert(context, "request.invalid_attempt_count", "Invalid attempt count field")
-		return fail(http.StatusBadRequest, "Invalid attempt count")
-	}
-	if err := ValidateWebLimits(f.TTL, f.Views); err != nil {
-		return fail(http.StatusBadRequest, err.Error())
-	}
-	f.Deletable = context.FormValue("deletable") == "on"
 	if err := context.Validate(f); err != nil {
 		AuditAlert(context, "file.invalid_metadata", "Invalid upload metadata")
 		return fail(http.StatusBadRequest, "Invalid upload metadata")
+	}
+	if mode != directFileUpload {
+		f.TTL = GetTtlSeconds(f.TTL)
 	}
 
 	// Fields were parsed without plaintext disk spill before CSRF.
@@ -678,7 +728,6 @@ func AddFile(context *echo.Context) error {
 		failureDetail = "Failed to remove encrypted multipart staging"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
-	f.TTL = GetTtlSeconds(f.TTL)
 	var passwordToken, fileToken, finalArchive string
 	published := false
 	defer func() {
@@ -727,27 +776,35 @@ func AddFile(context *echo.Context) error {
 		failureDetail = "Failed to remove upload temporary directory"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}
-	baseURL := sharePublicOrigin(context) + "/file/"
-	deletableText, deletableURL := "not deletable", ""
-	if f.Deletable {
-		deletableText = "deletable"
-		deletableURL = baseURL + "remove/" + fileToken
+	if mode == directFileUpload {
+		expiresAt, err := directFileExpiration(context.Request().Context(), fileToken)
+		if err != nil {
+			failureDetail = "Failed to read file expiration"
+			return fail(http.StatusServiceUnavailable, "File storage is unavailable")
+		}
+		result := newDirectFileResponse(context, fileToken, passwordToken, f, expiresAt)
+		// A socket failure may follow a partially delivered 201. Keep the share
+		// usable by a client that already received its link.
+		published = true
+		AuditEvent(context, "file.upload", "File archive published")
+		return context.JSON(http.StatusCreated, result)
 	}
-	f.FileKey = ""
-	f.Link = shareLink(context, fileToken, true)
-	f.Password = ""
-	dataContext["f"] = f
-	dataContext["ttl"] = GetTTLText(f.TTL)
-	dataContext["ttlViews"] = GetViewsText(f.Views)
-	dataContext["dlViews"] = GetDownloadsText(f.Views)
-	dataContext["deletableText"] = deletableText
-	dataContext["deletableURL"] = deletableURL
-	if provided {
-		dataContext["passwordLink"] = shareLink(context, passwordToken, false)
-	} else {
-		dataContext["passwordLink"] = ""
-	}
-	if err := context.Render(http.StatusOK, "confirm_file.html", dataContext); err != nil {
+	confirmation := newFileConfirmation(context, fileToken, passwordToken, f)
+	if mode == progressFileUpload {
+		id, _, err := ParseToken(fileToken)
+		if err != nil {
+			return fail(http.StatusInternalServerError, "There was a problem during file processing")
+		}
+		receipt, err := issueFileReceipt(id, confirmation, time.Now())
+		if err != nil {
+			failureDetail = "Failed to prepare upload confirmation"
+			return fail(http.StatusServiceUnavailable, "Could not prepare the upload confirmation")
+		}
+		err = context.JSON(http.StatusOK, map[string]string{"receipt": receipt})
+		if err != nil {
+			return err
+		}
+	} else if err := confirmation.render(context); err != nil {
 		return err
 	}
 	published = true
