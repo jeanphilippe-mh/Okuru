@@ -35,7 +35,7 @@ func writeUploadArchive(ctx context.Context, path, password string, files []Uplo
 	defer func() { resultErr = errors.Join(resultErr, out.Close()) }()
 	var encrypted io.WriteCloser
 	switch format {
-	case ArchiveFormatAge, ArchiveFormatAgeUserPassword:
+	case ArchiveFormatAgeUserPassword:
 		encrypted, err = EncryptArchive(ctx, out, password)
 	case ArchiveFormatAgeX25519:
 		encrypted, err = EncryptArchiveWithIdentity(ctx, out, password)

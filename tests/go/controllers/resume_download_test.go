@@ -26,7 +26,7 @@ import (
 
 func TestBusyKDFDoesNotConsumeResumeAttempts(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, plain := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	e, token, password, plain := resumeFixture(t, conn, u.ArchiveFormatAgeUserPassword, true)
 	cookie, prefix, etag := interruptedSessionWithPassword(t, conn, e, token, 5, password)
 	if !bytes.Equal(prefix, plain[:5]) {
 		t.Fatal("initial prefix mismatch")
@@ -94,9 +94,7 @@ func resumeFixture(t *testing.T, conn redis.Conn, format string, protected bool)
 	secret := "resume-synthetic-password"
 	var stored []byte
 	switch format {
-	case "":
-		stored = plain
-	case u.ArchiveFormatAge:
+	case u.ArchiveFormatAgeUserPassword:
 		recipient, err := age.NewScryptRecipient(secret)
 		if err != nil {
 			t.Fatal(err)
@@ -135,13 +133,16 @@ func resumeFixture(t *testing.T, conn redis.Conn, format string, protected bool)
 	default:
 		t.Fatalf("unsupported fixture format %q", format)
 	}
-	var token string
-	var httpErr *echo.HTTPError
-	if format == "" {
-		token, httpErr = u.SetFile(secret, 300, 1, true, protected, "")
-	} else {
-		token, httpErr = u.SetFile(secret, 300, 1, true, protected, "", format)
+	var passwordID string
+	if protected {
+		link, err := u.SetPassword(secret, 300, 1, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		passwordID, _, _ = u.ParseToken(link)
+		t.Cleanup(func() { _, _ = conn.Do("DEL", u.REDIS_PREFIX+passwordID) })
 	}
+	token, httpErr := u.SetFile(secret, 300, 1, true, protected, passwordID, format)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -185,14 +186,13 @@ func getResume(e *echo.Echo, token string, cookie *http.Cookie, rangeValue, vali
 	return rec, err
 }
 
-func TestResumeOneViewAndHistoricalLinks(t *testing.T) {
+func TestResumeOneViewForBothArchiveFormats(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	for _, tc := range []struct {
 		name, format string
 		protected    bool
 	}{
-		{"legacy zip", "", true},
-		{"legacy age factor 18", u.ArchiveFormatAge, true},
+		{"password-protected age", u.ArchiveFormatAgeUserPassword, true},
 		{"passwordless age", u.ArchiveFormatAgeX25519, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,40 +217,6 @@ func TestResumeOneViewAndHistoricalLinks(t *testing.T) {
 	}
 }
 
-func TestHistoricalZipAllowsRangeOnInitialPost(t *testing.T) {
-	conn := configureCompatibilityRedis(t)
-	e, token, password, plain := resumeFixture(t, conn, "", true)
-	form := url.Values{"password": {password}}
-	req := httptest.NewRequest(http.MethodPost, "/file/"+token, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", echo.MIMEApplicationForm)
-	req.Header.Set("Range", "bytes=1-8")
-	rec := httptest.NewRecorder()
-	ctx := e.NewContext(req, rec)
-	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
-	if err := DownloadFile(ctx); err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), plain[1:9]) {
-		t.Fatalf("legacy POST range: %d %v", rec.Code, err)
-	}
-}
-
-func TestLegacyZipMiddleMutationChangesIfRangeValidator(t *testing.T) {
-	conn := configureCompatibilityRedis(t)
-	e, token, _, original := resumeFixture(t, conn, "", false)
-	cookie, _, etag := interruptedSession(t, conn, e, token, 5)
-	changed := bytes.Clone(original)
-	changed[len(changed)/2] ^= 1
-	name, err := archiveNameFromToken(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(u.FILEFOLDER, name), changed, 0600); err != nil {
-		t.Fatal(err)
-	}
-	rec, err := getResume(e, token, cookie, "bytes=0-5", etag)
-	if err != nil || rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), changed) || rec.Header().Get("ETag") == etag {
-		t.Fatalf("changed archive was mixed with an older copy: status=%d error=%v", rec.Code, err)
-	}
-}
-
 type changingReaderAt struct {
 	file *os.File
 	once sync.Once
@@ -266,8 +232,8 @@ func (r *changingReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return n, err
 }
 
-func TestLegacyMutationDuringStreamAborts(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.zip")
+func TestMutationDuringStreamAborts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.zip")
 	if err := os.WriteFile(path, []byte("synthetic-content"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -288,11 +254,11 @@ func TestLegacyMutationDuringStreamAborts(t *testing.T) {
 			t.Error("mutation during streaming did not abort")
 		}
 	}()
-	_ = writeDownloadArchive(c, a, "legacy.zip", nil)
+	_ = writeDownloadArchive(c, a, "test.zip", nil)
 }
 
-func TestLegacyHashRejectsShortRead(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.zip")
+func TestEncryptedValidatorRejectsShortRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.zip")
 	if err := os.WriteFile(path, []byte("short"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +267,7 @@ func TestLegacyHashRejectsShortRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	if _, err := legacyArchiveETag(file, 100); err == nil {
+	if _, err := encryptedArchiveETag(file, 100); err == nil {
 		t.Fatal("short archive was accepted")
 	}
 }

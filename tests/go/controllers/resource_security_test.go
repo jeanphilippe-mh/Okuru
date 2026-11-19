@@ -19,6 +19,52 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+func resourceTestIdentity(t *testing.T) string {
+	t.Helper()
+	identity, err := u.GenerateArchiveIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}
+
+func resourcePasswordID(t *testing.T, password string) string {
+	t.Helper()
+	link, err := u.SetPassword(password, 300, 3, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, parseErr := u.ParseToken(link)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	return id
+}
+
+func writeResourceTestArchive(t *testing.T, path, secret, data string, password bool) {
+	t.Helper()
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	var w io.WriteCloser
+	if password {
+		w, err = u.EncryptArchive(t.Context(), out, secret)
+	} else {
+		w, err = u.EncryptArchiveWithIdentity(t.Context(), out, secret)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.WriteString(w, data); err != nil {
+		t.Fatal(err)
+	}
+	if err = w.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type securityRenderer struct{}
 
 func (securityRenderer) Render(_ *echo.Context, w io.Writer, _ string, _ interface{}) error {
@@ -79,25 +125,26 @@ func requestWithCSRF(t *testing.T, e *echo.Echo, path string, fields url.Values)
 }
 func TestFileTokensCannotBeUsedAsSecretTokens(t *testing.T) {
 	e := resourceTest(t)
-	token, err := u.SetFile("additional-password", 300, 3, true, true, "")
+	token, err := u.SetFile("additional-password", 300, 3, true, true, resourcePasswordID(t, "additional-password"), u.ArchiveFormatAgeUserPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
 	id, key, _ := u.ParseToken(token)
 	path := filepath.Join(u.FILEFOLDER, id+".zip")
-	if err := os.WriteFile(path, []byte("owned-archive"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	writeResourceTestArchive(t, path, "additional-password", "owned-archive", true)
 	altered := "file_" + id + u.TOKEN_SEPARATOR + key
 	rec := requestWithCSRF(t, e, "/"+altered, nil)
 	if rec.Code != 404 || strings.Contains(rec.Body.String(), "additional-password") {
 		t.Fatalf("secret route accepted file token: %d", rec.Code)
 	}
-	for _, handler := range []echo.HandlerFunc{controllers.ReadIndex, controllers.ReadPassword, controllers.DeleteIndex} {
+	for _, test := range []struct {
+		handler echo.HandlerFunc
+		param   string
+	}{{controllers.ReadIndex, "password_key"}, {controllers.ReadSecretAPI, "token"}, {controllers.DeleteIndex, "password_key"}} {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(httptest.NewRequest("GET", "/", nil), rec)
-		c.SetPathValues(echo.PathValues{{Name: "password_key", Value: altered}})
-		if err := handler(c); err != nil {
+		c.SetPathValues(echo.PathValues{{Name: test.param, Value: altered}})
+		if err := test.handler(c); err != nil {
 			e.HTTPErrorHandler(c, err)
 		}
 		if strings.Contains(rec.Body.String(), "additional-password") {
@@ -124,7 +171,7 @@ func TestDeletionAuthenticatesKeyAndPreservesAttempts(t *testing.T) {
 			var token string
 			var err *echo.HTTPError
 			if file {
-				token, err = u.SetFile("test-password", 300, 3, deletable, false, "")
+				token, err = u.SetFile(resourceTestIdentity(t), 300, 3, deletable, false, "", u.ArchiveFormatAgeX25519)
 			} else {
 				token, err = u.SetPassword("test-secret", 300, 3, deletable)
 			}
@@ -206,7 +253,7 @@ func TestDeletionLinksAreReadOnlyUntilCSRFProtectedConfirmation(t *testing.T) {
 		var token string
 		var err *echo.HTTPError
 		if file {
-			token, err = u.SetFile("test-password", 300, 1, true, false, "")
+			token, err = u.SetFile(resourceTestIdentity(t), 300, 1, true, false, "", u.ArchiveFormatAgeX25519)
 		} else {
 			token, err = u.SetPassword("test-secret", 300, 1, true)
 		}

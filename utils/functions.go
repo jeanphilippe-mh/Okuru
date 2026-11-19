@@ -408,19 +408,15 @@ func GenerateRandomString(n int) (string, error) {
  * @param {boolean} deletable
  * @return {string} token
  */
-func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string, archiveFormat ...string) (string, *echo.HTTPError) { //done
+func SetFile(password string, ttl, views int, deletable, provided bool, providedKey string, format string) (string, *echo.HTTPError) { //done
 	if ttl <= 0 {
 		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
 	}
 	if err := ValidateSecretLength(password); err != nil {
 		return "", echo.NewHTTPError(http.StatusRequestEntityTooLarge, http.StatusText(http.StatusRequestEntityTooLarge))
 	}
-	if len(archiveFormat) > 1 || (len(archiveFormat) == 1 && archiveFormat[0] != ArchiveFormatAge && archiveFormat[0] != ArchiveFormatAgeUserPassword && archiveFormat[0] != ArchiveFormatAgeX25519) {
+	if !ValidFileArchiveFormat(format, provided) {
 		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
-	}
-	format := ""
-	if len(archiveFormat) == 1 {
-		format = archiveFormat[0]
 	}
 	if format == ArchiveFormatAgeUserPassword && !canonicalArchiveID(providedKey) {
 		return "", echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
@@ -531,7 +527,7 @@ func getFile(f *models.File, requireDownloads bool) *echo.HTTPError {
 	if err = redis.ScanStruct(record, f); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	if len(f.Token) == 0 || (requireDownloads && f.ViewsCount >= f.Views) {
+	if !ValidFileArchiveFormat(f.ArchiveFormat, f.PasswordProvided) || len(f.Token) == 0 || (requireDownloads && f.ViewsCount >= f.Views) {
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	f.TTL, err = redis.Int(c.Do("TTL", REDIS_PREFIX+"file_"+storageKey))

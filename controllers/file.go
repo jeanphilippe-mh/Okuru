@@ -4,11 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -274,7 +272,7 @@ func DownloadFile(context *echo.Context) error {
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
 	var releaseKDF func()
-	needsKDF := (preview.ArchiveFormat == ArchiveFormatAge || preview.ArchiveFormat == ArchiveFormatAgeUserPassword) && !(preview.PasswordProvided && password == "")
+	needsKDF := preview.ArchiveFormat == ArchiveFormatAgeUserPassword && password != ""
 	if needsKDF {
 		reserved, release, reserveErr := ReserveArchiveKDF(context.Request().Context())
 		if reserveErr != nil {
@@ -329,21 +327,12 @@ func DownloadFile(context *echo.Context) error {
 		dataContext["errors"] = "Forbidden. Wrong password provided"
 		return context.Render(http.StatusUnauthorized, "file.html", dataContext)
 	}
-	if f.PasswordProvided && f.ArchiveFormat != ArchiveFormatAgeUserPassword &&
-		subtle.ConstantTimeCompare([]byte(password), []byte(f.Password)) != 1 {
-		return wrongPassword()
-	}
-	if f.PasswordProvided && f.ArchiveFormat == ArchiveFormatAgeUserPassword && password == "" {
-		return wrongPassword()
-	}
-
 	secret := f.Password
 	if f.ArchiveFormat == ArchiveFormatAgeUserPassword {
+		if password == "" {
+			return wrongPassword()
+		}
 		secret = password
-	} else if f.ArchiveFormat == "" {
-		// Legacy ZIPs do not need their former password retained in the
-		// continuation record: possession of the session proves the prior check.
-		secret = "legacy-unencrypted"
 	}
 	archive, err := openDownloadArchive(context, f, secret, archiveName)
 	if releaseKDF != nil {
@@ -378,26 +367,6 @@ func DownloadFile(context *echo.Context) error {
 	})
 	archive.etag = sessionETag(archive.etag, value)
 	AuditStarted(context, "file.download_started", "File download started")
-	if f.ArchiveFormat == "" {
-		// Preserve net/http's existing Range and conditional-request behavior
-		// for original unencrypted ZIPs, including authenticated POST ranges.
-		info, err := archive.file.Stat()
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
-		}
-		h := context.Response().Header()
-		h.Set(echo.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": archiveName}))
-		h.Set("ETag", archive.etag)
-		h.Set("Cache-Control", "private, no-store")
-		writer := &responseWriteTracker{ResponseWriter: context.Response()}
-		http.ServeContent(writer, context.Request(), archiveName, info.ModTime(), archive.file)
-		unchanged := archive.verifyUnchanged() == nil
-		recordLegacyResponse(progress, writer, archive.size, unchanged, context.Request().Context().Err() == nil)
-		if !unchanged || writer.writeErr != nil {
-			panic(http.ErrAbortHandler)
-		}
-		return nil
-	}
 	return writeDownloadArchive(context, archive, archiveName, nil, progress)
 }
 

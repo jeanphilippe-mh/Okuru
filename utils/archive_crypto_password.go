@@ -14,9 +14,14 @@ const ArchiveFormatAgeUserPassword = "age-user-password-v2"
 var errArchivePasswordRequired = errors.New("Archive password is required")
 var errArchiveIdentityRequired = errors.New("An archive identity is required for unprotected files")
 
-// fileMetadataSecret separates the file-link authenticator from the archive
-// password for new explicitly password-protected files. Legacy records still
-// need their original password to remain readable.
+// ValidFileArchiveFormat binds each supported encryption format to its
+// credential type. In particular, an absent format never enables a plaintext reader.
+func ValidFileArchiveFormat(format string, provided bool) bool {
+	return (provided && format == ArchiveFormatAgeUserPassword) ||
+		(!provided && format == ArchiveFormatAgeX25519)
+}
+
+// fileMetadataSecret separates the file-link authenticator from a user password.
 func fileMetadataSecret(password string, provided bool, archiveFormat string) (string, error) {
 	if archiveFormat == ArchiveFormatAgeX25519 {
 		if provided || password == "" {
@@ -28,7 +33,7 @@ func fileMetadataSecret(password string, provided bool, archiveFormat string) (s
 		return password, nil
 	}
 	if archiveFormat != ArchiveFormatAgeUserPassword {
-		return password, nil
+		return "", errArchiveIdentityRequired
 	}
 	if !provided || password == "" {
 		return "", errArchivePasswordRequired

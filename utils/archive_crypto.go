@@ -9,11 +9,7 @@ import (
 	"filippo.io/age"
 )
 
-const ArchiveFormatAge = "age-v1"
-
-// Use the highest work factor already accepted by the existing reader. This
-// raises the cost of offline password guessing without changing the format or
-// invalidating previously created factor-17 and factor-18 archives.
+// Bound scrypt memory and use the same work factor for all new archives.
 const archiveWriteWorkFactor = 18
 const archiveMaxReadWorkFactor = 18
 
