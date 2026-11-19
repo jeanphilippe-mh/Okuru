@@ -172,6 +172,11 @@ local start, written = tonumber(ARGV[3]), tonumber(ARGV[4])
 if not active or active < 1 or not size or not start or not written or
    start < 0 or written < 0 or start ~= math.floor(start) or written ~= math.floor(written) or
    start > size or written > size - start then return redis.error_reply('invalid progress') end
+-- The full restart owns the whole budget exclusively. If its reservation
+-- cannot be verified, leave the operation and all charged bytes in place.
+if ARGV[11] == '1' and (active ~= 1 or start ~= 0 or tonumber(redis.call('HGET', KEYS[2], 'used')) ~= size) then
+  return redis.error_reply('invalid full restart reservation')
+end
 local encoded = redis.call('HGET', KEYS[2], 'intervals') or ''
 if string.len(encoded) > 2500 then return redis.error_reply('invalid interval index') end
 local intervals, rebuilt = {}, ''
@@ -216,6 +221,21 @@ redis.call('HSET', KEYS[2], 'active', active - 1, 'intervals', result, 'complete
 -- retry, unless a Range already joined this attempt.
 if ARGV[9] == '1' and ARGV[10] == '1' and active == 1 and redis.call('HGET', KEYS[2], 'requests') == '0' then
   redis.call('HSET', KEYS[2], 'initial_started', '0')
+end
+-- A new full GET is safe only after a verified transport interruption of
+-- the initial response. A complete or corrupt transfer never grants it.
+if ARGV[10] == '1' and phase == 'streaming' and ARGV[9] ~= '1' and ARGV[5] == '1' and
+   ARGV[6] ~= '1' and written < size then
+  redis.call('HSET', KEYS[2], 'restart_available', '1')
+end
+if ARGV[11] == '1' then
+  -- Full restart admission was exclusive and reserved exactly size bytes.
+  -- Restore only its unwritten bytes. Only a pre-header failure can put the
+  -- single restart back; every admission still counts toward the request cap.
+  -- An unaccounted writer panic leaves the full reservation charged.
+  if ARGV[9] == '1' or ARGV[5] == '1' or written > 0 then
+    redis.call('HSET', KEYS[2], 'used', ARGV[4], 'restart_available', ARGV[9])
+  end
 end
 -- An abandoned preparation restores the original eligibility deadline. Only
 -- a response that actually started earns a new resume window on disconnect.
@@ -268,7 +288,7 @@ func finishDownloadResponse(session *DownloadSession, start, written int64, inte
 	defer c.Close()
 	status, err := redis.Int(recordDownloadProgressScript.Do(c, session.fileKey, session.sessionKey,
 		session.token, session.encrypted, strconv.FormatInt(start, 10), strconv.FormatInt(written, 10), valid, success, session.progressField,
-		strconv.FormatInt(session.size, 10), abandoned, session.initial))
+		strconv.FormatInt(session.size, 10), abandoned, session.initial, session.restart))
 	if err != nil {
 		return err
 	}

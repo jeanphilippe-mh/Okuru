@@ -294,6 +294,154 @@ func TestInitialGETIsAtomicAndLeavesRangeBudgetUntouched(t *testing.T) {
 	}
 }
 
+func TestExclusiveFullRestartAfterInterruptedStream(t *testing.T) {
+	c := cleanupTest(t)
+	f, cookie, key, _ := claimLargeDownload(t, 3600)
+	_, initial, fault := StartTrackedFileDownload(f, cookie)
+	if fault != nil {
+		t.Fatal(fault)
+	}
+	if err := initial.MarkDownloadStreaming(); err != nil {
+		t.Fatal(err)
+	}
+	// A connection can fail before the first byte reaches the writer.
+	if err := RecordDownloadProgress(initial, 0, 0, true, false); err != nil {
+		t.Fatal(err)
+	}
+	_, rangeSession, fault := ResumeStartedFileDownload(f, cookie)
+	if fault != nil {
+		t.Fatal(fault)
+	}
+	if _, _, fault := StartTrackedFileDownload(f, cookie); fault == nil {
+		t.Fatal("full restart overtook an active range")
+	}
+	if err := AbandonDownloadPreparation(rangeSession); err != nil {
+		t.Fatal(err)
+	}
+	const contenders = 8
+	link := f.FileKey
+	winners := make(chan *DownloadSession, contenders)
+	for i := 0; i < contenders; i++ {
+		go func() {
+			_, session, _ := StartTrackedFileDownload(&models.File{FileKey: link}, cookie)
+			winners <- session
+		}()
+	}
+	var restart *DownloadSession
+	for i := 0; i < contenders; i++ {
+		if session := <-winners; session != nil {
+			if restart != nil {
+				t.Fatal("two full restarts were admitted")
+			}
+			restart = session
+		}
+	}
+	if restart == nil || restart.IsInitialGET() {
+		t.Fatal("interrupted initial GET did not grant a restart")
+	}
+	if _, _, fault := ResumeStartedFileDownload(f, cookie); fault == nil {
+		t.Fatal("range request overtook an active full restart")
+	}
+	state, err := redis.StringMap(c.Do("HGETALL", key))
+	if err != nil || state["used"] != state["limit"] || state["requests"] != "2" || state["active"] != "1" {
+		t.Fatalf("full restart reservation: used=%s requests=%s active=%s err=%v", state["used"], state["requests"], state["active"], err)
+	}
+	before := state["idle_deadline"]
+	if err := AbandonDownloadPreparation(restart); err != nil {
+		t.Fatal(err)
+	}
+	state, err = redis.StringMap(c.Do("HGETALL", key))
+	if err != nil || state["used"] != "0" || state["requests"] != "2" || state["idle_deadline"] != before {
+		t.Fatalf("abandoned restart: used=%s requests=%s idle=%s err=%v", state["used"], state["requests"], state["idle_deadline"], err)
+	}
+	_, next, fault := StartTrackedFileDownload(f, cookie)
+	if fault != nil {
+		t.Fatal(fault)
+	}
+	if err := AbandonDownloadPreparation(restart); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, fault := StartTrackedFileDownload(f, cookie); fault == nil {
+		t.Fatal("stale finalizer released another full restart")
+	}
+	if err := next.MarkDownloadStreaming(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordDownloadProgress(next, 0, 0, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, fault := StartTrackedFileDownload(f, cookie); fault == nil {
+		t.Fatal("full restart repeated after its stream was interrupted")
+	}
+}
+
+func TestFullRestartRequiresExclusiveReservationToRefund(t *testing.T) {
+	c := cleanupTest(t)
+	for _, tc := range []struct{ field, value string }{{"active", "2"}, {"used", "123"}} {
+		t.Run(tc.field, func(t *testing.T) {
+			f, cookie, key, _ := claimLargeDownload(t, 3600)
+			_, initial, fault := StartTrackedFileDownload(f, cookie)
+			if fault != nil {
+				t.Fatal(fault)
+			}
+			if err := initial.MarkDownloadStreaming(); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecordDownloadProgress(initial, 0, 64, true, false); err != nil {
+				t.Fatal(err)
+			}
+			_, restart, fault := StartTrackedFileDownload(f, cookie)
+			if fault != nil {
+				t.Fatal(fault)
+			}
+			if _, err := c.Do("HSET", key, tc.field, tc.value); err != nil {
+				t.Fatal(err)
+			}
+			before, err := redis.String(c.Do("HGET", key, "used"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := AbandonDownloadPreparation(restart); err == nil {
+				t.Fatal("uncertain reservation was refunded")
+			}
+			after, err := redis.String(c.Do("HGET", key, "used"))
+			if err != nil || after != before {
+				t.Fatalf("charged bytes changed: %s -> %s, err=%v", before, after, err)
+			}
+		})
+	}
+}
+
+func TestFullRestartObeysByteRequestAndDeadlineLimits(t *testing.T) {
+	c := cleanupTest(t)
+	for _, tc := range []struct{ name, field, value string }{
+		{"previously delivered range bytes", "used", "1"},
+		{"request budget spent", "requests", "32"},
+		{"idle deadline passed", "idle_deadline", "1"},
+		{"absolute deadline passed", "absolute_deadline", "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, cookie, key, _ := claimLargeDownload(t, 3600)
+			_, initial, fault := StartTrackedFileDownload(f, cookie)
+			if fault != nil {
+				t.Fatal(fault)
+			}
+			if err := initial.MarkDownloadStreaming(); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecordDownloadProgress(initial, 0, 64, true, false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.Do("HSET", key, tc.field, tc.value); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, fault := StartTrackedFileDownload(f, cookie); fault == nil {
+				t.Fatal("ineligible full restart was served")
+			}
+		})
+	}
+}
+
 func sessionExpiryMillis(t *testing.T, c redis.Conn, key string) int64 {
 	t.Helper()
 	expiry, err := redis.Int64(c.Do("PEXPIRETIME", key))

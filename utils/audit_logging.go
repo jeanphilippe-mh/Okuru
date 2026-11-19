@@ -15,6 +15,7 @@ import (
 
 const auditRequestIDKey = "okuru.audit.request_id"
 const auditCountryCacheKey = "okuru.audit.country"
+const auditDownloadCookieKey = "okuru.audit.download_cookie"
 
 type auditCountryCache struct {
 	ip, code, name, status string
@@ -145,6 +146,18 @@ func AuditRequestID(c *echo.Context) string {
 	return value
 }
 
+// RecordDownloadCookieCheck records only the outcome of the path-specific
+// cookie lookup. A digest match still requires a live session in Redis.
+func RecordDownloadCookieCheck(c *echo.Context, present, matched bool) {
+	state := "missing"
+	if matched {
+		state = "matched"
+	} else if present {
+		state = "mismatch"
+	}
+	c.Set(auditDownloadCookieKey, state)
+}
+
 // AuditRequestFields contains bounded, non-secret request metadata only.
 // Proxy-supplied addresses are used only after the existing trust checks.
 func AuditRequestFields(c *echo.Context) log.Fields {
@@ -184,6 +197,13 @@ func AuditRequestFields(c *echo.Context) log.Fields {
 		route = "unmatched"
 	}
 	fields["route"] = boundedAuditText(route, 256)
+	if route == "/file/:file_key/download/:session_id" {
+		fields["download_range_present"] = c.Request().Header.Get("Range") != ""
+		fields["download_if_range_present"] = c.Request().Header.Get("If-Range") != ""
+		if cookie, ok := c.Get(auditDownloadCookieKey).(string); ok {
+			fields["download_cookie"] = cookie
+		}
+	}
 	return fields
 }
 

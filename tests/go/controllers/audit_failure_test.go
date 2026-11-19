@@ -16,6 +16,45 @@ import (
 
 type auditFailureRenderer struct{}
 
+func TestDownloadAuditDescribesCookieAndRangeWithoutValues(t *testing.T) {
+	token := "00000000-0000-4000-8000-000000000000" + utils.TOKEN_SEPARATOR + "private-share-key"
+	const value = "private-download-key"
+	name, err := downloadSessionCookie(token, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := downloadSessionDigest(value)
+	for _, tc := range []struct{ state, cookie string }{
+		{"missing", ""}, {"mismatch", "another-private-key"}, {"matched", value},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/file/"+token+"/download/"+id, nil)
+			if tc.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: name, Value: tc.cookie})
+			}
+			req.Header.Set("Range", "bytes=12345-")
+			req.Header.Set("If-Range", `"private-validator"`)
+			c := echo.New().NewContext(req, httptest.NewRecorder())
+			c.SetPath("/file/:file_key/download/:session_id")
+			c.SetPathValues(echo.PathValues{{Name: "session_id", Value: id}})
+			_, _ = chooseDownloadCookie(c, token)
+			fields := utils.AuditRequestFields(c)
+			if fields["download_cookie"] != tc.state || fields["download_range_present"] != true || fields["download_if_range_present"] != true {
+				t.Fatal("download audit did not reflect the request")
+			}
+			record, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, private := range []string{token, name, id, value, "another-private-key", "12345-", "private-validator"} {
+				if bytes.Contains(record, []byte(private)) {
+					t.Fatal("download audit exposed a request value")
+				}
+			}
+		})
+	}
+}
+
 func (auditFailureRenderer) Render(_ *echo.Context, out io.Writer, name string, _ any) error {
 	_, err := io.WriteString(out, "rendered "+name)
 	return err

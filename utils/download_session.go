@@ -72,15 +72,25 @@ local count = tonumber(redis.call('HGET', KEYS[2], 'requests'))
 local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
 local limit = tonumber(redis.call('HGET', KEYS[2], 'limit'))
 if not secret or not count or not used or not limit then return nil end
-local initial = ARGV[4] == '1'
-local changes = {}
+local full = ARGV[4] == '1'
+local started = redis.call('HGET', KEYS[2], 'initial_started')
+local initial = full and version == '3' and started == '0'
+local restart = full and not initial
+local changes
 if initial then
-  if version ~= '3' or redis.call('HGET', KEYS[2], 'initial_started') ~= '0' then return nil end
   changes = {'initial_started', '1'}
 else
-  if version == '3' and redis.call('HGET', KEYS[2], 'initial_started') ~= '1' then return nil end
+  if version == '3' and started ~= '1' then return nil end
   if count >= tonumber(ARGV[2]) or used >= limit then return nil end
   changes = {'requests', count + 1}
+  if restart then
+    -- A plain GET has no offset. Reserve the entire continuation budget
+    -- together with the exclusive claim before decrypting or writing.
+    if version ~= '3' or used ~= 0 or redis.call('HGET', KEYS[2], 'restart_available') ~= '1' or
+       redis.call('HGET', KEYS[2], 'active') ~= '0' or redis.call('HGET', KEYS[2], 'complete') ~= '0' or
+       redis.call('HGET', KEYS[2], 'unsafe') ~= '0' then return nil end
+    changes = {'requests', count + 1, 'restart_available', '0', 'used', redis.call('HGET', KEYS[2], 'limit')}
+  end
 end
 local tracked = redis.call('HGET', KEYS[2], 'tracking') == '1' and ARGV[5] ~= ''
 if version == '3' and redis.call('HGET', KEYS[2], 'tracking') ~= '1' then return nil end
@@ -110,7 +120,7 @@ if tracked then
   table.insert(changes, '1')
 end
 redis.call('HSET', KEYS[2], unpack(changes))
-return {record, ttl, secret, limit, tracked and 1 or 0, resume}
+return {record, ttl, secret, limit, tracked and 1 or 0, resume, restart and 1 or 0}
 `)
 
 // The preview authenticates a continuation without incrementing its request
@@ -158,16 +168,19 @@ return 1
 // DownloadSession identifies a previously authenticated continuation. Its
 // unexported fields prevent callers from fabricating a Redis reservation.
 type DownloadSession struct {
-	fileKey, sessionKey string
-	token, encrypted    []byte
-	size                int64
-	resumeSeconds       int
-	archiveID           string
-	tracked, initial    bool
-	progressField       string
+	fileKey, sessionKey       string
+	token, encrypted          []byte
+	size                      int64
+	resumeSeconds             int
+	archiveID                 string
+	tracked, initial, restart bool
+	progressField             string
 }
 
 func (s *DownloadSession) Size() int64 { return s.size }
+
+// IsInitialGET reports whether this operation starts the view reserved by the POST.
+func (s *DownloadSession) IsInitialGET() bool { return s.initial }
 
 // Old deployments may already specify the session limit as a Go duration.
 // New configurations use whole seconds for both settings.
@@ -298,8 +311,8 @@ func ResumeTrackedFileDownload(f *models.File, cookie string) (string, *Download
 	return admitFileDownload(f, cookie, "2", false, true)
 }
 
-// StartTrackedFileDownload atomically claims a session's only full response.
-// It consumes neither an additional view nor any of its Range retry budget.
+// StartTrackedFileDownload claims the initial full GET or a single budgeted
+// full restart after its interruption. Neither operation reserves another view.
 func StartTrackedFileDownload(f *models.File, cookie string) (string, *DownloadSession, *echo.HTTPError) {
 	return admitFileDownload(f, cookie, "3", true, true)
 }
@@ -310,7 +323,7 @@ func ResumeStartedFileDownload(f *models.File, cookie string) (string, *Download
 	return admitFileDownload(f, cookie, "3", false, true)
 }
 
-func admitFileDownload(f *models.File, cookie, version string, initial, track bool) (string, *DownloadSession, *echo.HTTPError) {
+func admitFileDownload(f *models.File, cookie, version string, full, track bool) (string, *DownloadSession, *echo.HTTPError) {
 	id, linkKey, err := ParseToken(f.FileKey)
 	if err != nil || !validDownloadSessionCookie(cookie) {
 		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
@@ -333,16 +346,16 @@ func admitFileDownload(f *models.File, cookie, version string, initial, track bo
 		}
 		field = "operation_" + hex.EncodeToString(random[:])
 	}
-	reply, err := redis.Values(inspectDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests, version, initial, field))
+	reply, err := redis.Values(inspectDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests, version, full, field))
 	if err != nil {
 		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	var record []interface{}
 	var ttl, resumeSeconds int
 	var size int64
-	var tracked bool
+	var tracked, restart bool
 	var encrypted []byte
-	if _, err := redis.Scan(reply, &record, &ttl, &encrypted, &size, &tracked, &resumeSeconds); err != nil || size < 0 || size > maxExactSessionBytes || redis.ScanStruct(record, f) != nil {
+	if _, err := redis.Scan(reply, &record, &ttl, &encrypted, &size, &tracked, &resumeSeconds, &restart); err != nil || size < 0 || size > maxExactSessionBytes || redis.ScanStruct(record, f) != nil {
 		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(cookie)
@@ -355,7 +368,7 @@ func admitFileDownload(f *models.File, cookie, version string, initial, track bo
 	}
 	f.TTL = ttl
 	return string(secret), &DownloadSession{fileKey: fileKey, sessionKey: sessionKey, token: token, encrypted: encrypted, size: size,
-		tracked: tracked, resumeSeconds: resumeSeconds, initial: initial, archiveID: id, progressField: field}, nil
+		tracked: tracked, resumeSeconds: resumeSeconds, initial: full && !restart, restart: restart, archiveID: id, progressField: field}, nil
 }
 
 // The operation marker changes from preparation to streaming immediately

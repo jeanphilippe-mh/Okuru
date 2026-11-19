@@ -234,6 +234,69 @@ func TestDownloadRedirectRequiresCookieAndAllowsOneInitialGET(t *testing.T) {
 	}
 }
 
+func TestInterruptedDownloadRestartsWithoutRangeOnSameView(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	for _, format := range []string{u.ArchiveFormatAgeX25519, u.ArchiveFormatAgeUserPassword} {
+		t.Run(format, func(t *testing.T) {
+			e, token, password, plain := resumeFixture(t, conn, format, format == u.ArchiveFormatAgeUserPassword)
+			id, path := finalizationArchive(t, token)
+			cookie, _, etag := interruptedSessionWithPassword(t, conn, e, token, 11, password)
+			count, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+			if err != nil || count != 1 {
+				t.Fatalf("unexpected reserved view count %d: %v", count, err)
+			}
+			for _, badRange := range []string{"", "not-a-range"} {
+				for _, wrong := range []bool{false, true} {
+					req := httptest.NewRequest(http.MethodGet, cookie.Path, nil)
+					req.Header.Set("Range", badRange)
+					if wrong {
+						req.AddCookie(&http.Cookie{Name: cookie.Name, Value: "wrong"})
+					}
+					rec := httptest.NewRecorder()
+					if err := downloadRequest(e, rec, req, token); err != nil || rec.Code != http.StatusNotFound || rec.Body.Len() != 0 {
+						t.Fatalf("unauthorized retry: status=%d error=%v", rec.Code, err)
+					}
+				}
+			}
+			if rec, err := getResume(e, token, cookie, "not-a-range", ""); err != nil || rec.Code != http.StatusRequestedRangeNotSatisfiable {
+				t.Fatalf("authorized malformed range: status=%d error=%v", rec.Code, err)
+			}
+			rec, err := getResume(e, token, cookie, "", "")
+			if err != nil || rec.Code != http.StatusOK || rec.Header().Get("Content-Range") != "" ||
+				rec.Header().Get("ETag") != etag || rec.Header().Get("Content-Length") != strconv.Itoa(len(plain)) ||
+				!bytes.Equal(rec.Body.Bytes(), plain) {
+				t.Fatalf("full restart: status=%d length=%d error=%v", rec.Code, rec.Body.Len(), err)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("completed one-view archive still present: %v", err)
+			}
+			if rec, err := getResume(e, token, cookie, "", ""); err != nil || rec.Code != http.StatusNotFound {
+				t.Fatalf("replayed completed restart: status=%d error=%v", rec.Code, err)
+			}
+		})
+	}
+}
+
+func TestInterruptedFullRestartKeepsOnlyRemainingRangeBudget(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie, _, etag := interruptedSession(t, conn, e, token, 5)
+	prefix, _ := interruptAuthorizedGET(t, e, token, cookie, 11, 0)
+	id, _, _ := u.ParseToken(token)
+	key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+	state, err := redis.StringMap(conn.Do("HGETALL", key))
+	if err != nil || state["requests"] != "1" || state["used"] != "11" {
+		t.Fatalf("interrupted restart: requests=%s used=%s error=%v", state["requests"], state["used"], err)
+	}
+	if rec, err := getResume(e, token, cookie, "", ""); err != nil || rec.Code != http.StatusNotFound {
+		t.Fatalf("plain GET allowed another restart: status=%d error=%v", rec.Code, err)
+	}
+	rec, err := getResume(e, token, cookie, "bytes=11-", etag)
+	if err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(append(prefix, rec.Body.Bytes()...), plain) {
+		t.Fatalf("remaining partial request failed: status=%d error=%v", rec.Code, err)
+	}
+}
+
 func TestDownloadIfRangeHTTPDate(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	modified := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second).Add(250 * time.Millisecond)
