@@ -19,7 +19,7 @@ var uploadSessionOwner struct {
 
 var uploadPartsCleanup struct {
 	sync.RWMutex
-	run func(string) error
+	run     func(string) error
 	prepare func(*UploadSession) error
 	pending map[string]*uploadSessionPreparation
 }
