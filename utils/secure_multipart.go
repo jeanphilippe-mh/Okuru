@@ -139,16 +139,24 @@ var ErrSecureMultipartFilename = errors.New("Invalid or duplicate file name")
 // Independent random public-key encryption bounds memory and permits any
 // order of file, password, and CSRF fields without persisting plaintext.
 func ParseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int) (*SecureMultipart, error) {
-	return parseSecureMultipart(r, storageDir, maxFileBytes, maxFiles, false)
+	return parseSecureMultipart(r, storageDir, maxFileBytes, maxFiles, false, nil)
 }
 
 // ParseDirectFileMultipart requires a validated JSON manifest followed by its
 // files in order. It shares encrypted staging and cleanup with the HTML form.
 func ParseDirectFileMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int) (*SecureMultipart, error) {
-	return parseSecureMultipart(r, storageDir, maxFileBytes, maxFiles, true)
+	return parseSecureMultipart(r, storageDir, maxFileBytes, maxFiles, true, nil)
 }
 
-func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int, direct bool) (_ *SecureMultipart, resultErr error) {
+// ParsePreparedMultipart accepts only the ordered binary entries of an authenticated manifest.
+func ParsePreparedMultipart(r *http.Request, storageDir string, maxFileBytes int64, manifest *DirectFileMetadata) (*SecureMultipart, error) {
+	if manifest == nil || len(manifest.Files) == 0 {
+		return nil, ErrSecureMultipart
+	}
+	return parseSecureMultipart(r, storageDir, maxFileBytes, len(manifest.Files), true, manifest)
+}
+
+func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64, maxFiles int, direct bool, manifest *DirectFileMetadata) (_ *SecureMultipart, resultErr error) {
 	if existing := GetSecureMultipart(r); existing != nil {
 		if direct != (existing.DirectMetadata != nil) {
 			return nil, ErrSecureMultipart
@@ -180,7 +188,10 @@ func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 	nextPart := mr.NextPart
 	if direct {
 		nextPart = mr.NextRawPart
-		form.DirectMetadata, err = readDirectFileMetadata(r, mr, maxFileBytes, maxFiles)
+		form.DirectMetadata = manifest
+		if manifest == nil {
+			form.DirectMetadata, err = readDirectFileMetadata(r, mr, maxFileBytes, maxFiles)
+		}
 		if err != nil {
 			return nil, err
 		}
