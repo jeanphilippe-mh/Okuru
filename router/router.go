@@ -202,7 +202,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		Skipper: func(c *echo.Context) bool {
 			path := c.Request().URL.Path
-			return path == directFilePath || path == uploadBootstrapPath
+			return isFileAPIPath(path)
 		},
 		TokenLength:    32,
 		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
@@ -233,6 +233,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	routes.File(fileGroup)
 	e.GET(uploadBootstrapPath, directUploadBootstrap)
 	e.POST(directFilePath, controllers.AddDirectFile)
+	registerPreparedRoutes(e)
 	e.POST(browserSecurityPath, browserSecurityReport)
 
 	return e

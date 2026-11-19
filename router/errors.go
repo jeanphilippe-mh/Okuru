@@ -32,7 +32,7 @@ func ConfigureErrorHandler(e *echo.Echo, viewDir string) {
 			return
 		}
 		path := c.Request().URL.Path
-		if path == directFilePath || path == uploadBootstrapPath {
+		if strings.HasPrefix(path, "/api/v2/") {
 			c.Response().Header().Set("Cache-Control", "private, no-store")
 			statusText := http.StatusText(code)
 			message := statusText

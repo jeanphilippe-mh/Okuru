@@ -39,7 +39,7 @@ func closeUnreadHTTP1(c *echo.Context) {
 }
 
 func multipartFileUpload(r *http.Request) bool {
-	if r.Method != http.MethodPost || (r.URL.Path != "/file" && r.URL.Path != "/file/" && r.URL.Path != directFilePath) {
+	if r.Method != http.MethodPost || (r.URL.Path != "/file" && r.URL.Path != "/file/" && r.URL.Path != directFilePath && r.URL.Path != preparedFilePath) {
 		return false
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get(echo.HeaderContentType))

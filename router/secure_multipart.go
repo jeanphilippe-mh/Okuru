@@ -23,7 +23,17 @@ func secureMultipart(next echo.HandlerFunc) echo.HandlerFunc {
 			parse = utils.ParseDirectFileMultipart
 			maxFileBytes = min(maxFileBytes, directRequestLimit)
 		}
-		form, err := parse(r, utils.FILEFOLDER, maxFileBytes, 100)
+		var form *utils.SecureMultipart
+		var err error
+		if r.URL.Path == preparedFilePath {
+			session, _ := c.Get("okuru-prepared-upload").(*utils.UploadSession)
+			if session == nil {
+				return echo.ErrForbidden
+			}
+			form, err = utils.ParsePreparedMultipart(r, utils.FILEFOLDER, maxFileBytes, session.Metadata)
+		} else {
+			form, err = parse(r, utils.FILEFOLDER, maxFileBytes, 100)
+		}
 		if err == nil {
 			defer func() {
 				if err := form.Close(); err != nil {
@@ -32,7 +42,7 @@ func secureMultipart(next echo.HandlerFunc) echo.HandlerFunc {
 			}()
 			// Multipart parsing stops at the closing boundary. Count the MIME
 			// epilogue too, including when the client omitted Content-Length.
-			if r.URL.Path == directFilePath {
+			if r.URL.Path == directFilePath || r.URL.Path == preparedFilePath {
 				_, err = io.Copy(io.Discard, r.Body)
 			}
 		}
