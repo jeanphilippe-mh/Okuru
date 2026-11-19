@@ -76,10 +76,14 @@ func TestProductionRouterCSRFContract(t *testing.T) {
 		return c.NoContent(http.StatusNoContent)
 	})
 
+	e.GET("/csrf-contract-probe", func(c *echo.Context) error {
+		c.Response().Header().Set("X-CSRF-Token", c.Get("csrf").(string))
+		return c.NoContent(http.StatusOK)
+	})
 	get := httptest.NewRecorder()
-	e.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1", nil))
+	e.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/csrf-contract-probe", nil))
 	if get.Code != http.StatusOK {
-		t.Fatalf("API help returned %d, want %d", get.Code, http.StatusOK)
+		t.Fatalf("Web CSRF probe returned %d, want %d", get.Code, http.StatusOK)
 	}
 	var cookie *http.Cookie
 	for _, candidate := range get.Result().Cookies() {
@@ -97,7 +101,7 @@ func TestProductionRouterCSRFContract(t *testing.T) {
 		t.Fatalf("insecure CSRF cookie attributes: Secure=%t HttpOnly=%t SameSite=%v", cookie.Secure, cookie.HttpOnly, cookie.SameSite)
 	}
 	if token := get.Header().Get("X-CSRF-Token"); token != cookie.Value {
-		t.Fatal("API CSRF response header does not match the cookie")
+		t.Fatal("Web CSRF response header does not match the cookie")
 	}
 
 	for _, tc := range []struct {

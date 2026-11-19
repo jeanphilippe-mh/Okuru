@@ -41,7 +41,7 @@ func TestErrorsKeepStatusAndAreWrittenOnce(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 				t.Fatal("duplicate or malformed JSON:", err)
 			}
-			if body["error"] != "Bad Request" {
+			if len(body) != 2 || body["code"] != "bad_request" || body["message"] != "Bad Request" {
 				t.Fatalf("unexpected JSON: %v", body)
 			}
 		}
