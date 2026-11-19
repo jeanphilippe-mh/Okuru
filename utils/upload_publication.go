@@ -99,11 +99,16 @@ func publicationRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(root, journalDirName)
-	if err := os.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
+	disk, err := openRuntimeArchiveRoot(root)
+	if err != nil {
 		return "", err
 	}
-	info, err := os.Lstat(path)
+	defer disk.Close()
+	path := filepath.Join(root, journalDirName)
+	if err := disk.Mkdir(journalDirName, 0700); err != nil && !os.IsExist(err) {
+		return "", err
+	}
+	info, err := disk.Lstat(journalDirName)
 	if err != nil {
 		return "", err
 	}
@@ -111,6 +116,18 @@ func publicationRoot() (string, error) {
 		return "", errors.New("invalid private publication directory")
 	}
 	return path, nil
+}
+
+func removePublicationJournal(id string) error {
+	if !canonicalArchiveID(id) {
+		return errors.New("invalid publication identifier")
+	}
+	root, err := openRuntimeArchiveRoot(FILEFOLDER)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.RemoveAll(filepath.Join(journalDirName, id))
 }
 
 func syncPublicationDir(path string) error {
@@ -141,7 +158,7 @@ func (p *UploadPublication) Save(ctx context.Context, bearer, archive string) (b
 	retained := false
 	defer func() {
 		if !retained {
-			_ = os.RemoveAll(dir)
+			_ = removePublicationJournal(p.FileID)
 		}
 	}()
 	if err = LinkPublishedArchive(archive, filepath.Join(dir, witnessName)); err != nil {
@@ -205,7 +222,7 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 	}
 	if values[1] != p.FileID || values[0] != "finalizing" {
 		if values[1] == p.FileID && values[0] == "ready" {
-			return os.RemoveAll(dir)
+			return removePublicationJournal(p.FileID)
 		}
 		// The creator receipt can expire earlier than a published share.
 		// Confirm the durable encrypted file record before undoing a stale intent.
@@ -214,14 +231,14 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 			return lookupErr
 		}
 		if len(stored) > 0 && bytes.Equal(stored, p.FileCipher) {
-			return os.RemoveAll(dir)
+			return removePublicationJournal(p.FileID)
 		}
 		// A completed/expired or never-bound intent may only remove the file
 		// it can identify by its own still-present hard link.
-		if err = removeOwnedPublication(p.FileID, dir); err != nil {
+		if err = removeOwnedPublication(p.FileID); err != nil {
 			return err
 		}
-		return os.RemoveAll(dir)
+		return removePublicationJournal(p.FileID)
 	}
 	dest := filepath.Join(FILEFOLDER, p.FileID+".zip")
 	if err = os.Link(witness, dest); err != nil {
@@ -239,7 +256,7 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 			if err = InterruptUploadPublication(ctx, p.Session, p.FileID); err != nil {
 				return err
 			}
-			if err = os.RemoveAll(dir); err != nil {
+			if err = removePublicationJournal(p.FileID); err != nil {
 				return err
 			}
 			return errPublicationIsolated
@@ -261,17 +278,17 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 			if err = InterruptUploadPublication(ctx, p.Session, p.FileID); err != nil {
 				return err
 			}
-			if err = removeOwnedPublication(p.FileID, dir); err != nil {
+			if err = removeOwnedPublication(p.FileID); err != nil {
 				return err
 			}
-			if err = os.RemoveAll(dir); err != nil {
+			if err = removePublicationJournal(p.FileID); err != nil {
 				return err
 			}
 			return errPublicationRejected
 		}
 		return errors.New("publication could not commit")
 	}
-	return os.RemoveAll(dir)
+	return removePublicationJournal(p.FileID)
 }
 
 func samePublicationFile(a, b string) (bool, error) {
@@ -286,19 +303,28 @@ func samePublicationFile(a, b string) (bool, error) {
 	return first.Mode().IsRegular() && second.Mode().IsRegular() && os.SameFile(first, second), nil
 }
 
-func removeOwnedPublication(id, dir string) error {
-	dest := filepath.Join(FILEFOLDER, id+".zip")
-	if _, err := os.Lstat(dest); os.IsNotExist(err) {
-		return nil
-	}
-	same, err := samePublicationFile(filepath.Join(dir, witnessName), dest)
+func removeOwnedPublication(id string) error {
+	root, err := openRuntimeArchiveRoot(FILEFOLDER)
 	if err != nil {
 		return err
 	}
-	if !same {
+	defer root.Close()
+	dest := id + ".zip"
+	current, err := root.Lstat(dest)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	witness, err := root.Lstat(filepath.Join(journalDirName, id, witnessName))
+	if err != nil {
+		return err
+	}
+	if !current.Mode().IsRegular() || !witness.Mode().IsRegular() || !os.SameFile(current, witness) {
 		return markPublicationCollision(id)
 	}
-	return os.Remove(dest)
+	return root.Remove(dest)
 }
 
 func markPublicationCollision(id string) error {

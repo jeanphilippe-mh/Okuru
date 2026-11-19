@@ -75,6 +75,8 @@ func runLogSupervisor(executable string, args []string, file, journal io.Writer,
 		_ = writeSupervisorAlert(sink, failure)
 		return 1, failure
 	}
+	stopWatchdog := startServiceWatchdog()
+	defer stopWatchdog()
 
 	var pumps sync.WaitGroup
 	pumps.Add(2)
@@ -123,10 +125,12 @@ func runLogSupervisor(executable string, args []string, file, journal io.Writer,
 				signals = nil
 				continue
 			}
+			stopWatchdog()
 			if err := cmd.Process.Signal(sig); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
 				failure = errors.Join(failure, newSupervisorFailure("forward_signal", err))
 			}
 		case err := <-failures:
+			stopWatchdog()
 			failure = errors.Join(failure, err)
 			// A failed sink or input must not leave the worker running with
 			// missing logs. Keep draining both pipes while it stops.
