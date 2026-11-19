@@ -45,6 +45,8 @@ _To test :_
 * Source it (``set -a && source .env && set +a`` for example on linux).
 * **go build** and run ./Okuru .
 
+For Cloudflare TLSA updates after a certificate renewal, see the [Certbot deployment guide](deploy/letsencrypt/README.md).
+
 ## Configuration
 
 You can configure the following via environment variables.
