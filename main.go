@@ -145,6 +145,12 @@ func run(supervisedWorker bool) error {
 	}
 
 	cleanupContext, stopCleanup := context.WithCancel(context.Background())
+	stopUploads, err := StartPreparedUploads(cleanupContext)
+	if err != nil {
+		stopCleanup()
+		return fmt.Errorf("starting file upload storage: %w", err)
+	}
+	defer stopUploads()
 	cleanupDone := make(chan struct{})
 	go func() {
 		defer close(cleanupDone)
