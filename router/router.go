@@ -235,6 +235,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.POST(directFilePath, controllers.AddDirectFile)
 	registerPreparedRoutes(e)
 	registerBlockRoutes(e)
+	e.POST(sessionPath+"/:id/complete", controllers.CompleteUploadSession)
 	e.POST(browserSecurityPath, browserSecurityReport)
 
 	return e
