@@ -687,7 +687,7 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 	candidateArchive := filepath.Join(FILEFOLDER, archiveName)
 	// A hard link atomically publishes on the same filesystem without ever
 	// overwriting an existing archive. Metadata already exists for cleanup.
-	if err := os.Link(temporaryArchive, candidateArchive); err != nil {
+	if err := LinkPublishedArchive(temporaryArchive, candidateArchive); err != nil {
 		failureDetail = "Failed to publish upload archive"
 		return fail(http.StatusInternalServerError, "There was a problem during file processing")
 	}

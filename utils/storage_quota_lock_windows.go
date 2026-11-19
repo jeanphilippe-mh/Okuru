@@ -11,8 +11,16 @@ import (
 
 // The quota uses a dedicated lock file and never reads its locked byte.
 func quotaTryLock(file *os.File) (bool, error) {
+	return tryFileLock(file, windows.LOCKFILE_EXCLUSIVE_LOCK)
+}
+
+func trySharedOwnerLock(file *os.File) (bool, error) {
+	return tryFileLock(file, 0)
+}
+
+func tryFileLock(file *os.File, mode uint32) (bool, error) {
 	var overlapped windows.Overlapped
-	err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlapped)
+	err := windows.LockFileEx(windows.Handle(file.Fd()), mode|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlapped)
 	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_IO_PENDING) {
 		return false, nil
 	}
