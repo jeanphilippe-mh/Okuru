@@ -29,6 +29,8 @@ func IndexFile(context *echo.Context) error {
 	csrfToken := context.Get("csrf")
 	dataContext["maxFileSize"] = MaxFileSize
 	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
+	_, blocks, _ := UploadAdmission(context.Request().Context())
+	dataContext["upload_blocks_enabled"] = blocks && UploadPatchLimit() > 0
 	dataContext["csrfToken"] = csrfToken
 
 	return context.Render(http.StatusOK, "index_file.html", dataContext)
