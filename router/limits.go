@@ -67,7 +67,8 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 			}
 
 			r := c.Request()
-			upload := multipartFileUpload(r)
+			block := r.Method == http.MethodPatch && c.Path() == tusResource
+			upload := multipartFileUpload(r) || block
 			started := time.Now()
 			if upload {
 				bodyBytes := r.ContentLength
@@ -100,33 +101,35 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 					closeUnreadHTTP1(c)
 					return echo.NewHTTPError(http.StatusServiceUnavailable, "Upload capacity is busy")
 				}
-				if bodyBytes < 0 {
-					bodyBytes = maxUploadBodyBytes
-					if r.URL.Path == directFilePath {
-						bodyBytes = directRequestLimit
-					}
-				}
-				// Remove only abandoned, lock-protected staging directories;
-				// active transfers in this or another process retain their locks.
-				if err := utils.CleanupStaleStagingDirs(utils.FILEFOLDER); err != nil {
-					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusInsufficientStorage, "Upload storage is unavailable")
-				}
-				// Reserve for more entries than the controller currently accepts.
-				reservation, err := utils.ReserveEncryptedUploadStorage(utils.FILEFOLDER, bodyBytes, 1000)
-				if err != nil {
-					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusInsufficientStorage, "Upload storage is unavailable")
-				}
-				defer func() {
-					// CSRF can parse a multipart body before its handler runs.
-					if r.MultipartForm != nil {
-						if err := r.MultipartForm.RemoveAll(); err != nil {
-							log.Error("Failed to remove multipart temporary files")
+				if !block {
+					if bodyBytes < 0 {
+						bodyBytes = maxUploadBodyBytes
+						if r.URL.Path == directFilePath {
+							bodyBytes = directRequestLimit
 						}
 					}
-					reservation.Release()
-				}()
+					// Remove only abandoned, lock-protected staging directories;
+					// active transfers in this or another process retain their locks.
+					if err := utils.CleanupStaleStagingDirs(utils.FILEFOLDER); err != nil {
+						closeUnreadHTTP1(c)
+						return echo.NewHTTPError(http.StatusInsufficientStorage, "Upload storage is unavailable")
+					}
+					// Reserve for more entries than the controller currently accepts.
+					reservation, err := utils.ReserveEncryptedUploadStorage(utils.FILEFOLDER, bodyBytes, 1000)
+					if err != nil {
+						closeUnreadHTTP1(c)
+						return echo.NewHTTPError(http.StatusInsufficientStorage, "Upload storage is unavailable")
+					}
+					defer func() {
+						// CSRF can parse a multipart body before its handler runs.
+						if r.MultipartForm != nil {
+							if err := r.MultipartForm.RemoveAll(); err != nil {
+								log.Error("Failed to remove multipart temporary files")
+							}
+						}
+						reservation.Release()
+					}()
+				}
 			}
 
 			response, err := echo.UnwrapResponse(c.Response())

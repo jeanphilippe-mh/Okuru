@@ -234,6 +234,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.GET(uploadBootstrapPath, directUploadBootstrap)
 	e.POST(directFilePath, controllers.AddDirectFile)
 	registerPreparedRoutes(e)
+	registerBlockRoutes(e)
 	e.POST(browserSecurityPath, browserSecurityReport)
 
 	return e
