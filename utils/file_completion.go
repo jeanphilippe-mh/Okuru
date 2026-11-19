@@ -113,49 +113,6 @@ func ReleaseFileDownloadClaim(claim *FileDownloadClaim) error {
 	return finalizeCompletedDownload(c, id, claim.token)
 }
 
-var beginTrackedRangeScript = redis.NewScript(2, `
-if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return -1 end
-if redis.call('TTL', KEYS[2]) < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return -1 end
-if redis.call('HGET', KEYS[2], 'tracking') ~= '1' then return 0 end
-local active = tonumber(redis.call('HGET', KEYS[2], 'active'))
-if not active or active < 0 then return -1 end
-if redis.call('HEXISTS', KEYS[2], ARGV[3]) ~= 0 then return -1 end
-if redis.call('HEXISTS', KEYS[1], ARGV[3]) ~= 0 then return -1 end
--- A parent marker survives the continuation-session timeout while this
--- response is still active. A failed later HSET safely retains the marker.
-redis.call('HSET', KEYS[1], ARGV[3], '1')
-redis.call('HSET', KEYS[2], 'active', active + 1, ARGV[3], '1')
-return 1
-`)
-
-// ResumeTrackedFileDownload starts a tracked in-flight range after the normal
-// link and cookie authentication. Older sessions are handled conservatively.
-func ResumeTrackedFileDownload(f *models.File, cookie string) (string, *DownloadSession, *echo.HTTPError) {
-	secret, session, httpErr := ResumeFileDownload(f, cookie)
-	if httpErr != nil {
-		return "", nil, httpErr
-	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
-	}
-	progressField := "operation_" + hex.EncodeToString(random[:])
-	c := NewPool().Get()
-	defer c.Close()
-	status, err := redis.Int(beginTrackedRangeScript.Do(c, session.fileKey, session.sessionKey, session.token, session.encrypted, progressField))
-	if err != nil || status < 0 {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-	}
-	if status == 1 {
-		id, _, err := ParseToken(f.FileKey)
-		if err != nil {
-			return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-		}
-		session.archiveID, session.tracked, session.progressField = id, true, progressField
-	}
-	return secret, session, nil
-}
-
 var verifyDownloadRepresentationScript = redis.NewScript(2, `
 if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return -1 end
 if redis.call('TTL', KEYS[2]) < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return -1 end
@@ -194,7 +151,7 @@ if not parentSize or not parentStart or not parentWritten or parentStart < 0 or 
    parentStart > parentSize or parentWritten > parentSize-parentStart then return redis.error_reply('invalid progress') end
 local sessionTTL = redis.call('TTL', KEYS[2])
 if sessionTTL == -2 then
-  -- Authorization may expire after five minutes while an already-started response
+  -- Authorization may expire while an already-started response
   -- is still running. A complete successful response can still be recognized;
   -- partial coverage cannot be reconstructed and remains conservative.
   if ARGV[5] == '1' and ARGV[6] == '1' and parentStart == 0 and parentWritten == parentSize then
@@ -254,6 +211,11 @@ end
 -- fails, the active counter remains positive and eager cleanup fails closed.
 redis.call('HDEL', KEYS[2], ARGV[7])
 redis.call('HSET', KEYS[2], 'active', active - 1, 'intervals', result, 'complete', complete, 'unsafe', unsafe)
+-- A preparation failure before headers leaves the full GET available for a
+-- retry, unless a Range already joined this attempt.
+if ARGV[9] == '1' and active == 1 and redis.call('HGET', KEYS[2], 'requests') == '0' then
+  redis.call('HSET', KEYS[2], 'initial_started', '0')
+end
 if complete == '1' and unsafe ~= '1' then redis.call('HSET', KEYS[1], 'completed_download', '1') end
 redis.call('HDEL', KEYS[1], ARGV[7])
 return 1
@@ -263,6 +225,20 @@ return 1
 // bytes already written can be retained after a transport interruption, but
 // completion additionally requires a successful response and full coverage.
 func RecordDownloadProgress(session *DownloadSession, start, written int64, integrityOK, responseOK bool) error {
+	return finishDownloadResponse(session, start, written, integrityOK, responseOK, false)
+}
+
+// AbandonInitialDownload releases a failed attempt before the handler sends
+// any archive headers or bytes. A session that already served data must use
+// RecordDownloadProgress instead.
+func AbandonInitialDownload(session *DownloadSession) error {
+	if session == nil || !session.initial {
+		return errors.New("Invalid initial download")
+	}
+	return finishDownloadResponse(session, 0, 0, false, false, true)
+}
+
+func finishDownloadResponse(session *DownloadSession, start, written int64, integrityOK, responseOK, abandoned bool) error {
 	if session == nil || !session.tracked {
 		return nil
 	}
@@ -280,7 +256,7 @@ func RecordDownloadProgress(session *DownloadSession, start, written int64, inte
 	defer c.Close()
 	status, err := redis.Int(recordDownloadProgressScript.Do(c, session.fileKey, session.sessionKey,
 		session.token, session.encrypted, strconv.FormatInt(start, 10), strconv.FormatInt(written, 10), valid, success, session.progressField,
-		strconv.FormatInt(session.size, 10)))
+		strconv.FormatInt(session.size, 10), abandoned))
 	if err != nil {
 		return err
 	}

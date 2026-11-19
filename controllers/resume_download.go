@@ -45,14 +45,19 @@ func sessionETag(base, value string) string {
 	return strings.TrimSuffix(base, `"`) + "-" + downloadSessionDigest(value) + `"`
 }
 
-// Multiple sessions for the same file have distinct cookie names and ETags.
-// A browser's If-Range identifies the correct one. Without that validator,
-// fail closed if more than one session cookie is present rather than sharing a
-// different session's retry or byte budget.
+// The dedicated URL selects one session. On the older URL, the browser can
+// disambiguate concurrent sessions using the If-Range validator.
 func chooseDownloadCookie(c *echo.Context, token string) (*http.Cookie, error) {
 	prefix, err := downloadSessionCookiePrefix(token)
 	if err != nil {
 		return nil, err
+	}
+	if id := c.Param("session_id"); id != "" {
+		cookie, err := c.Cookie(prefix + id)
+		if err != nil || downloadSessionDigest(cookie.Value) != id {
+			return nil, errors.New("Download session is missing")
+		}
+		return cookie, nil
 	}
 	candidates := make(map[string]*http.Cookie)
 	for _, cookie := range c.Request().Cookies() {
@@ -310,7 +315,11 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 	return nil
 }
 
-func resumeDownload(c *echo.Context) error {
+// DownloadSessionFile serves the session's initial GET and its bounded continuations.
+// ReadFile also delegates pre-upgrade Range requests here for the lifetime of their cookie.
+func DownloadSessionFile(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	c.Response().Header().Set("Referrer-Policy", "no-referrer")
 	token := c.Param("file_key")
 	name, err := archiveNameFromToken(token)
 	if err != nil {
@@ -322,9 +331,13 @@ func resumeDownload(c *echo.Context) error {
 	}
 	defer guard.Close()
 	value := c.Request().Header.Get("Range")
-	// Reject unsupported forms before consuming one of the bounded retries.
-	if _, _, err := parseSingleByteRange(value, int64(^uint64(0)>>1)); err != nil {
-		return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
+	dedicated := c.Param("session_id") != ""
+	initial := dedicated && value == ""
+	if !initial {
+		// Reject unsupported forms before consuming one of the bounded retries.
+		if _, _, err := parseSingleByteRange(value, int64(^uint64(0)>>1)); err != nil {
+			return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
+		}
 	}
 	cookie, err := chooseDownloadCookie(c, token)
 	if err != nil {
@@ -357,32 +370,50 @@ func resumeDownload(c *echo.Context) error {
 		}
 	}
 	f := &File{FileKey: token}
-	secret, session, httpErr := ResumeTrackedFileDownload(f, cookie.Value)
+	begin := ResumeTrackedFileDownload
+	switch {
+	case initial:
+		begin = StartTrackedFileDownload
+	case dedicated:
+		begin = ResumeStartedFileDownload
+	}
+	secret, session, httpErr := begin(f, cookie.Value)
 	if httpErr != nil {
 		return c.NoContent(http.StatusNotFound)
 	}
 	progress := &downloadProgress{session: session}
-	defer progress.finish()
+	handedOff := false
+	defer func() {
+		if initial && !handedOff {
+			if err := AbandonInitialDownload(session); err != nil {
+				log.Error("Could not release initial download preparation")
+			}
+			return
+		}
+		progress.finish()
+	}()
 	if !bytes.Equal(preview.Token, f.Token) || preview.ArchiveFormat != f.ArchiveFormat || preview.PasswordProvided != f.PasswordProvided {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
 	}
-	_, length, err := parseSingleByteRange(value, session.Size())
-	if err != nil {
-		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", session.Size()))
-		return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
-	}
-	// Reserve requested bytes before opening or deriving the archive key. In
-	// particular, parallel oversized requests cannot all force costly scrypt.
-	if httpErr := ReserveDownloadBytes(session, length); httpErr != nil {
-		return httpErr
-	}
-	budget := &downloadBudget{session: session, reserved: length}
-	handedOff := false
-	defer func() {
-		if !handedOff {
-			budget.finish()
+	var budget *downloadBudget
+	if !initial {
+		_, length, err := parseSingleByteRange(value, session.Size())
+		if err != nil {
+			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", session.Size()))
+			return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
 		}
-	}()
+		// Charge ranges before key derivation. The one-time initial GET has
+		// its own atomic reservation and leaves this byte budget available.
+		if httpErr := ReserveDownloadBytes(session, length); httpErr != nil {
+			return httpErr
+		}
+		budget = &downloadBudget{session: session, reserved: length}
+		defer func() {
+			if !handedOff {
+				budget.finish()
+			}
+		}()
+	}
 	archive, err := openDownloadArchive(c, f, secret, name)
 	if releaseKDF != nil {
 		releaseKDF()
@@ -397,6 +428,12 @@ func resumeDownload(c *echo.Context) error {
 	progress.representationOK, err = VerifyDownloadRepresentation(session, archive.etag)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable))
+	}
+	if dedicated && (!progress.representationOK || archive.size != session.Size()) {
+		return echo.NewHTTPError(http.StatusPreconditionFailed, "Archive changed")
+	}
+	if initial {
+		AuditStarted(c, "file.download_started", "File download started")
 	}
 	archive.etag = sessionETag(archive.etag, cookie.Value)
 	handedOff = true

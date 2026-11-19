@@ -125,8 +125,10 @@ func directE2EDownload(t *testing.T, client *http.Client, rawURL, password strin
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("download returned %d", res.StatusCode)
+	if res.StatusCode != http.StatusOK || res.Request.Method != http.MethodGet ||
+		res.Request.Response == nil || res.Request.Response.StatusCode != http.StatusSeeOther ||
+		res.Header.Get("Accept-Ranges") != "bytes" || res.Header.Get("ETag") == "" {
+		t.Fatalf("expected a resumable GET after the form redirect, got %s %d", res.Request.Method, res.StatusCode)
 	}
 	payload, err := io.ReadAll(res.Body)
 	if err != nil {

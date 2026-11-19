@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -28,6 +29,34 @@ import (
 type uploadE2ERenderer struct {
 	csrf string
 	link string
+}
+
+// Follow the download form's redirect as a browser would, including cookie
+// path and Secure matching on the new GET.
+func followDownloadForm(t *testing.T, e *echo.Echo, form *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+	redirect := httptest.NewRecorder()
+	e.ServeHTTP(redirect, form)
+	response := redirect.Result()
+	defer response.Body.Close()
+	location, err := url.Parse(response.Header.Get("Location"))
+	if response.StatusCode != http.StatusSeeOther || err != nil || location.IsAbs() || location.Host != "" ||
+		!strings.HasPrefix(location.Path, form.URL.Path+"/download/") {
+		t.Fatalf("expected a same-origin download redirect, got status %d", response.StatusCode)
+	}
+	destination := form.URL.ResolveReference(location)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar.SetCookies(form.URL, response.Cookies())
+	req := httptest.NewRequest(http.MethodGet, destination.String(), nil)
+	for _, cookie := range jar.Cookies(destination) {
+		req.AddCookie(cookie)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
 }
 
 func (r *uploadE2ERenderer) Render(_ *echo.Context, w io.Writer, name string, data interface{}) error {
@@ -258,8 +287,7 @@ func TestUploadEndToEndEncryptedMultipartAndCSRF(t *testing.T) {
 	download := httptest.NewRequest(http.MethodPost, "https://example.test"+link.RequestURI(), strings.NewReader(values.Encode()))
 	download.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 	download.AddCookie(cookie)
-	downloadRec := httptest.NewRecorder()
-	e.ServeHTTP(downloadRec, download)
+	downloadRec := followDownloadForm(t, e, download)
 	if downloadRec.Code != http.StatusOK {
 		t.Fatalf("download failed: status=%d", downloadRec.Code)
 	}

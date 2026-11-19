@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -120,7 +121,7 @@ func Error508File(context *echo.Context) error {
 
 func ReadFile(context *echo.Context) error {
 	if context.Request().Header.Get("Range") != "" {
-		return resumeDownload(context)
+		return DownloadSessionFile(context)
 	}
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
@@ -347,27 +348,23 @@ func DownloadFile(context *echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	value, lifetime, session, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
+	defer archive.file.Close()
+	value, lifetime, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
 	if err != nil {
-		_ = archive.file.Close()
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	progress := &downloadProgress{session: session, representationOK: true}
-	defer func() {
-		_ = archive.file.Close()
-		progress.finish()
-	}()
 	cookieName, err := downloadSessionCookie(f.FileKey, value)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
+	location := "/file/" + url.PathEscape(f.FileKey) + "/download/" + downloadSessionDigest(value)
 	context.SetCookie(&http.Cookie{
-		Name: cookieName, Value: value, Path: "/file/" + f.FileKey,
+		Name: cookieName, Value: value, Path: location,
 		MaxAge: lifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
-	archive.etag = sessionETag(archive.etag, value)
-	AuditStarted(context, "file.download_started", "File download started")
-	return writeDownloadArchive(context, archive, archiveName, nil, progress)
+	context.Response().Header().Set("Cache-Control", "private, no-store")
+	context.Response().Header().Set("Referrer-Policy", "no-referrer")
+	return context.Redirect(http.StatusSeeOther, location)
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.
