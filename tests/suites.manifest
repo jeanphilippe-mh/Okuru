@@ -20,6 +20,7 @@ controllers/short_link_test.go
 controllers/resume_download_test.go
 controllers/upload_form_accessibility_test.go
 controllers/upload_security_test.go
+controllers/upload_session_test.go
 controllers/validation_test.go
 root/main_test.go
 root/output_pipeline_test.go
