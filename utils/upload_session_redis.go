@@ -124,6 +124,10 @@ if op=='result' then
  return {'ok',redis.call('HGET',key,'result'),redis.call('HGET',key,'share_expiry')}
 end
 if state=='ready' then return {'already_ready'} end
+if op=='reject_reservation' then
+ if state~='open' or redis.call('HGET',key,'mode')~='blocks' then return {'busy'} end
+ finish(key,id,'aborted',now);return {'ok'}
+end
 if op=='abort' then
  if state=='finalizing' then return {'busy'} end
  finish(key,id,'aborted',now);return {'ok'}
