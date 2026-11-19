@@ -1,155 +1,120 @@
 package controllers
 
 import (
-	"github.com/google/uuid"
-	. "github.com/jeanphilippe-mh/Okuru/models"
-	. "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v5"
+	"crypto/rand"
+	"crypto/subtle"
+	"mime"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/jeanphilippe-mh/Okuru/models"
+	"github.com/jeanphilippe-mh/Okuru/utils"
+	"github.com/labstack/echo/v5"
 )
 
-/**
- * Print help for API usage in a readable way for bash/curl call.
- */
-func HelpPassword(context *echo.Context) error {
-	if token, ok := context.Get("csrf").(string); ok {
-		context.Response().Header().Set("X-CSRF-Token", token)
+const secretAPICookie = "__Host-okuru-secret-csrf"
+
+func BootstrapSecretAPI(c *echo.Context) error {
+	cookie, err := c.Cookie(secretAPICookie)
+	if err != nil || cookie.Value == "" {
+		cookie = &http.Cookie{Name: secretAPICookie, Value: rand.Text(), Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode}
+		c.SetCookie(cookie)
 	}
-	help := `Generate a password share link:
-password: required string
-ttl: seconds, min 300, max 604800; omitted/zero defaults to 3600
-views: min 1, max 100; omitted/zero defaults to 1
-deletable: boolean, default false
-
-First GET this endpoint. Retain the response cookie and X-CSRF-Token header.
-Send both back with POST or DELETE. For JSON use Content-Type: application/json.
-Example POST body: {"password":"password-here","ttl":3600,"views":1,"deletable":true}
-
-GET /api/v1/<token> reveals the password and consumes one attempt.
-DELETE /api/v1/<token> deletes a deletable secret after key and CSRF validation.
-See docs/api.md for complete examples.
-Endpoint: ` + GetBaseUrl(context) + "/api/v1"
-
-	return context.String(http.StatusOK, help)
+	c.Response().Header().Set("X-CSRF-Token", cookie.Value)
+	return c.JSON(http.StatusOK, map[string]any{"create_url": "/api/v2/secrets", "max_secret_bytes": utils.MaxSecretBytes})
 }
 
-/**
- * From a given token, return the initial password, we decrypt the password fetched from Redis.
- */
-func ReadPassword(context *echo.Context) error {
-	p := new(Password)
-	p.PasswordKey = context.Param("password_key")
-	if p.PasswordKey == "" {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+func SecretAPIGuard(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		c.Response().Header().Set("Cache-Control", "private, no-store")
+		c.Response().Header().Set("Referrer-Policy", "no-referrer")
+		r := c.Request()
+		// Reading a secret consumes a view. Reject explicit cross-site browser
+		// requests before storage access, including navigations and prefetches.
+		site := r.Header.Get("Sec-Fetch-Site")
+		if site != "" && site != "same-origin" && site != "none" {
+			return echo.ErrForbidden
+		}
+		if r.Method == http.MethodPost || r.Method == http.MethodDelete {
+			cookie, err := c.Cookie(secretAPICookie)
+			values := r.Header.Values("X-CSRF-Token")
+			if err != nil || len(values) != 1 || values[0] == "" ||
+				subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(values[0])) != 1 {
+				return echo.ErrForbidden
+			}
+		}
+		return next(c)
 	}
+}
 
-	// Secret retrieval cannot select file metadata through its identifier.
-	id, key, parseErr := ParseToken(p.PasswordKey)
-	canonical, uuidErr := uuid.Parse(id)
-	if parseErr != nil || uuidErr != nil || canonical.String() != id || key == "" {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-	}
-	err := RetrievePassword(p)
-	if err != nil {
-		auditUnavailable(context, err, "secret.reveal_unavailable", "Secret retrieval unavailable")
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-	}
+type secretCreated struct {
+	Link       string `json:"link"`
+	APILink    string `json:"api_link"`
+	TTLSeconds int    `json:"ttl_seconds"`
+	Views      int    `json:"views"`
+	Deletable  bool   `json:"deletable"`
+}
 
-	// Empty var so json response don't have them.
-	p.Token = []byte("")
-	p.PasswordKey = ""
-	if err := context.JSON(http.StatusOK, p); err != nil {
+func CreateSecretAPI(c *echo.Context) error {
+	req := c.Request()
+	media, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil || len(req.Header.Values("Content-Type")) != 1 || media != "application/json" ||
+		(params["charset"] != "" && !strings.EqualFold(params["charset"], "utf-8")) {
+		return echo.ErrUnsupportedMediaType
+	}
+	input, status := utils.ReadSecretAPIInput(req.Body)
+	if status != 0 {
+		return echo.NewHTTPError(status, http.StatusText(status))
+	}
+	if err := admitSecretCreation(c); err != nil {
 		return err
 	}
-	AuditEvent(context, "secret.reveal", "Secret response written")
+	token, storageErr := utils.SetPassword(input.Password, input.TTLSeconds, input.Views, input.Deletable)
+	if storageErr != nil {
+		utils.AuditError(c, "secret.create_failed", "Secret creation failed")
+		return echo.NewHTTPError(storageErr.Code, http.StatusText(storageErr.Code))
+	}
+	origin, configured := shortLinkPublicOrigin(os.Getenv("OKURU_SHORTLINK_PUBLIC_ORIGIN"))
+	result := secretCreated{Link: origin + sharePath(c, token, false, configured), APILink: origin + "/api/v2/secrets/" + token,
+		TTLSeconds: input.TTLSeconds, Views: input.Views, Deletable: input.Deletable}
+	utils.AuditEvent(c, "secret.create", "Secret created")
+	return c.JSON(http.StatusCreated, result)
+}
+
+func ReadSecretAPI(c *echo.Context) error {
+	p := models.Password{PasswordKey: c.Param("token")}
+	if _, _, err := utils.ParseToken(p.PasswordKey); err != nil {
+		return echo.ErrNotFound
+	}
+	if err := utils.RetrievePassword(&p); err != nil {
+		auditUnavailable(c, err, "secret.reveal_unavailable", "Secret retrieval unavailable")
+		return echo.ErrNotFound
+	}
+	if err := c.JSON(http.StatusOK, struct {
+		Password   string `json:"password"`
+		TTLSeconds int    `json:"ttl_seconds"`
+		Views      int    `json:"views"`
+		Deletable  bool   `json:"deletable"`
+	}{p.Password, p.TTL, p.Views, p.Deletable}); err != nil {
+		return err
+	}
+	utils.AuditEvent(c, "secret.reveal", "Secret response written")
 	return nil
 }
 
-/**
- * From a give password, return link.
- */
-func CreatePassword(context *echo.Context) (err error) {
-	// Bind only creation fields; internal storage fields are never client input.
-	input := new(createPasswordRequest)
-	if err := context.Bind(input); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
+func DeleteSecretAPI(c *echo.Context) error {
+	p := models.Password{PasswordKey: c.Param("token")}
+	if _, _, err := utils.ParseToken(p.PasswordKey); err != nil {
+		return echo.ErrNotFound
 	}
-	if input.Views == 0 {
-		input.Views = 1
-	}
-	if input.TTL == 0 {
-		input.TTL = 3600
-	}
-	if input.Password == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
-	}
-	if err := ValidateSecretLength(input.Password); err != nil {
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Secret exceeds the maximum size")
-	}
-	if err := ValidateAPILimits(input.TTL, input.Views); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, http.StatusText(http.StatusBadRequest))
-	}
-	if admissionErr := admitSecretCreation(context); admissionErr != nil {
-		return admissionErr
-	}
-	p := &Password{Password: input.Password, TTL: input.TTL, Views: input.Views, Deletable: input.Deletable}
-
-	token, err2 := SetPassword(p.Password, p.TTL, p.Views, p.Deletable)
-	if err2 != nil {
-		AuditError(context, "secret.create_failed", "Secret creation failed")
-		if err2.Code == http.StatusServiceUnavailable {
-			return echo.NewHTTPError(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
+	if err := utils.RemovePassword(&p); err != nil {
+		auditUnavailable(c, err, "secret.delete_unavailable", "Secret deletion unavailable")
+		if err.Code == http.StatusUnauthorized {
+			return echo.ErrForbidden
 		}
-		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
+		return echo.NewHTTPError(err.Code, http.StatusText(err.Code))
 	}
-	AuditEvent(context, "secret.create", "Secret created")
-
-	baseUrl := GetBaseUrl(context) + "/"
-	p.PasswordKey = token
-	p.Link = baseUrl + token
-	p.LinkApi = baseUrl + "api/v1/" + token
-
-	// Empty var so json response don't have them.
-	p.Token = []byte("")
-	p.Password = ""
-	p.PasswordKey = ""
-
-	return context.JSON(http.StatusCreated, p)
-}
-
-/**
- * From a given token, remove password from Redis.
- */
-func DeletePassword(context *echo.Context) error {
-	p := new(Password)
-	p.PasswordKey = context.Param("password_key")
-	if p.PasswordKey == "" || strings.Contains(p.PasswordKey, "*") {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-	}
-
-	err := RemovePassword(p)
-	var status int
-	if err != nil {
-		if _, _, parseErr := ParseToken(p.PasswordKey); parseErr == nil {
-			auditUnavailable(context, err, "secret.delete_unavailable", "Secret deletion unavailable")
-		}
-		status = err.Code
-	} else {
-		status = http.StatusOK
-	}
-	if status >= 400 {
-		return echo.NewHTTPError(status, http.StatusText(status))
-	}
-	AuditEvent(context, "secret.delete", "Secret deleted")
-	return context.NoContent(status)
-}
-
-// The form tags deliberately omit JSON's ",omitempty" option: Echo treats
-// form tag values as literal field names.
-type createPasswordRequest struct {
-	Password  string `json:"password" form:"password"`
-	TTL       int    `json:"ttl" form:"ttl"`
-	Views     int    `json:"views" form:"views"`
-	Deletable bool   `json:"deletable" form:"deletable"`
+	utils.AuditEvent(c, "secret.delete", "Secret deleted")
+	return c.NoContent(http.StatusNoContent)
 }

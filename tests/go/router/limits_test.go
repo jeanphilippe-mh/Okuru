@@ -62,14 +62,14 @@ func TestSmallRequestLimitPrecedesLaterMiddleware(t *testing.T) {
 func TestSmallBodyIsPreservedForHandler(t *testing.T) {
 	e := echo.New()
 	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
-	e.POST("/api/v1", func(c *echo.Context) error {
+	e.POST("/api/v2/secrets", func(c *echo.Context) error {
 		body, err := io.ReadAll(c.Request().Body)
 		if err != nil {
 			return err
 		}
 		return c.String(http.StatusOK, string(body))
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1", strings.NewReader(`{"password":"secret"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/secrets", strings.NewReader(`{"password":"secret"}`))
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Body.String() != `{"password":"secret"}` {

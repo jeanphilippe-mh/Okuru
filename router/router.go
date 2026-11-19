@@ -41,11 +41,11 @@ func (r Renderer) Render(c *echo.Context, w io.Writer, name string, data interfa
 
 	ex, err := os.Executable()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	loader, err := pongo2.NewLocalFileSystemLoader(filepath.Dir(ex) + "/views")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	templates := pongo2.NewSet("request", loader)
@@ -202,7 +202,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		Skipper: func(c *echo.Context) bool {
 			path := c.Request().URL.Path
-			return isFileAPIPath(path)
+			return c.Path() == "/api/*" || c.Path() == "/api" || path == "/api/v2/secrets" || strings.HasPrefix(path, "/api/v2/secrets/") || isFileAPIPath(path)
 		},
 		TokenLength:    32,
 		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
@@ -225,11 +225,16 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Use(publicAssets(publicfolder))
 
 	// Creating groups
-	apiGroup := e.Group("/api/v1")
+	apiGroup := e.Group("/api/v2/secrets")
 	fileGroup := e.Group("/file")
 
+	// Reserve the API namespace so a missing resource cannot reach the web
+	// share renderer or be interpreted as a secret token.
+	apiNotFound := func(*echo.Context) error { return echo.ErrNotFound }
+	e.Any("/api", apiNotFound)
+	e.Any("/api/*", apiNotFound)
 	routes.Index(e)
-	routes.Password(apiGroup)
+	routes.Secrets(apiGroup)
 	routes.File(fileGroup)
 	e.GET(uploadBootstrapPath, directUploadBootstrap)
 	e.POST(directFilePath, controllers.AddDirectFile)
