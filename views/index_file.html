@@ -15,7 +15,7 @@
         <div class="row">
             <div class="col">
                 <div class="form-group">
-                    <label for="files"><b>File(s)</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
+                    <label for="files"><b id="files-label-word">File</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
                     <input type="file" id="files" name="files" class="form-control-file" aria-describedby="files-help" multiple />
                     <small id="files-help" class="form-text password-help d-block">To add multiple files, select them all at once within the form.</small>
                 </div>
@@ -99,6 +99,7 @@
         rangeView = document.getElementById("ttlViews"),
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
+        fileLabelWord = document.getElementById('files-label-word'),
         fileForm = document.getElementById("file_create"),
         errorSpan = document.querySelector("p > span");
 
@@ -157,7 +158,15 @@
     myFiles.setAttribute('aria-invalid', message ? 'true' : 'false');
   }
 
+  function updateFileLabel() {
+    fileLabelWord.textContent = myFiles.files.length > 1 ? 'Files' : 'File';
+  }
+
+  window.addEventListener('pageshow', updateFileLabel);
+  // The reset event fires before the browser clears the selection.
+  fileForm.addEventListener('reset', () => setTimeout(updateFileLabel, 0));
   myFiles.addEventListener('change', function() {
+    updateFileLabel();
     showFileError(validateFiles());
   });
 

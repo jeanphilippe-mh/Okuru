@@ -12,7 +12,7 @@ import (
 // Run recovery before the ordinary expiry cleaner can inspect public names.
 // An additional reader process can still serve existing shares without owning uploads.
 func StartPreparedUploads(parent context.Context) (func(), error) {
-	if err := os.MkdirAll(FILEFOLDER, 0700); err != nil {
+	if err := InitializeArchiveDirectory(FILEFOLDER); err != nil {
 		return nil, err
 	}
 	release, err := AcquireUploadSessionOwner(FILEFOLDER)
@@ -34,7 +34,7 @@ func StartPreparedUploads(parent context.Context) (func(), error) {
 			dir := filepath.Join(root, entry.Name())
 			_, e := os.Lstat(filepath.Join(dir, intentFileName))
 			if os.IsNotExist(e) {
-				err = errors.Join(err, os.RemoveAll(dir))
+				err = errors.Join(err, removePublicationJournal(entry.Name()))
 			} else if e != nil {
 				err = errors.Join(err, e)
 			}

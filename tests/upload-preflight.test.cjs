@@ -8,7 +8,7 @@ const { TextEncoder } = require('node:util');
 function makeForm() {
   const handlers = {};
   const elements = {};
-  for (const id of ['ttl', 'ttl-value', 'ttlViews', 'ttlViews-value', 'files', 'file_create']) {
+  for (const id of ['ttl', 'ttl-value', 'ttlViews', 'ttlViews-value', 'files', 'files-label-word', 'file_create']) {
     elements[id] = {
       value: '1', files: [], attributes: {},
       addEventListener(type, fn) { handlers[`${id}:${type}`] = fn; },
@@ -21,7 +21,8 @@ function makeForm() {
   const script = source.match(/<script\b(?=[^>]*\btype="application\/javascript")[^>]*>([\s\S]*?)<\/script>/)[1]
     .replace('{{ maxFileSize }}', '1048576');
   vm.runInNewContext(script, {
-    TextEncoder, window: {}, DOMPurify: { sanitize: value => value },
+    TextEncoder, setTimeout, DOMPurify: { sanitize: value => value },
+    window: { addEventListener(type, fn) { handlers[`window:${type}`] = fn; } },
     document: { getElementById: id => elements[id], querySelector: () => error }
   });
   return { elements, error, handlers };
@@ -34,6 +35,26 @@ function runSelection(form, files) {
   form.handlers['file_create:submit']({ preventDefault() { prevented = true; } });
   return { message: form.error.textContent, prevented };
 }
+
+test('the file label follows selection, page restoration and form reset', async () => {
+  const form = makeForm();
+  const word = form.elements['files-label-word'];
+  form.handlers['window:pageshow']();
+  assert.equal(word.textContent, 'File');
+  runSelection(form, [['one'], ['two']]);
+  assert.equal(word.textContent, 'Files');
+  runSelection(form, [['one']]);
+  assert.equal(word.textContent, 'File');
+  runSelection(form, []);
+  assert.equal(word.textContent, 'File');
+  form.elements.files.files = [{ name: 'one' }, { name: 'two' }];
+  form.handlers['window:pageshow']();
+  assert.equal(word.textContent, 'Files');
+  form.handlers['file_create:reset']();
+  form.elements.files.files = [];
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(word.textContent, 'File');
+});
 
 test('blocks invalid and duplicate names before submitting, and permits correction', () => {
   const form = makeForm();
