@@ -104,7 +104,7 @@ test('intercepts only exact public asset GETs without sensitive request directiv
     makeRequest({ url: 'https://other.example/css/custom.css' }),
     makeRequest({ url: 'https://share.jeanphilippe.io/' }),
     makeRequest({ url: 'https://share.jeanphilippe.io/file/example' }),
-    makeRequest({ url: 'https://share.jeanphilippe.io/api/v1/password' }),
+    makeRequest({ url: 'https://share.jeanphilippe.io/api/v2/secrets/password' }),
     makeRequest({ url: 'https://share.jeanphilippe.io/scripts/service-worker-register.js' }),
   ];
   for (const request of excluded) assert.equal(harness.dispatch(request), undefined, request.url);
