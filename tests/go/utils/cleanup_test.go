@@ -89,7 +89,7 @@ func TestCleanFileReturnsRemovalErrors(t *testing.T) {
 
 func TestRemoveFileReportsArchiveRemovalFailure(t *testing.T) {
 	c := cleanupTest(t)
-	link, httpErr := SetFile("test-password", 60, 1, true, false, "")
+	link, httpErr := SetFile(archiveTestIdentity(t), 60, 1, true, false, "", ArchiveFormatAgeX25519)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -283,7 +283,7 @@ func TestRemoveFileACLFailurePreservesBothRecordsAndArchive(t *testing.T) {
 		t.Fatal(httpErr)
 	}
 	secretID := strings.Split(secretLink, TOKEN_SEPARATOR)[0]
-	fileLink, httpErr := SetFile("test-password", 60, 1, true, true, secretID)
+	fileLink, httpErr := SetFile("test-password", 60, 1, true, true, secretID, ArchiveFormatAgeUserPassword)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}

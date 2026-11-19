@@ -15,7 +15,7 @@ import (
 func downloadSessionFixture(t *testing.T) (redis.Conn, string, *models.File, string) {
 	t.Helper()
 	admin := cleanupTest(t)
-	link, httpErr := SetFile("fixture-password", 60, 1, true, false, "")
+	link, httpErr := SetFile(archiveTestIdentity(t), 60, 1, true, false, "", ArchiveFormatAgeX25519)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -129,7 +129,7 @@ func TestNewDownloadSessionLifetimeRespectsFiveMinutesAndParent(t *testing.T) {
 	admin := cleanupTest(t)
 	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "3h")
 	for _, ttl := range []int{2 * 60 * 60, 2 * 60} {
-		link, httpErr := SetFile("fixture-password", ttl, 1, true, false, "")
+		link, httpErr := SetFile(archiveTestIdentity(t), ttl, 1, true, false, "", ArchiveFormatAgeX25519)
 		if httpErr != nil {
 			t.Fatal(httpErr)
 		}

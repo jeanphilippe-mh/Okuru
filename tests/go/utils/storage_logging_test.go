@@ -45,7 +45,7 @@ func (c *errorLogRedis) Do(command string, _ ...any) (any, error) {
 		if c.badRecord {
 			return []any{[]byte("views"), []byte(c.secret)}, nil
 		}
-		return []any{[]byte("token"), c.token, []byte("views"), []byte("1"), []byte("deletable"), []byte("1")}, nil
+		return []any{[]byte("token"), c.token, []byte("views"), []byte("1"), []byte("deletable"), []byte("1"), []byte("archive_format"), []byte(ArchiveFormatAgeX25519)}, nil
 	case "TTL":
 		if c.negativeTTL {
 			return int64(-2), nil

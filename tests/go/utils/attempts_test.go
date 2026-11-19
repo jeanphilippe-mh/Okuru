@@ -247,7 +247,7 @@ func TestSecretCreationRejectsOversizedValuesBeforeRedis(t *testing.T) {
 	if _, err := SetPassword(oversized, 60, 1, false); err == nil || err.Code != 413 {
 		t.Fatalf("oversized password was not rejected before storage: %v", err)
 	}
-	if _, err := SetFile(oversized, 60, 1, false, true, ""); err == nil || err.Code != 413 {
+	if _, err := SetFile(oversized, 60, 1, false, true, "", ArchiveFormatAgeUserPassword); err == nil || err.Code != 413 {
 		t.Fatalf("oversized file password was not rejected before storage: %v", err)
 	}
 }
@@ -450,7 +450,7 @@ func TestInvalidKeyDoesNotConsumeAttemptAndPreviewIsReadOnly(t *testing.T) {
 	if err := RetrievePassword(&models.Password{PasswordKey: link}); err != nil {
 		t.Fatalf("invalid key consumed the legitimate attempt: %v", err)
 	}
-	fileLink, httpErr := SetFile("test-password", 60, 1, true, false, "", ArchiveFormatAge)
+	fileLink, httpErr := SetFile(archiveTestIdentity(t), 60, 1, true, false, "", ArchiveFormatAgeX25519)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -468,7 +468,7 @@ func TestInvalidKeyDoesNotConsumeAttemptAndPreviewIsReadOnly(t *testing.T) {
 	if err := RetrieveFilePassword(retrieved); err != nil {
 		t.Fatalf("invalid file key consumed the legitimate attempt: %v", err)
 	}
-	if retrieved.ArchiveFormat != ArchiveFormatAge {
+	if retrieved.ArchiveFormat != ArchiveFormatAgeX25519 {
 		t.Fatalf("archive format not preserved: %q", retrieved.ArchiveFormat)
 	}
 	if err := RetrieveFilePassword(&models.File{FileKey: fileLink}); err == nil {

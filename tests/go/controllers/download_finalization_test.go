@@ -7,9 +7,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,8 +66,7 @@ func TestFinalDownloadDeletesExhaustedArchive(t *testing.T) {
 		name, format string
 		protected    bool
 	}{
-		{"Historical ZIP", "", false},
-		{"Historical password-protected age", u.ArchiveFormatAge, true},
+		{"Password-protected age", u.ArchiveFormatAgeUserPassword, true},
 		{"Current age", u.ArchiveFormatAgeX25519, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,13 +199,15 @@ func TestFailedWriteDoesNotFinalizeEvenIfAllBytesWereAccepted(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	for _, tc := range []struct{ name, format string }{
 		{"Current age", u.ArchiveFormatAgeX25519},
-		{"Historical ZIP", ""},
+		{"Password-protected age", u.ArchiveFormatAgeUserPassword},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e, token, _, expected := resumeFixture(t, conn, tc.format, false)
+			e, token, password, expected := resumeFixture(t, conn, tc.format, tc.format == u.ArchiveFormatAgeUserPassword)
 			recorder := httptest.NewRecorder()
 			writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: len(expected)}
-			ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/"+token, nil), writer)
+			req := httptest.NewRequest(http.MethodPost, "/file/"+token, strings.NewReader(url.Values{"password": {password}}.Encode()))
+			req.Header.Set("Content-Type", echo.MIMEApplicationForm)
+			ctx := e.NewContext(req, writer)
 			ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 			func() {
 				defer func() {
@@ -243,99 +246,9 @@ func TestFailedWriteDoesNotFinalizeEvenIfAllBytesWereAccepted(t *testing.T) {
 	}
 }
 
-func interruptedHistoricalSession(t *testing.T, conn redis.Conn, e *echo.Echo, token string) (*http.Cookie, []byte, string) {
-	t.Helper()
-	recorder := httptest.NewRecorder()
-	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: 11}
-	ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/"+token, nil), writer)
-	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
-	func() {
-		defer func() {
-			if value := recover(); value != nil && value != http.ErrAbortHandler {
-				t.Errorf("Unexpected panic after interrupted response: %v", value)
-			}
-		}()
-		_ = DownloadFile(ctx)
-	}()
-	if recorder.Body.Len() != 11 {
-		t.Fatalf("Expected an interrupted initial response, got %d bytes", recorder.Body.Len())
-	}
-	var cookie *http.Cookie
-	for _, item := range recorder.Result().Cookies() {
-		name, err := downloadSessionCookie(token, item.Value)
-		if err == nil && name == item.Name {
-			cookie = item
-		}
-	}
-	if cookie == nil {
-		t.Fatal("Interrupted legacy response did not retain a continuation cookie")
-	}
-	id, _ := finalizationArchive(t, token)
-	digest := sha256.Sum256([]byte(cookie.Value))
-	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
-	t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
-	return cookie, bytes.Clone(recorder.Body.Bytes()), recorder.Header().Get("ETag")
-}
-
-func TestInterruptedHistoricalZIPRemainsResumable(t *testing.T) {
-	conn := configureCompatibilityRedis(t)
-	e, token, _, expected := resumeFixture(t, conn, "", false)
-	cookie, prefix, etag := interruptedHistoricalSession(t, conn, e, token)
-	requireFinalizationRetained(t, conn, token)
-	tail, err := getResume(e, token, cookie, "bytes=11-", etag)
-	if err != nil || tail.Code != http.StatusPartialContent || !bytes.Equal(append(bytes.Clone(prefix), tail.Body.Bytes()...), expected) {
-		t.Fatalf("Historical ZIP resume: status=%d error=%v", tail.Code, err)
-	}
-	requireFinalizationRemoved(t, conn, token)
-}
-
-func TestChangedHistoricalArchiveDoesNotCombineResumeCoverage(t *testing.T) {
-	conn := configureCompatibilityRedis(t)
-	for _, withValidator := range []bool{false, true} {
-		name := "Without If-Range"
-		if withValidator {
-			name = "With stale If-Range"
-		}
-		t.Run(name, func(t *testing.T) {
-			e, token, _, original := resumeFixture(t, conn, "", false)
-			cookie, prefix, etag := interruptedHistoricalSession(t, conn, e, token)
-			if !bytes.Equal(prefix, original[:11]) {
-				t.Fatal("Initial partial response differs from the original archive")
-			}
-			_, path := finalizationArchive(t, token)
-			changed := bytes.Clone(original)
-			changed[len(changed)/2] ^= 1
-			if err := os.WriteFile(path, changed, 0600); err != nil {
-				t.Fatal(err)
-			}
-			validator := ""
-			if withValidator {
-				validator = etag
-			}
-			rec, _ := getResume(e, token, cookie, "bytes=11-", validator)
-			switch rec.Code {
-			case http.StatusPartialContent:
-				if withValidator || !bytes.Equal(rec.Body.Bytes(), changed[11:]) {
-					t.Fatalf("Unexpected partial response for changed archive: status=%d", rec.Code)
-				}
-				// Old prefix plus new tail must not count as one complete copy.
-				requireFinalizationRetained(t, conn, token)
-			case http.StatusOK:
-				if !bytes.Equal(rec.Body.Bytes(), changed) {
-					t.Fatal("Full replacement response did not contain the new archive")
-				}
-			case http.StatusNotFound, http.StatusPreconditionFailed:
-				requireFinalizationRetained(t, conn, token)
-			default:
-				t.Fatalf("Unexpected changed-archive response: %d", rec.Code)
-			}
-		})
-	}
-}
-
 func TestRejectedPasswordDoesNotFinalizeArchive(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeUserPassword, true)
 	rec, _ := downloadCompatibilityFile(t, e, token, "incorrect password")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("Wrong password: status=%d", rec.Code)

@@ -98,12 +98,12 @@ func TestMaskedControllerFailuresRetainPublicStatusesAndLogErrors(t *testing.T) 
 	}{
 		{"secret preview", "password_key", "secret.preview_unavailable", "403.html", ReadIndex, http.StatusForbidden},
 		{"secret reveal", "password_key", "secret.reveal_unavailable", "", RevealPassword, http.StatusNotFound},
-		{"secret API reveal", "password_key", "secret.reveal_unavailable", "", ReadPassword, http.StatusNotFound},
+		{"secret API reveal", "token", "secret.reveal_unavailable", "", ReadSecretAPI, http.StatusNotFound},
 		{"file preview", "file_key", "file.preview_unavailable", "403.html", ReadFile, http.StatusForbidden},
 		{"secret delete confirmation", "password_key", "secret.delete_confirmation_unavailable", "404.html", ConfirmDeleteIndex, http.StatusNotFound},
 		{"file delete confirmation", "file_key", "file.delete_confirmation_unavailable", "404.html", ConfirmDeleteFile, http.StatusNotFound},
 		{"secret delete", "password_key", "secret.delete_unavailable", "403.html", DeleteIndex, http.StatusInternalServerError},
-		{"secret API delete", "password_key", "secret.delete_unavailable", "", DeletePassword, http.StatusInternalServerError},
+		{"secret API delete", "token", "secret.delete_unavailable", "", DeleteSecretAPI, http.StatusInternalServerError},
 		{"file delete", "file_key", "file.delete_unavailable", "403.html", DeleteFile, http.StatusInternalServerError},
 		{"file download", "file_key", "file.download_unavailable", "404.html", DownloadFile, http.StatusNotFound},
 	} {

@@ -78,8 +78,7 @@ func chooseDownloadCookie(c *echo.Context, token string) (*http.Cookie, error) {
 }
 
 // downloadArchive reads the stored file directly without staging plaintext.
-// For encrypted archives age authenticates each requested chunk and the final
-// chunk. Historical ZIPs retain their original unencrypted representation.
+// age authenticates each requested chunk and the final chunk.
 type downloadArchive struct {
 	file   *os.File
 	reader io.ReaderAt
@@ -89,8 +88,7 @@ type downloadArchive struct {
 }
 
 func openDownloadArchive(c *echo.Context, f *File, secret, name string) (*downloadArchive, error) {
-	if (f.ArchiveFormat == ArchiveFormatAgeUserPassword && !f.PasswordProvided) ||
-		(f.ArchiveFormat == ArchiveFormatAgeX25519 && f.PasswordProvided) {
+	if !ValidFileArchiveFormat(f.ArchiveFormat, f.PasswordProvided) {
 		return nil, errors.New("Invalid archive metadata")
 	}
 	file, err := OpenStorageArchive(filepath.Join(FILEFOLDER, name))
@@ -105,10 +103,7 @@ func openDownloadArchive(c *echo.Context, f *File, secret, name string) (*downlo
 	var reader io.ReaderAt
 	var size int64
 	switch f.ArchiveFormat {
-	case "":
-		// Original records point to unencrypted ZIPs and remain readable.
-		reader, size = file, info.Size()
-	case ArchiveFormatAge, ArchiveFormatAgeUserPassword:
+	case ArchiveFormatAgeUserPassword:
 		reader, size, err = DecryptArchiveReaderAt(c.Request().Context(), file, info.Size(), secret)
 	case ArchiveFormatAgeX25519:
 		reader, size, err = DecryptArchiveIdentityReaderAt(c.Request().Context(), file, info.Size(), secret)
@@ -118,12 +113,7 @@ func openDownloadArchive(c *echo.Context, f *File, secret, name string) (*downlo
 	if err != nil {
 		return closeOnError(err)
 	}
-	var etag string
-	if f.ArchiveFormat == "" {
-		etag, err = legacyArchiveETag(file, info.Size())
-	} else {
-		etag, err = encryptedArchiveETag(file, info.Size())
-	}
+	etag, err := encryptedArchiveETag(file, info.Size())
 	if err != nil {
 		return closeOnError(err)
 	}
@@ -145,20 +135,6 @@ func (a *downloadArchive) verifyUnchanged() error {
 	return nil
 }
 
-// Historical ZIPs have no authenticated encryption. Hash every byte so an
-// If-Range comparison detects middle-only modifications as well as changes at
-// either end. This costs a complete file read for each initial/resumed request.
-func legacyArchiveETag(file *os.File, size int64) (string, error) {
-	if size < 0 {
-		return "", errors.New("Invalid archive size")
-	}
-	h := sha256.New()
-	if _, err := io.CopyN(h, io.NewSectionReader(file, 0, size), size); err != nil {
-		return "", err
-	}
-	return `"` + hex.EncodeToString(h.Sum(nil)) + `"`, nil
-}
-
 // age uses an independent random file key and nonce for each archive. Bind the
 // validator to both ends and the total size of the ciphertext so a resumed
 // transfer does not silently join two separately encrypted versions.
@@ -171,11 +147,11 @@ func encryptedArchiveETag(file *os.File, size int64) (string, error) {
 		return "", err
 	}
 	first := min(size, int64(4096))
-	if _, err := io.Copy(h, io.NewSectionReader(file, 0, first)); err != nil {
+	if _, err := io.CopyN(h, io.NewSectionReader(file, 0, first), first); err != nil {
 		return "", err
 	}
 	tail := min(size, int64(65552))
-	if _, err := io.Copy(h, io.NewSectionReader(file, size-tail, tail)); err != nil {
+	if _, err := io.CopyN(h, io.NewSectionReader(file, size-tail, tail), tail); err != nil {
 		return "", err
 	}
 	return `"` + hex.EncodeToString(h.Sum(nil)) + `"`, nil
@@ -249,65 +225,20 @@ func (p *downloadProgress) finish() {
 	}
 }
 
-// responseWriteTracker captures errors that http.ServeContent does not return
-// and prevents a short write from being mistaken for a complete response.
+// Record a final write error even when a writer accepts the entire buffer.
 type responseWriteTracker struct {
 	http.ResponseWriter
-	status   int
-	written  int64
 	writeErr error
 }
 
-func (w *responseWriteTracker) WriteHeader(status int) {
-	if w.status == 0 {
-		w.status = status
-	}
-	w.ResponseWriter.WriteHeader(status)
-}
-
 func (w *responseWriteTracker) Write(p []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
 	n, err := w.ResponseWriter.Write(p)
-	w.written += int64(n)
 	if err != nil {
 		w.writeErr = errors.Join(w.writeErr, err)
 	} else if n != len(p) {
 		w.writeErr = errors.Join(w.writeErr, io.ErrShortWrite)
 	}
 	return n, err
-}
-
-// recordLegacyResponse accepts only a full response or a single, correctly
-// bounded Content-Range. Multi-range responses remain resumable until expiry.
-func recordLegacyResponse(p *downloadProgress, w *responseWriteTracker, size int64, unchanged, contextOK bool) {
-	if p == nil || !unchanged {
-		return
-	}
-	start, length := int64(0), size
-	if w.status == http.StatusPartialContent {
-		part, total, ok := strings.Cut(strings.TrimPrefix(w.Header().Get("Content-Range"), "bytes "), "/")
-		if !ok || total != strconv.FormatInt(size, 10) {
-			return
-		}
-		var err error
-		start, length, err = parseSingleByteRange("bytes="+part, size)
-		if err != nil {
-			return
-		}
-	} else if w.status != http.StatusOK {
-		return
-	}
-	if w.written > length {
-		return
-	}
-	p.start, p.written = start, w.written
-	p.responseOK = p.representationOK && w.writeErr == nil && w.written == length && contextOK
-	// When the final write reports both the full length and an error (or the
-	// request was canceled), its coverage is ambiguous. Do not let a later
-	// one-byte retry convert that failed response into a complete transfer.
-	p.integrityOK = p.representationOK && (p.responseOK || (w.writeErr != nil && w.written < length))
 }
 
 func (b *downloadBudget) finish() {
@@ -353,7 +284,7 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 	h.Set("ETag", a.etag)
 	h.Set(echo.HeaderContentLength, strconv.FormatInt(length, 10))
 	c.Response().WriteHeader(status)
-	writer := &responseWriteTracker{ResponseWriter: c.Response(), status: status}
+	writer := &responseWriteTracker{ResponseWriter: c.Response()}
 	written, err := io.CopyN(writer, io.NewSectionReader(a.reader, start, length), length)
 	// CopyN may return nil after n bytes even if the final Write returned an
 	// error together with those bytes; that is not a successful response.
@@ -406,7 +337,10 @@ func resumeDownload(c *echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 	var releaseKDF func()
-	if preview.ArchiveFormat == ArchiveFormatAge || preview.ArchiveFormat == ArchiveFormatAgeUserPassword {
+	if !ValidFileArchiveFormat(preview.ArchiveFormat, preview.PasswordProvided) {
+		return c.NoContent(http.StatusNotFound)
+	}
+	if preview.ArchiveFormat == ArchiveFormatAgeUserPassword {
 		reserved, release, reserveErr := ReserveArchiveKDF(c.Request().Context())
 		if reserveErr != nil {
 			if errors.Is(reserveErr, ErrArchiveKDFBusy) {
