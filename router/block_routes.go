@@ -14,6 +14,19 @@ func registerBlockRoutes(e *echo.Echo) {
 	e.HEAD(tusResource, controllers.UploadTusHead)
 	e.PATCH(tusResource, controllers.UploadTusPatch)
 }
+
+// Even pre-body rejection on a recognized resource carries the tus version.
+func checkTusVersion(c *echo.Context) error {
+	h := c.Response().Header()
+	h.Set("Tus-Resumable", controllers.TusVersion)
+	v := c.Request().Header.Values("Tus-Resumable")
+	if len(v) != 1 || v[0] != controllers.TusVersion {
+		h.Set("Tus-Version", controllers.TusVersion)
+		closeUnreadHTTP1(c)
+		return echo.NewHTTPError(http.StatusPreconditionFailed, "Unsupported tus version")
+	}
+	return nil
+}
 func checkPatchAdmission(c *echo.Context) error {
 	r := c.Request()
 	if _, err := utils.AuthorizeUploadSession(r.Context(), c.Param("id"), utils.UploadBearer(r), false); err != nil {

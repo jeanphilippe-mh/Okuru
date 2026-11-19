@@ -160,7 +160,6 @@ func TestDirectUploadEndToEnd(t *testing.T) {
 	folder, oldFolder, oldMax := t.TempDir(), utils.FILEFOLDER, utils.MaxFileSize
 	utils.FILEFOLDER, utils.MaxFileSize = folder, 4<<20
 	t.Cleanup(func() { utils.FILEFOLDER, utils.MaxFileSize = oldFolder, oldMax })
-	t.Setenv("OKURU_FILE_API", "true")
 	t.Setenv("OKURU_SHORTLINK_PUBLIC_ORIGIN", "")
 	t.Setenv("OKURU_STORAGE_MIN_FREE_BYTES", "1")
 	t.Setenv("OKURU_STORAGE_QUOTA_BYTES", "268435456")

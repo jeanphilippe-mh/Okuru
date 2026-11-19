@@ -152,9 +152,13 @@
       start.focus();
     } catch (error) {
       if (!controller.signal.aborted && session === current) {
-        if (error.status === 409) { current.phase = 'recover'; showFailure(error); }
-        else if (error.status === 404 || error.status === 410) showFailure(error);
-        else { display('Cancellation could not be confirmed. Try cancelling again.'); cancel.focus(); }
+        if (current.phase === 'recover' || error.status === 404 || error.status === 410) showFailure(error);
+        else {
+          display('Cancellation could not be confirmed. Resume the upload or try cancelling again.');
+          resume.textContent = 'Resume upload';
+          resume.hidden = false;
+          resume.focus();
+        }
       }
     } finally {
       if (operation === controller) operation = null;

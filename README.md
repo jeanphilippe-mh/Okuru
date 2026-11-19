@@ -1,7 +1,7 @@
 # Okuru
 **送る (Okuru, “to send”)** lets you share passwords and files securely with temporary links.
 
-A Go and Echo reimplementation of [Snappass](https://github.com/pinterest/snappass), Okuru adds file uploads and an API for passwords.
+A Go and Echo reimplementation of [Snappass](https://github.com/pinterest/snappass), Okuru supports browser uploads, a [file transfer API](docs/file-transfer-api.md) for direct and resumable uploads, and a [secrets API](docs/api.md) for passwords and text.
 
 ## Security
 
@@ -16,7 +16,7 @@ Passwords and text secrets are encrypted and authenticated with **Fernet** befor
 
 ### Files
 
-New uploads are packaged as ZIP archives and encrypted at rest with **age**. The file stored on the server is an age-encrypted envelope, even though its filename ends in `.zip`; it cannot be inspected as an ordinary ZIP until Okuru decrypts it.
+Okuru packages files as ZIP archives and encrypts them at rest with **age**. It uses age scrypt when the sender provides a password and a randomly generated age X25519 identity otherwise. The recipient downloads a standard ZIP after Okuru authenticates and decrypts the archive.
 
 ### Browser security observations
 
@@ -65,7 +65,7 @@ You can configure the following via environment variables.
 
 **OKURU_SHORTLINK_REDIS_DB** and **OKURU_SHORTLINK_PUBLIC_ORIGIN**: Optional short-link storage database and canonical HTTPS public origin. Both must be configured to enable short links; see `docs/short-links.md`.
 
-**OKURU_SHORTLINK_BITS**: Randomness for new aliases: `128` (22 characters, default) or `256` (43 characters). Existing aliases remain valid when this changes.
+**OKURU_SHORTLINK_BITS**: Randomness for new aliases: `128` (22 characters, default) or `256` (43 characters). Both sizes use the current alias format and remain resolvable until expiry when this setting changes.
 
 **OKURU_TOKEN_SEPARATOR**: The token that will separate the keys in the URL. You might not need to change this. It defaults to "~".
 

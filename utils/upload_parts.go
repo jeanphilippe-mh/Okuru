@@ -19,16 +19,17 @@ const uploadPartPrefix = ".okuru-parts-"
 const maxUploadParts = 2048
 
 func UploadPatchLimit() int64 {
-	const ceiling int64 = 90_000_000
-	raw := os.Getenv("OKURU_UPLOAD_MAX_PATCH_BYTES")
+	const maxChunkMB = 100
+	const bytesPerMB = 1_000_000
+	raw := os.Getenv("OKURU_UPLOAD_CHUNKS_SIZE")
 	if raw == "" {
-		return ceiling
+		return maxChunkMB * bytesPerMB
 	}
 	n, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || n <= 0 || n > ceiling {
+	if err != nil || n < 1 || n > maxChunkMB {
 		return 0
 	}
-	return n
+	return n * bytesPerMB
 }
 
 type uploadPart struct {

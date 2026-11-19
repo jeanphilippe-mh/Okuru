@@ -11,7 +11,7 @@ const base = '/api/v2/uploads';
 const asJSON = (status, data, headers = {}) => Response.json(data, { status, headers });
 const version = { 'Tus-Resumable': '1.0.0' };
 
-function fixture(intercept = () => undefined, sizes = [0, 7]) {
+function fixture(intercept = () => undefined, sizes = [0, 7], maxPatchBytes = 3) {
   const files = sizes.map((size, i) => new File([Uint8Array.from({ length: size }, (_, n) => n + 1)], 'data-' + i + '.bin'));
   const buffers = files.map(() => []);
   const calls = [], delays = [], writes = [], displays = [];
@@ -38,7 +38,7 @@ function fixture(intercept = () => undefined, sizes = [0, 7]) {
     calls.push(call);
     if (pathname.endsWith('/bootstrap')) {
       assert.equal(headers.has('Authorization'), false);
-      return asJSON(200, { modes: ['blocks'], max_patch_bytes: 3, max_total_bytes: 2 ** 28 }, { 'X-CSRF-Token': 'csrf' });
+      return asJSON(200, { modes: ['blocks'], max_patch_bytes: maxPatchBytes, max_total_bytes: 2 ** 28 }, { 'X-CSRF-Token': 'csrf' });
     }
     assert.equal(headers.get('X-CSRF-Token'), ['GET', 'HEAD'].includes(method) ? null : 'csrf');
     if (!token) token = headers.get('Authorization');
@@ -104,6 +104,13 @@ function fixture(intercept = () => undefined, sizes = [0, 7]) {
   }
   return { create, calls, delays, buffers, writes, displays, signal, ctx, prepared: () => prepared };
 }
+
+test('the browser uses the chunk size advertised by the server', async () => {
+  for (const limit of [1_000_000, 37_000_000, 100_000_000]) {
+    const session = await fixture(undefined, [7], limit).create();
+    assert.equal(session.chunkSize, limit);
+  }
+});
 
 test('vendored tus uses only pre-created file resources, receives confirmed chunks, and keeps its session in memory', async () => {
   const h = fixture();
@@ -192,7 +199,7 @@ test('an incomplete finalization checks result and status before repeating the s
     [['POST','complete'],['GET','result'],['GET',h.prepared().id],['POST','complete']]);
 });
 
-function uiFixture({ enabled = true, startFails = false } = {}) {
+function uiFixture({ enabled = true, startFails = false, cancelBusy = false } = {}) {
   class Control extends EventTarget {
     constructor() { super(); this.hidden = true; this.disabled = false; this.value = ''; }
     focus() {}
@@ -227,7 +234,7 @@ function uiFixture({ enabled = true, startFails = false } = {}) {
       this.phase = 'done';
       return 'receipt-for-test';
     }
-    async cancel() { cancelled++; }
+    async cancel() { cancelled++; if (cancelBusy) throw Object.assign(new Error("Busy"), { status: 409 }); }
   }
   const win = Object.assign(new EventTarget(), { location: { origin, protocol: 'https:' }, AbortController,
     fetch() {}, crypto: webcrypto, tus: { Upload: class {} }, OkuruBlockSession: { Session,
@@ -274,4 +281,62 @@ test('explicit cancellation unlocks both the regular form and a fresh selection'
   assert.equal(ui.el['upload-blocks-start'].hidden, false);
   assert.equal(ui.posts(), 0);
   assert.equal(ui.receipt.value, '');
+});
+
+test('empty files can complete from open after the first completion request did not reach the server', async () => {
+  let dropped = false;
+  const h = fixture(c => {
+    if (c.pathname.endsWith('/complete') && !dropped) { dropped = true; throw Error('request lost'); }
+    if (c.method === 'GET' && c.pathname !== base + '/bootstrap' && !c.pathname.endsWith('/result')) {
+      return asJSON(200, { state: 'open', measure: 'file_bytes_confirmed', bytes: 0, total: 0 });
+    }
+  }, [0, 0]);
+  const session = await h.create();
+  assert.equal(await session.run(h.signal), 'private-confirmation-receipt');
+  assert.equal(h.calls.some(c => c.method === 'PATCH'), false);
+  assert.deepEqual(h.calls.slice(-4).map(c => [c.method, c.pathname]),
+    [['POST', session.path + '/complete'], ['GET', session.path + '/result'], ['GET', session.path], ['POST', session.path + '/complete']]);
+});
+
+test('a busy cancellation during PATCH keeps the upload resumable unless publication is confirmed', async () => {
+  for (const state of ['receiving', 'finalizing', 'ready']) {
+    let patchStarted;
+    const started = new Promise(resolve => { patchStarted = resolve; });
+    let firstPatch = true;
+    const h = fixture(async c => {
+      if (c.method === 'PATCH' && firstPatch) {
+        firstPatch = false;
+        patchStarted();
+        await new Promise((_, reject) => c.options.signal.addEventListener('abort', () => reject(Error('cancelled')), { once: true }));
+      }
+      if (c.method === 'DELETE') return asJSON(409, { code: 'busy' });
+      if (c.method === 'GET' && !c.pathname.endsWith('/bootstrap')) {
+        return asJSON(200, { state, measure: 'file_bytes_confirmed', bytes: 0, total: 2 });
+      }
+    }, [2]);
+    const current = await h.create();
+    const controller = new AbortController();
+    const interrupted = assert.rejects(current.run(controller.signal), { name: 'AbortError' });
+    await started;
+    controller.abort();
+    await interrupted;
+    await assert.rejects(current.cancel(h.signal), { status: 409 });
+    assert.equal(current.phase, state === 'receiving' ? 'send' : 'recover');
+    if (state === 'receiving') {
+      assert.equal(await current.run(h.signal), 'private-confirmation-receipt');
+      assert.deepEqual(h.buffers[0], [1, 2]);
+    }
+  }
+  const ui = uiFixture({ startFails: true, cancelBusy: true });
+  await settle();
+  ui.click('upload-blocks-start');
+  await settle();
+  ui.click('upload-blocks-cancel');
+  await settle();
+  assert.equal(ui.el['upload-blocks-resume'].hidden, false);
+  assert.equal(ui.el['upload-blocks-resume'].textContent, 'Resume upload');
+  assert.equal(ui.el['upload-blocks-cancel'].hidden, false);
+  ui.click('upload-blocks-resume');
+  await settle();
+  assert.equal(ui.posts(), 1);
 });

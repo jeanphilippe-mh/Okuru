@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,110 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
 )
+
+func TestUploadSessionMultipartRetriedAfterInterruption(t *testing.T) {
+	c, r, m := sessionTestSetup(t)
+	t.Setenv("OKURU_UPLOAD_CHUNKS", "false")
+	ctx := context.Background()
+	id, bearer := uuid.NewString(), newUploadSecret()
+	if api, chunks, err := UploadAdmission(ctx); err != nil || !api || chunks {
+		t.Fatalf("admission with chunks disabled: api=%v chunks=%v err=%v", api, chunks, err)
+	}
+	if _, _, err := PrepareFileUploadSession(ctx, r, id, bearer, m); err != uploadSessionError("closed") {
+		t.Fatalf("new chunked session with chunks disabled: %v", err)
+	}
+	m.Mode = "multipart"
+	s, _, err := PrepareFileUploadSession(ctx, r, id, bearer, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Total != -1 {
+		t.Fatalf("unsent multipart reported total %d", s.Total)
+	}
+	if err := BeginMultipartAttempt(ctx, id, bearer, 128); err != nil {
+		t.Fatal(err)
+	}
+	if err := BeginMultipartAttempt(ctx, id, bearer, 128); err != uploadSessionError("busy") {
+		t.Fatal(err)
+	}
+	if err := SetMultipartProgress(ctx, id, bearer, 40); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMultipartProgress(ctx, id, bearer, 30); err != nil {
+		t.Fatal(err)
+	}
+	watch, err := AuthorizeUploadSession(ctx, id, s.StatusToken, true)
+	if err != nil || watch.Bytes != 40 || watch.Total != 128 {
+		t.Fatalf("status: %#v %v", watch, err)
+	}
+	if err := ResetUploadAttempt(ctx, id, bearer); err != nil {
+		t.Fatal(err)
+	}
+	if err := BeginMultipartAttempt(ctx, id, bearer, -1); err != nil {
+		t.Fatal(err)
+	}
+	watch, err = AuthorizeUploadSession(ctx, id, s.StatusToken, true)
+	if err != nil || watch.Bytes != 0 || watch.Total != -1 {
+		t.Fatal(watch, err)
+	}
+	key, _ := UploadSessionRedisKeys(id)
+	before, err := redis.Int64(c.Do("HGET", key, "until"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AuthorizeUploadSession(ctx, id, s.StatusToken, true); err != nil {
+		t.Fatal(err)
+	}
+	after, err := redis.Int64(c.Do("HGET", key, "until"))
+	if err != nil || before != after {
+		t.Fatal("read extended state")
+	}
+}
+
+func TestUploadSessionInvalidChunkSize(t *testing.T) {
+	c, r, manifest := sessionTestSetup(t)
+	t.Setenv("OKURU_UPLOAD_CHUNKS_SIZE", "101")
+	ctx := t.Context()
+	id, bearer := uuid.NewString(), newUploadSecret()
+	if api, chunks, err := UploadAdmission(ctx); err != nil || !api || chunks {
+		t.Fatalf("admission with invalid chunk size: api=%v chunks=%v err=%v", api, chunks, err)
+	}
+	if _, _, err := PrepareFileUploadSession(ctx, r, id, bearer, manifest); err != uploadSessionError("closed") {
+		t.Fatalf("chunked session with invalid chunk size: %v", err)
+	}
+	key, _ := UploadSessionRedisKeys(id)
+	if exists, err := redis.Bool(c.Do("EXISTS", key)); err != nil || exists {
+		t.Fatalf("unusable session stored: exists=%v err=%v", exists, err)
+	}
+	manifest.Mode = "multipart"
+	if _, created, err := PrepareFileUploadSession(ctx, r, id, bearer, manifest); err != nil || !created {
+		t.Fatalf("multipart with invalid chunk size: created=%v err=%v", created, err)
+	}
+}
+
+func TestUploadSessionRollbackAfterQuotaDenial(t *testing.T) {
+	_, r, m := sessionTestSetup(t)
+	ctx := context.Background()
+	id, bearer := uuid.NewString(), newUploadSecret()
+	s, _, err := PrepareFileUploadSession(ctx, r, id, bearer, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploadPartsCleanup.RLock()
+	previous := uploadPartsCleanup.prepare
+	uploadPartsCleanup.RUnlock()
+	t.Cleanup(func() { SetUploadSessionPartsPrepare(previous) })
+	SetUploadSessionPartsPrepare(func(*UploadSession) error { return ErrStorageCapacity })
+	if err := ReserveUploadSessionParts(ctx, s, bearer); err != ErrStorageCapacity {
+		t.Fatalf("quota refusal: %v", err)
+	}
+	if _, err := AuthorizeUploadSession(ctx, id, bearer, false); err != uploadSessionError("aborted") {
+		t.Fatal(err)
+	}
+	if _, _, err := PrepareFileUploadSession(ctx, r, uuid.NewString(), newUploadSecret(), m); err != nil {
+		t.Fatal("quota refusal retained active slot", err)
+	}
+}
 
 func TestUploadSessionSlotAndRedisBudgets(t *testing.T) {
 	c, r, m := sessionTestSetup(t)
@@ -203,8 +309,7 @@ func sessionTestSetup(t *testing.T) (redis.Conn, *http.Request, *UploadManifest)
 		t.Fatal(err)
 	}
 	t.Cleanup(release)
-	t.Setenv("OKURU_FILE_API", "true")
-	t.Setenv("OKURU_UPLOAD_BLOCKS", "true")
+	t.Setenv("OKURU_UPLOAD_CHUNKS", "true")
 	t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "100000")
 	prefix := REDIS_PREFIX + "upload_v2_"
 	if _, err := c.Do("HSET", prefix+"admission", "api", "open", "blocks", "open"); err != nil {
@@ -349,5 +454,32 @@ func TestUploadSessionHotClosureLimitsAndTerminalAccess(t *testing.T) {
 	}
 	if _, err := AuthorizeUploadSession(ctx, id, newUploadSecret(), false); err != uploadSessionError("not_found") {
 		t.Fatal(err)
+	}
+}
+
+func TestSecondaryProcessServesWithoutRunningRecovery(t *testing.T) {
+	previous := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = previous })
+	marker, err := os.OpenFile(filepath.Join(FILEFOLDER, ".okuru-upload-v2-owner"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer marker.Close()
+	locked, err := quotaTryLock(marker)
+	if err != nil || !locked {
+		t.Fatal("fixture could not acquire owner lock", err)
+	}
+	defer quotaUnlock(marker)
+	stop, err := StartPreparedUploads(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	if sessionGeneration() != "" {
+		t.Fatal("second process acquired writer generation")
+	}
+	if _, err := os.Stat(filepath.Join(FILEFOLDER, journalDirName)); !os.IsNotExist(err) {
+		t.Fatal("secondary process touched publication state")
 	}
 }

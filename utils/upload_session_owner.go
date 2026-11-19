@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var errUploadOwnerBusy = errors.New("another process owns prepared uploads")
+
 var uploadSessionOwner struct {
 	sync.RWMutex
 	generation string
@@ -120,22 +122,25 @@ func AcquireUploadSessionOwner(storageDir string) (func(), error) {
 		_ = guard.Close()
 		return nil, err
 	}
-	invalid := func() (func(), error) {
+	reject := func(reason error) (func(), error) {
 		_ = f.Close()
 		_ = guard.Close()
-		return nil, uploadSessionError("unavailable")
+		return nil, reason
 	}
 	marker, err := os.Lstat(path)
 	if err != nil || !marker.Mode().IsRegular() {
-		return invalid()
+		return reject(uploadSessionError("unavailable"))
 	}
 	info, err := f.Stat()
 	if err != nil || !os.SameFile(marker, info) {
-		return invalid()
+		return reject(uploadSessionError("unavailable"))
 	}
 	locked, err := quotaTryLock(f)
-	if err != nil || !locked {
-		return invalid()
+	if err != nil {
+		return reject(uploadSessionError("unavailable"))
+	}
+	if !locked {
+		return reject(errUploadOwnerBusy)
 	}
 	uploadSessionOwner.generation = uuid.NewString()
 	uploadSessionOwner.locks = make(map[string]struct{})

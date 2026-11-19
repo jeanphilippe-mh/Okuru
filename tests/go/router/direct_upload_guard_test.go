@@ -23,22 +23,20 @@ func (r unexpectedUploadRead) Read([]byte) (int, error) {
 func TestDirectUploadRejectsBeforeReading(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		enabled     bool
 		token       string
 		contentType string
 		size        int64
 		want        int
 	}{
-		{"disabled", false, "", "", -1, http.StatusNotFound},
-		{"missing header", true, "", "multipart/form-data; boundary=b", -1, http.StatusForbidden},
-		{"wrong cookie", true, "other", "multipart/form-data; boundary=b", -1, http.StatusForbidden},
-		{"wrong media type", true, "correct", "application/json", -1, http.StatusUnsupportedMediaType},
-		{"missing boundary", true, "correct", "multipart/form-data", -1, http.StatusBadRequest},
-		{"too large", true, "correct", "multipart/form-data; boundary=b", directRequestLimit + 1, http.StatusRequestEntityTooLarge},
+		{"missing header", "", "multipart/form-data; boundary=b", -1, http.StatusForbidden},
+		{"wrong cookie", "other", "multipart/form-data; boundary=b", -1, http.StatusForbidden},
+		{"wrong media type", "correct", "application/json", -1, http.StatusUnsupportedMediaType},
+		{"missing boundary", "correct", "multipart/form-data", -1, http.StatusBadRequest},
+		{"too large", "correct", "multipart/form-data; boundary=b", directRequestLimit + 1, http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
-			e.Use(directUploadGuard(tc.enabled))
+			e.Use(directUploadGuard)
 			e.POST(directFilePath, func(*echo.Context) error {
 				t.Fatal("invalid upload reached handler")
 				return nil
@@ -81,7 +79,7 @@ func TestDirectUploadLimitCountsChunkedEpilogue(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
-			e.Use(directUploadGuard(true), secureMultipart)
+			e.Use(directUploadGuard, secureMultipart)
 			e.POST(directFilePath, func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 			padding := io.LimitReader(directUploadPadding{}, tc.size-int64(len(envelope)))
 			body := io.MultiReader(strings.NewReader(envelope), padding)
