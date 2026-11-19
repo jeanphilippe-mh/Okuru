@@ -477,57 +477,7 @@ func validateUploadFiles(files []*SecureMultipartFile) ([]string, error) {
 
 // writeEncryptedUploadArchive never creates a plaintext ZIP or staging copy.
 func writeEncryptedUploadArchive(ctx context.Context, path, password string, files []*SecureMultipartFile, names []string, format string, releaseKDF func()) (resultErr error) {
-	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	defer func() { resultErr = errors.Join(resultErr, out.Close()) }()
-	var encrypted io.WriteCloser
-	switch format {
-	case ArchiveFormatAge, ArchiveFormatAgeUserPassword:
-		encrypted, err = EncryptArchive(ctx, out, password)
-	case ArchiveFormatAgeX25519:
-		encrypted, err = EncryptArchiveWithIdentity(ctx, out, password)
-	default:
-		return errors.New("Unsupported archive format")
-	}
-	// The expensive key derivation is finished once the age writer is created.
-	// Do not retain its single global slot while streaming a potentially large ZIP.
-	if releaseKDF != nil {
-		releaseKDF()
-	}
-	if err != nil {
-		return err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, encrypted.Close())
-		if resultErr == nil {
-			resultErr = out.Sync()
-		}
-	}()
-	zw := zip.NewWriter(encrypted)
-	defer func() { resultErr = errors.Join(resultErr, zw.Close()) }()
-	for i, file := range files {
-		in, err := file.Open()
-		if err != nil {
-			return err
-		}
-		header := &zip.FileHeader{Name: names[i], Method: getZipMethodForSize(file.Size)}
-		header.SetMode(0600)
-		writer, err := zw.CreateHeader(header)
-		if err != nil {
-			return errors.Join(err, in.Close())
-		}
-		n, copyErr := io.Copy(writer, io.LimitReader(in, file.Size+1))
-		closeErr := in.Close()
-		if copyErr != nil || closeErr != nil {
-			return errors.Join(copyErr, closeErr)
-		}
-		if n != file.Size {
-			return errors.New("Multipart file size changed")
-		}
-	}
-	return nil
+	return writeUploadArchive(ctx, path, password, multipartArchiveSources(files, names), format, releaseKDF)
 }
 
 // discardUnpublishedUpload removes only records created by this upload. If
