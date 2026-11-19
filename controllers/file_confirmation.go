@@ -78,21 +78,30 @@ redis.call('HMSET', KEYS[1], 'confirmation_digest', ARGV[1])
 return 1`)
 
 type fileReceiptPayload struct {
-	Issued int64            `json:"issued"`
-	Salt   string           `json:"salt"`
-	View   fileConfirmation `json:"view"`
+	Issued   int64            `json:"issued"`
+	Prepared bool             `json:"prepared,omitempty"`
+	Salt     string           `json:"salt"`
+	View     fileConfirmation `json:"view"`
 }
 
-func issueFileReceipt(id string, view fileConfirmation, now time.Time) (string, error) {
-	payload, err := json.Marshal(fileReceiptPayload{Issued: now.Unix(), Salt: rand.Text(), View: view})
+func encodeFileReceipt(id string, view fileConfirmation, now time.Time, prepared bool) (string, []byte, error) {
+	payload, err := json.Marshal(fileReceiptPayload{Issued: now.Unix(), Prepared: prepared, Salt: rand.Text(), View: view})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	receipt := id + "." + base64.RawURLEncoding.EncodeToString(payload)
 	if len(receipt) > maxFileReceiptBytes {
-		return "", errFileReceiptUnavailable
+		return "", nil, errFileReceiptUnavailable
 	}
 	digest := sha256.Sum256([]byte(receipt))
+	return receipt, digest[:], nil
+}
+
+func issueFileReceipt(id string, view fileConfirmation, now time.Time) (string, error) {
+	receipt, digest, err := encodeFileReceipt(id, view, now, false)
+	if err != nil {
+		return "", err
+	}
 	conn := utils.NewPool().Get()
 	defer conn.Close()
 	attached, err := redis.Bool(attachFileReceipt.Do(conn, utils.REDIS_PREFIX+"file_"+id, digest[:]))
@@ -129,8 +138,14 @@ func verifyFileReceipt(receipt string, now time.Time) (fileConfirmation, error) 
 	// confirmation nor a reload reserves a view or generates another alias.
 	payload, err := base64.RawURLEncoding.DecodeString(encoded)
 	var data fileReceiptPayload
-	if err != nil || json.Unmarshal(payload, &data) != nil ||
-		data.Issued > now.Unix() || data.Issued <= now.Add(-fileReceiptLifetime).Unix() {
+	if err != nil || json.Unmarshal(payload, &data) != nil {
+		return fileConfirmation{}, errFileReceiptUnavailable
+	}
+	lifetime := fileReceiptLifetime
+	if data.Prepared {
+		lifetime = 24 * time.Hour
+	}
+	if data.Issued > now.Unix() || data.Issued <= now.Add(-lifetime).Unix() {
 		return fileConfirmation{}, errFileReceiptUnavailable
 	}
 	return data.View, nil
