@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import unittest
 
-SCRIPT = pathlib.Path(__file__).resolve().parents[2] / 'TLSA_jeanphilippe.io.sh'
+SCRIPT = pathlib.Path(__file__).resolve().parents[2] / 'deploy' / 'letsencrypt' / 'TLSA_jeanphilippe.io.sh'
 HASH = 'a' * 64
 TOKEN = 'test_only_dummy_token'
 
