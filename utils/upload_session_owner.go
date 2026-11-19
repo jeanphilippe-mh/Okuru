@@ -1,10 +1,12 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -18,6 +20,63 @@ var uploadSessionOwner struct {
 var uploadPartsCleanup struct {
 	sync.RWMutex
 	run func(string) error
+	prepare func(*UploadSession) error
+	pending map[string]*uploadSessionPreparation
+}
+
+type uploadSessionPreparation struct {
+	done chan struct{}
+	err  error
+}
+
+func SetUploadSessionPartsPrepare(f func(*UploadSession) error) {
+	uploadPartsCleanup.Lock()
+	defer uploadPartsCleanup.Unlock()
+	uploadPartsCleanup.prepare = f
+}
+
+func ReserveUploadSessionParts(ctx context.Context, s *UploadSession, bearer string) error {
+	if s.Mode != "blocks" || s.State != "open" {
+		return nil
+	}
+	uploadPartsCleanup.Lock()
+	f := uploadPartsCleanup.prepare
+	if f == nil {
+		uploadPartsCleanup.Unlock()
+		return nil
+	}
+	if active := uploadPartsCleanup.pending[s.ID]; active != nil {
+		uploadPartsCleanup.Unlock()
+		select {
+		case <-active.done:
+			return active.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if uploadPartsCleanup.pending == nil {
+		uploadPartsCleanup.pending = make(map[string]*uploadSessionPreparation)
+	}
+	task := &uploadSessionPreparation{done: make(chan struct{}), err: uploadSessionError("unavailable")}
+	uploadPartsCleanup.pending[s.ID] = task
+	uploadPartsCleanup.Unlock()
+	// Serialize the reservation and its compensation for duplicate prepares.
+	// A late rejection must not abort a successfully reserved retry.
+	defer func() {
+		uploadPartsCleanup.Lock()
+		defer uploadPartsCleanup.Unlock()
+		delete(uploadPartsCleanup.pending, s.ID)
+		close(task.done)
+	}()
+	task.err = f(s)
+	if errors.Is(task.err, ErrStorageCapacity) {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := RejectUploadReservation(cleanup, s.ID, bearer); err != nil {
+			task.err = err
+		}
+	}
+	return task.err
 }
 
 // SetUploadSessionPartsCleanup connects the disk owner to durable cancellation.
