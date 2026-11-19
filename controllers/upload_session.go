@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"mime"
 	"net/http"
 	"strconv"
@@ -48,6 +49,12 @@ func PrepareUploadSession(c *echo.Context) error {
 	}
 	s, created, err := utils.PrepareFileUploadSession(r.Context(), r, r.Header.Get("Idempotency-Key"), bearer, manifest)
 	if err != nil {
+		return UploadSessionErrorResponse(c, err)
+	}
+	if err := utils.ReserveUploadSessionParts(r.Context(), s, bearer); err != nil {
+		if errors.Is(err, utils.ErrStorageCapacity) {
+			return uploadSessionHTTPResponse(c, http.StatusInsufficientStorage, "insufficient_storage")
+		}
 		return UploadSessionErrorResponse(c, err)
 	}
 	statusURL := "/api/v2/uploads/" + s.ID

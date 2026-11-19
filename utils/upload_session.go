@@ -230,6 +230,10 @@ func AbortFileUploadSession(ctx context.Context, id, bearer string) error {
 	_, err := sessionAccess(ctx, id, bearer, "abort")
 	return err
 }
+func RejectUploadReservation(ctx context.Context, id, bearer string) error {
+	_, err := sessionAccess(ctx, id, bearer, "reject_reservation")
+	return err
+}
 func ConfirmedUploadOffset(ctx context.Context, id, bearer string, index int) (int64, error) {
 	if index < 0 || index >= UploadSessionMaxFiles {
 		return 0, uploadSessionError("not_found")
