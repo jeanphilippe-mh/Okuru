@@ -2,6 +2,8 @@
 
 This script is based on the supplied production script. The reported setup has a local Let's Encrypt certificate for `share.jeanphilippe.io` and OVH-managed certificates for the other four configured names. Verify this arrangement and the local path on the server before use.
 
+For the script location, Debian installation commands and Certbot hook configuration, see the [deployment guide](../deploy/letsencrypt/README.md).
+
 ## Configuration
 
 The script needs a Cloudflare API token with DNS edit access restricted to the intended zone. By default it reads the raw token from `/etc/letsencrypt/renewal-hooks/deploy/cloudflare-tlsa.token`. The file must be owned by the account running the script, must not be a symbolic link, and must not be accessible to the group or other users. A root-run Certbot hook therefore needs a root-owned file with mode `0600`. Do not put the token itself in the script or command-line arguments.
