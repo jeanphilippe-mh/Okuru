@@ -73,7 +73,7 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 		t.Fatalf("unexpected test-route status: %d", goodResult.Code)
 	}
 
-	oversized := httptest.NewRequest(http.MethodPost, "/api/v1?password="+secret, strings.NewReader(strings.Repeat("x", maxSmallRequestBytes+1)))
+	oversized := httptest.NewRequest(http.MethodPost, "/api/v2/secrets?password="+secret, strings.NewReader(strings.Repeat("x", maxSmallRequestBytes+1)))
 	oversized.Header.Set("Content-Length", strconv.Itoa(maxSmallRequestBytes+1))
 	oversized.RemoteAddr = "198.51.100.27:1235"
 	oversized.Header.Set("X-Request-ID", forgedID)
@@ -151,7 +151,7 @@ func TestHTTPAuditLogUsesSafeRouteAndRecordsRejectedRequests(t *testing.T) {
 			if record["request_content_length"] != float64(maxSmallRequestBytes+1) {
 				t.Errorf("declared request Content-Length missing or not numeric: %v", record)
 			}
-			if record["route"] != "/api/v1" || record["level"] != "warning" {
+			if record["route"] != "/api/v2/secrets" || record["level"] != "warning" {
 				t.Errorf("rejected request logged incorrectly: %v", record)
 			}
 		default:

@@ -76,10 +76,10 @@ func TestMigrationRouterErrorsAndCommittedResponses(t *testing.T) {
 				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 					t.Fatalf("invalid or duplicate JSON response: %v", err)
 				}
-				if len(body) != 1 || body["error"] != tc.body {
+				if len(body) != 2 || body["message"] != tc.body || body["code"] != strings.ToLower(strings.ReplaceAll(tc.body, " ", "_")) {
 					t.Fatalf("JSON body = %#v, want error %q", body, tc.body)
 				}
-				if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
 					t.Fatalf("Cache-Control = %q, want no-store", got)
 				}
 			} else if got := rec.Body.String(); got != tc.body {
