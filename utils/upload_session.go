@@ -18,11 +18,12 @@ func UploadSessionRedisKeys(id string) (string, string) {
 	return p + id, p + "index"
 }
 
-func sessionFlag(name string) bool { b, _ := strconv.ParseBool(os.Getenv(name)); return b }
+func uploadChunksEnabled() bool {
+	enabled, _ := strconv.ParseBool(os.Getenv("OKURU_UPLOAD_CHUNKS"))
+	return enabled && UploadPatchLimit() > 0
+}
+
 func UploadAdmission(ctx context.Context) (bool, bool, error) {
-	if !sessionFlag("OKURU_FILE_API") {
-		return false, false, nil
-	}
 	if sessionGeneration() == "" {
 		return false, false, uploadSessionError("unavailable")
 	}
@@ -36,7 +37,7 @@ func UploadAdmission(ctx context.Context) (bool, bool, error) {
 		return false, false, uploadSessionError("unavailable")
 	}
 	api := result[0] == "open"
-	return api, api && result[1] == "open" && sessionFlag("OKURU_UPLOAD_BLOCKS"), nil
+	return api, api && result[1] == "open" && uploadChunksEnabled(), nil
 }
 
 func uploadCommand(ctx context.Context, id, op, proof string, args ...any) ([]string, error) {
@@ -151,14 +152,7 @@ func PrepareFileUploadSession(ctx context.Context, r *http.Request, id, bearer s
 		}
 		total += f.Size
 	}
-	api, blocks := "0", "0"
-	if sessionFlag("OKURU_FILE_API") {
-		api = "1"
-	}
-	if sessionFlag("OKURU_UPLOAD_BLOCKS") {
-		blocks = "1"
-	}
-	args := []any{m.Mode, hex.EncodeToString(uploadMAC(bearer, "manifest", normalized)), uploadDigest(status), envelope, total, activeIdentity, budget, api, blocks, REDIS_PREFIX + "upload_v2_", len(m.Metadata.Files), identityDigest}
+	args := []any{m.Mode, hex.EncodeToString(uploadMAC(bearer, "manifest", normalized)), uploadDigest(status), envelope, total, activeIdentity, budget, uploadChunksEnabled(), REDIS_PREFIX + "upload_v2_", len(m.Metadata.Files), identityDigest}
 	for _, f := range m.Metadata.Files {
 		args = append(args, f.Size)
 	}
@@ -291,16 +285,6 @@ func InterruptUploadPublication(ctx context.Context, id, expectedPublicationID s
 	}
 	_, err := uploadCommand(ctx, id, "interrupt_publication", "", expectedPublicationID)
 	return err
-}
-func StoreUploadResult(ctx context.Context, id, bearer string, result []byte, expires time.Time) error {
-	sealed, err := SealUploadResult(id, bearer, result)
-	if err != nil {
-		return err
-	}
-	if err := BindUploadPublication(ctx, id, bearer, id); err != nil {
-		return err
-	}
-	return StoreSealedUploadResult(ctx, id, id, sealed, expires)
 }
 func ReadUploadResult(ctx context.Context, id, bearer string) ([]byte, error) {
 	v, err := sessionAccess(ctx, id, bearer, "result")

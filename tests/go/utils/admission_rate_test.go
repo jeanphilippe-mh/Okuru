@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
 )
 
 func admissionTestRedis(t *testing.T) redis.Conn {
@@ -142,5 +143,42 @@ func TestAdmissionSharedProxyUsesGlobalBudgetAndIgnoresSpoofedHeaders(t *testing
 		if err != nil || ok != (i < 3) {
 			t.Fatalf("attempt %d: allowed=%v err=%v", i, ok, err)
 		}
+	}
+}
+
+func TestPreparedFileCreationChargesRetriesOnce(t *testing.T) {
+	conn, r, m := sessionTestSetup(t)
+	ctx := t.Context()
+	m.Mode = "multipart"
+	id, bearer := uuid.NewString(), newUploadSecret()
+	if _, _, err := PrepareFileUploadSession(ctx, r, id, bearer, m); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := BeginMultipartAttempt(ctx, id, bearer, 7); err != nil {
+			t.Fatal(err)
+		}
+		if err := BeginUploadPublication(ctx, id, bearer); err != nil {
+			t.Fatal(err)
+		}
+		allowed, err := AllowPreparedFileCreation(r, id, bearer, 1, 1, time.Hour)
+		if !allowed || err != nil {
+			t.Fatalf("attempt %d: allowed=%t err=%v", attempt, allowed, err)
+		}
+		if err := RevertUploadPublication(ctx, id, bearer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys, err := redis.Strings(conn.Do("KEYS", REDIS_PREFIX+"admission_file_create_*"))
+	if err != nil || len(keys) != 2 {
+		t.Fatal("expected the per-client and global counters", len(keys), err)
+	}
+	for _, key := range keys {
+		if n, err := redis.Int(conn.Do("GET", key)); err != nil || n != 1 {
+			t.Fatal("expected exactly one debit", n, err)
+		}
+	}
+	if allowed, err := AllowClientAction(r, "file_create", 1, 1, time.Hour); err != nil || allowed {
+		t.Fatal("native uploads should still consume the same budget", allowed, err)
 	}
 }

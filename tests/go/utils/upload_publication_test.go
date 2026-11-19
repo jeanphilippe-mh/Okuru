@@ -90,7 +90,7 @@ func TestPreparedPublicationRecoversWithoutCreatorKey(t *testing.T) {
 				t.Fatal(e)
 			}
 			if collision {
-				if string(data) != "foreign" || err == nil {
+				if string(data) != "foreign" || err != nil {
 					t.Fatal("collision was not isolated")
 				}
 				return
@@ -107,9 +107,77 @@ func TestPreparedPublicationRecoversWithoutCreatorKey(t *testing.T) {
 			if a != b || a < time.Now().UnixMilli() {
 				t.Fatal("unequal share expirations")
 			}
+			// Simulate death after Redis commit but before removing its journal,
+			// followed by receipt expiry while the longer-lived share is still valid.
+			if err = os.Mkdir(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err = os.Link(final, filepath.Join(dir, witnessName)); err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(dir, intentFileName), j, 0600); err != nil {
+				t.Fatal(err)
+			}
+			sessionKey, _ := UploadSessionRedisKeys(id)
+			if _, err = conn.Do("DEL", sessionKey); err != nil {
+				t.Fatal(err)
+			}
 			if err = ReconcileUploadPublications(ctx); err != nil {
 				t.Fatal(err)
 			}
+			if _, err = os.Stat(final); err != nil {
+				t.Fatal("live share lost after receipt expiry", err)
+			}
 		})
 	}
+}
+
+func TestFinalizationLostBeforeBindingCanRetry(t *testing.T) {
+	_, r, m := sessionTestSetup(t)
+	m.Mode = "multipart"
+	ctx := t.Context()
+	id, bearer := uuid.NewString(), newUploadSecret()
+	if _, _, err := PrepareFileUploadSession(ctx, r, id, bearer, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := BeginMultipartAttempt(ctx, id, bearer, 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := BeginUploadPublication(ctx, id, bearer); err != nil {
+		t.Fatal(err)
+	}
+	state := func(want string) {
+		t.Helper()
+		s, err := AuthorizeUploadSession(ctx, id, bearer, false)
+		if err != nil || s.State != want {
+			t.Fatalf("want %s, got %v, err %v", want, s, err)
+		}
+	}
+	unlock, err := LockUploadSession(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = recoverUnboundFinalizations(ctx)
+	unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state("finalizing")
+	if err := recoverUnboundFinalizations(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state("open")
+	if err := BeginMultipartAttempt(ctx, id, bearer, 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := BeginUploadPublication(ctx, id, bearer); err != nil {
+		t.Fatal(err)
+	}
+	if err := BindUploadPublication(ctx, id, bearer, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverUnboundFinalizations(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state("finalizing")
 }

@@ -43,6 +43,7 @@ router/logging_test.go
 router/request_abort_logging_test.go
 router/secure_multipart_test.go
 router/staging_recovery_test.go
+router/upload_client_test.go
 router/upload_end_to_end_test.go
 router/upload_lease_test.go
 router/upload_tus_test.go

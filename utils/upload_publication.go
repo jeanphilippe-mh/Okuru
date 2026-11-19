@@ -1,15 +1,22 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
+)
+
+var (
+	errPublicationIsolated = errors.New("publication destination already exists")
+	errPublicationRejected = errors.New("publication failed Redis admission")
 )
 
 const journalDirName = ".okuru-publications"
@@ -162,6 +169,15 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 		if values[1] == p.FileID && values[0] == "ready" {
 			return os.RemoveAll(dir)
 		}
+		// The creator receipt can expire earlier than a published share.
+		// Confirm the durable encrypted file record before undoing a stale intent.
+		stored, lookupErr := redis.Bytes(redis.DoContext(conn, ctx, "HGET", REDIS_PREFIX+"file_"+p.FileID, "token"))
+		if lookupErr != nil && !errors.Is(lookupErr, redis.ErrNil) {
+			return lookupErr
+		}
+		if len(stored) > 0 && bytes.Equal(stored, p.FileCipher) {
+			return os.RemoveAll(dir)
+		}
 		// A completed/expired or never-bound intent may only remove the file
 		// it can identify by its own still-present hard link.
 		if err = removeOwnedPublication(p.FileID, dir); err != nil {
@@ -189,7 +205,7 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 			if err = os.RemoveAll(dir); err != nil {
 				return err
 			}
-			return errors.New("publication destination already exists")
+			return errPublicationIsolated
 		}
 	}
 	if err = syncPublicationDir(FILEFOLDER); err != nil {
@@ -214,6 +230,7 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 			if err = os.RemoveAll(dir); err != nil {
 				return err
 			}
+			return errPublicationRejected
 		}
 		return errors.New("publication could not commit")
 	}
@@ -311,6 +328,10 @@ func ReconcileUploadPublications(ctx context.Context) error {
 		}
 		err = p.finish(ctx, dir)
 		unlock()
+		if errors.Is(err, errPublicationIsolated) || errors.Is(err, errPublicationRejected) {
+			log.WithField("archive", p.FileID).Warn(err.Error())
+			continue
+		}
 		if err != nil {
 			return err
 		}

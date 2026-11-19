@@ -12,13 +12,14 @@ import (
 // Run recovery before the ordinary expiry cleaner can inspect public names.
 // An additional reader process can still serve existing shares without owning uploads.
 func StartPreparedUploads(parent context.Context) (func(), error) {
-	if !sessionFlag("OKURU_FILE_API") {
-		return func() {}, nil
-	}
 	if err := os.MkdirAll(FILEFOLDER, 0700); err != nil {
 		return nil, err
 	}
 	release, err := AcquireUploadSessionOwner(FILEFOLDER)
+	if errors.Is(err, errUploadOwnerBusy) {
+		log.Info("Serving shares without ownership of prepared uploads")
+		return func() {}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -64,11 +65,40 @@ func StartPreparedUploads(parent context.Context) (func(), error) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if err := errors.Join(ReconcileUploadPublications(ctx), SweepUploadParts(ctx)); err != nil {
+				if err := errors.Join(ReconcileUploadPublications(ctx), recoverUnboundFinalizations(ctx), SweepUploadParts(ctx)); err != nil {
 					log.Warn("Pending upload publication needs reconciliation")
 				}
 			}
 		}
 	}()
-	return func() { stop(); <-done; CloseUploadPartOwners(); release() }, nil
+	return func() {
+		stop()
+		<-done
+		CloseUploadPartOwners()
+		release()
+	}, nil
+}
+
+// Recover a lost Redis acknowledgement or a failed rollback before a publication
+// intent was bound. The same lock is held by every active finalizer.
+func recoverUnboundFinalizations(ctx context.Context) error {
+	candidates, err := uploadCommand(ctx, "", "unbound_publications", "", REDIS_PREFIX+"upload_v2_")
+	if err != nil {
+		return err
+	}
+	for _, id := range candidates[1:] {
+		unlock, err := LockUploadSession(id)
+		if err == uploadSessionError("busy") {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		_, err = uploadCommand(ctx, id, "recover_unbound", "")
+		unlock()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

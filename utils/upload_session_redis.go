@@ -57,12 +57,29 @@ local function touch()
  local absolute=tonumber(redis.call('HGET',key,'absolute'))
  schedule(key,id,math.min(absolute,now+idle),false)
 end
+if op=='unbound_publications' then
+ local candidates={'ok'}
+ for _,entry in ipairs(redis.call('ZRANGE',idx,0,255)) do
+  local st,generation,publication=unpack(redis.call('HMGET',ARGV[5]..entry,'state','generation','publication_id'))
+  if st=='finalizing' and generation==gen and not publication then candidates[#candidates+1]=entry end
+ end
+ return candidates
+end
 if op=='sweep' then
  local ids=redis.call('ZRANGE',idx,0,255)
  for _,entry in ipairs(ids) do normalize(ARGV[5]..entry,entry,true) end
  return {'ok'}
 end
 local state=normalize(key,id,false)
+local function revertUnbound()
+ if redis.call('HGET',key,'mode')=='blocks' then redis.call('HSET',key,'state','receiving') else redis.call('HSET',key,'state','open','bytes',0,'body_total',-1) end
+end
+if op=='recover_unbound' then
+ if state=='finalizing' and redis.call('HGET',key,'generation')==gen and redis.call('HEXISTS',key,'publication_id')==0 then
+  revertUnbound()
+ end
+ return {'ok'}
+end
 if op=='owns_parts' then
  if active(state) and redis.call('HGET',key,'mode')=='blocks' and redis.call('HGET',key,'generation')==gen then return {'ok','1'} end
  return {'ok','0'}
@@ -74,12 +91,12 @@ if op=='create' then
   if not same(redis.call('HGET',key,'fingerprint'),ARGV[6]) then return {'manifest_conflict'} end
   return {'replay'}
  end
- if ARGV[12]~='1' or redis.call('HGET',admission,'api')~='open' then return {'closed'} end
- if ARGV[5]=='blocks' and (ARGV[13]~='1' or redis.call('HGET',admission,'blocks')~='open') then return {'closed'} end
+ if redis.call('HGET',admission,'api')~='open' then return {'closed'} end
+ if ARGV[5]=='blocks' and (ARGV[12]~='1' or redis.call('HGET',admission,'blocks')~='open') then return {'closed'} end
  local entries=redis.call('ZRANGE',idx,0,255)
  local count=0
  for _,entry in ipairs(entries) do
-  local other=ARGV[14]..entry
+  local other=ARGV[13]..entry
   local otherState=normalize(other,entry,false)
   if active(otherState) then
    count=count+1
@@ -87,14 +104,14 @@ if op=='create' then
   end
  end
  if count>=4 or redis.call('ZCARD',idx)>=256 then return {'capacity'} end
- local clientRate=ARGV[14]..'rate_'..ARGV[16]
- local globalRate=ARGV[14]..'rate_global'
+ local clientRate=ARGV[13]..'rate_'..ARGV[15]
+ local globalRate=ARGV[13]..'rate_global'
  local clientLimit=ARGV[10]=='' and 100 or 20
  if tonumber(redis.call('GET',clientRate) or '0')>=clientLimit or tonumber(redis.call('GET',globalRate) or '0')>=100 then return {'rate_limit'} end
  local newKeys=4-redis.call('EXISTS',idx,clientRate,globalRate)
  if redis.call('DBSIZE')+newKeys+128>tonumber(ARGV[11]) then return {'redis_capacity'} end
- redis.call('HSET',key,'state','open','generation',gen,'creator',proof,'status',ARGV[7],'mode',ARGV[5],'fingerprint',ARGV[6],'envelope',ARGV[8],'files',ARGV[15],'total',ARGV[9],'body_total',-1,'bytes',0,'parts',0,'absolute',now+14400000,'identity',ARGV[10])
- for i=1,tonumber(ARGV[15]) do redis.call('HSET',key,'size:'..(i-1),ARGV[16+i]) end
+ redis.call('HSET',key,'state','open','generation',gen,'creator',proof,'status',ARGV[7],'mode',ARGV[5],'fingerprint',ARGV[6],'envelope',ARGV[8],'files',ARGV[14],'total',ARGV[9],'body_total',-1,'bytes',0,'parts',0,'absolute',now+14400000,'identity',ARGV[10])
+ for i=1,tonumber(ARGV[14]) do redis.call('HSET',key,'size:'..(i-1),ARGV[15+i]) end
  if redis.call('INCR',clientRate)==1 then redis.call('PEXPIRE',clientRate,keep) end
  if redis.call('INCR',globalRate)==1 then redis.call('PEXPIRE',globalRate,keep) end
  touch()
@@ -182,7 +199,6 @@ if op=='bind' then
 end
 if op=='revert_finalizing' then
  if state~='finalizing' or redis.call('HEXISTS',key,'publication_id')==1 then return {'busy'} end
- if mode=='blocks' then redis.call('HSET',key,'state','receiving') else redis.call('HSET',key,'state','open','bytes',0,'body_total',-1) end
- return {'ok'}
+ revertUnbound(); return {'ok'}
 end
 return {'invalid_request'}`)

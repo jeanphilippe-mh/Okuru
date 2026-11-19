@@ -14,6 +14,22 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestUploadPatchLimit(t *testing.T) {
+	for _, tc := range []struct {
+		setting string
+		want    int64
+	}{
+		{"", 100_000_000}, {"100", 100_000_000}, {"37", 37_000_000}, {"1", 1_000_000},
+		{"0", 0}, {"-1", 0}, {"101", 0}, {"100000000", 0}, {"1.5", 0}, {"invalid", 0},
+		{"9223372036854775807", 0}, {"9223372036854775808", 0},
+	} {
+		t.Setenv("OKURU_UPLOAD_CHUNKS_SIZE", tc.setting)
+		if got := UploadPatchLimit(); got != tc.want {
+			t.Errorf("setting %q: got %d bytes, want %d", tc.setting, got, tc.want)
+		}
+	}
+}
+
 func TestUploadPartsEncryptedStorageAndCleanup(t *testing.T) {
 	c, r, m := sessionTestSetup(t)
 	prev := FILEFOLDER

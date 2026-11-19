@@ -13,7 +13,7 @@ func runTLSATestShell(t *testing.T, script string, env ...string) (string, error
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash is unavailable")
 	}
-	path, err := filepath.Abs("../TLSA_jeanphilippe.io.sh")
+	path, err := filepath.Abs("../deploy/letsencrypt/TLSA_jeanphilippe.io.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
