@@ -146,6 +146,16 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 	if !info.Mode().IsRegular() {
 		return nil
 	}
+	protected, err := guardedUploadPublication(id)
+	if err != nil || protected {
+		return err
+	}
+	// The scan may have observed Redis before a publisher committed and
+	// removed its witness. Check once more before deleting this inode.
+	exists, err = redis.Bool(c.Do("EXISTS", REDIS_PREFIX+"file_"+id))
+	if err != nil || exists {
+		return err
+	}
 	if strings.EqualFold(os.Getenv("OKURU_CLEANUP_DRY_RUN"), "true") {
 		log.WithField("archive", id+".zip").Warn("Cleanup dry-run: expired archive would be removed")
 		return nil
