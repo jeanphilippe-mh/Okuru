@@ -32,12 +32,12 @@ func TestSecretAuditEventsReflectRealOutcomesWithoutSecrets(t *testing.T) {
 
 	cookie, csrf := apiCredentials(t, e)
 	const secret = "audit-private-password-value"
-	created := apiRequest(e, http.MethodPost, "/api/v1", `{"password":"`+secret+`","ttl":300,"views":1}`, "application/json", cookie, csrf)
+	created := apiRequest(e, http.MethodPost, "/api/v2/secrets", `{"password":"`+secret+`","ttl_seconds":300,"views":1}`, "application/json", cookie, csrf)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create returned %d", created.Code)
 	}
 	var response struct {
-		Link string `json:"link_api"`
+		Link string `json:"api_link"`
 	}
 	if err := json.Unmarshal(created.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)

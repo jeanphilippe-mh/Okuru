@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"filippo.io/age"
 	"github.com/flosch/pongo2"
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
@@ -30,7 +29,7 @@ import (
 
 func TestBusyKDFDoesNotConsumeFileViewsOrBlockPasswordlessDownloads(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAgeUserPassword, true)
 	id, _, err := u.ParseToken(token)
 	if err != nil {
 		t.Fatal(err)
@@ -63,13 +62,13 @@ func TestBusyKDFDoesNotConsumeFileViewsOrBlockPasswordlessDownloads(t *testing.T
 	release()
 	rec, err = downloadCompatibilityFile(t, e, token, password)
 	if err != nil || rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), expected) {
-		t.Fatalf("legacy download failed after recovery: status=%d err=%v", rec.Code, err)
+		t.Fatalf("password-protected download failed after recovery: status=%d err=%v", rec.Code, err)
 	}
 }
 
 func TestEmptyFilePasswordConsumesViewsWithoutKDFAdmission(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAgeUserPassword, true)
 	id, _, err := u.ParseToken(token)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +104,7 @@ func TestEmptyFilePasswordConsumesViewsWithoutKDFAdmission(t *testing.T) {
 
 func TestArchiveKDFShareRateLimitDoesNotConsumeLastView(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAge, true)
+	e, token, password, expected := resumeFixture(t, conn, u.ArchiveFormatAgeUserPassword, true)
 	id, _, err := u.ParseToken(token)
 	if err != nil {
 		t.Fatal(err)
@@ -387,71 +386,4 @@ func TestNewPasswordlessArchiveIntegration(t *testing.T) {
 		t.Fatalf("passwordless download: status=%d error=%v", rec.Code, err)
 	}
 	assertCompatibilityZIP(t, rec.Body.Bytes())
-}
-
-func TestLegacyZipAndFactor18LinksIntegration(t *testing.T) {
-	conn := configureCompatibilityRedis(t)
-	const password = "legacy synthetic password"
-	for _, tc := range []struct {
-		name, format string
-		protected    bool
-	}{
-		{"plain ZIP without password", "", false},
-		{"plain ZIP with password", "", true},
-		{"age factor 18 without password", u.ArchiveFormatAge, false},
-		{"age factor 18 with password", u.ArchiveFormatAge, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var token string
-			var errHTTP *echo.HTTPError
-			if tc.format == "" {
-				token, errHTTP = u.SetFile(password, 60, 2, true, tc.protected, "")
-			} else {
-				token, errHTTP = u.SetFile(password, 60, 2, true, tc.protected, "", tc.format)
-			}
-			if errHTTP != nil {
-				t.Fatal(errHTTP)
-			}
-			fileID, _, _ := u.ParseToken(token)
-			t.Cleanup(func() { _, _ = conn.Do("DEL", u.REDIS_PREFIX+"file_"+fileID) })
-			contents := compatibilityZIPFixture(t)
-			if tc.format == u.ArchiveFormatAge {
-				recipient, err := age.NewScryptRecipient(password)
-				if err != nil {
-					t.Fatal(err)
-				}
-				recipient.SetWorkFactor(18)
-				var encrypted bytes.Buffer
-				writer, err := age.Encrypt(&encrypted, recipient)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err := writer.Write(contents); err != nil {
-					t.Fatal(err)
-				}
-				if err := writer.Close(); err != nil {
-					t.Fatal(err)
-				}
-				contents = encrypted.Bytes()
-			}
-			name, err := archiveNameFromToken(token)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(u.FILEFOLDER, name), contents, 0600); err != nil {
-				t.Fatal(err)
-			}
-			e := echo.New()
-			e.Renderer = &compatibilityRenderer{}
-			given := ""
-			if tc.protected {
-				given = password
-			}
-			rec, err := downloadCompatibilityFile(t, e, token, given)
-			if err != nil || rec.Code != http.StatusOK {
-				t.Fatalf("legacy download: status=%d error=%v", rec.Code, err)
-			}
-			assertCompatibilityZIP(t, rec.Body.Bytes())
-		})
-	}
 }

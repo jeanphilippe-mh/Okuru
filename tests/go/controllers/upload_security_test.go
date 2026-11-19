@@ -89,10 +89,10 @@ func TestOversizedSecretsRejectedBeforeRedis(t *testing.T) {
 	})
 	t.Run("json", func(t *testing.T) {
 		e := echo.New()
-		req := httptest.NewRequest(http.MethodPost, "/api/v1", strings.NewReader(`{"password":"`+secret+`"}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/v2/secrets", strings.NewReader(`{"password":"`+secret+`"}`))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
-		err := CreatePassword(e.NewContext(req, rec))
+		err := CreateSecretAPI(e.NewContext(req, rec))
 		if httpErr, ok := err.(*echo.HTTPError); !ok || httpErr.Code != http.StatusRequestEntityTooLarge {
 			t.Fatalf("expected HTTP 413, got %v", err)
 		}

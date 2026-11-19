@@ -14,14 +14,14 @@ import (
 	"github.com/jeanphilippe-mh/Okuru/models"
 )
 
-func TestFileMetadataSecretSeparatesPasswordOnlyForNewProvidedFormat(t *testing.T) {
+func TestFileMetadataSecretSeparatesArchivePassword(t *testing.T) {
 	const password = "example user-selected password"
-	for _, format := range []string{"", ArchiveFormatAge} {
-		for _, provided := range []bool{false, true} {
-			secret, err := fileMetadataSecret(password, provided, format)
-			if err != nil || secret != password {
-				t.Fatalf("legacy format %q changed its secret: %v", format, err)
-			}
+	for _, format := range []string{"", "age-v1", "unknown"} {
+		if _, err := fileMetadataSecret(password, true, format); err == nil {
+			t.Fatalf("unsupported archive format accepted: %q", format)
+		}
+		if _, err := SetFile(password, 60, 1, false, true, uuid.NewString(), format); err == nil || err.Code != http.StatusBadRequest {
+			t.Fatalf("unsupported file record accepted: %q", format)
 		}
 	}
 	first, err := fileMetadataSecret(password, true, ArchiveFormatAgeUserPassword)
@@ -107,7 +107,7 @@ func TestFileMetadataSecretForX25519RequiresValidUnprotectedIdentity(t *testing.
 	}
 }
 
-func TestFileMetadataPasswordIsolationAndLegacyRedis(t *testing.T) {
+func TestFileMetadataPasswordIsolationInRedis(t *testing.T) {
 	c := cleanupTest(t)
 	const password = "test user's separate archive password"
 	passwordLink, httpErr := SetPassword(password, 60, 2, false)
@@ -146,21 +146,6 @@ func TestFileMetadataPasswordIsolationAndLegacyRedis(t *testing.T) {
 	if err != nil || separatePassword != password {
 		t.Fatal("separate password link no longer recovers the password")
 	}
-	for _, format := range []string{"", ArchiveFormatAge} {
-		var link string
-		if format == "" {
-			link, httpErr = SetFile(password, 60, 2, false, false, "")
-		} else {
-			link, httpErr = SetFile(password, 60, 2, false, false, "", format)
-		}
-		if httpErr != nil {
-			t.Fatal(httpErr)
-		}
-		legacy := &models.File{FileKey: link}
-		if err := GetFile(legacy); err != nil || legacy.Password != password || legacy.ArchiveFormat != format {
-			t.Fatalf("legacy or generated-password link changed: format=%q err=%v", format, err)
-		}
-	}
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
@@ -173,4 +158,13 @@ func TestFileMetadataPasswordIsolationAndLegacyRedis(t *testing.T) {
 	if err := GetFile(keyFile); err != nil || keyFile.Password != identity.String() || keyFile.ArchiveFormat != ArchiveFormatAgeX25519 {
 		t.Fatalf("unprotected identity link changed: %v", err)
 	}
+}
+
+func archiveTestIdentity(t *testing.T) string {
+	t.Helper()
+	identity, err := GenerateArchiveIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
 }

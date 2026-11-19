@@ -21,7 +21,7 @@ func TestCompletedCleanupACLFailurePreservesRelatedRecordsAndRetries(t *testing.
 		t.Fatal(httpErr)
 	}
 	secretID := strings.Split(secretLink, TOKEN_SEPARATOR)[0]
-	fileLink, httpErr := SetFile("test-password", 60, 1, false, true, secretID)
+	fileLink, httpErr := SetFile("test-password", 60, 1, false, true, secretID, ArchiveFormatAgeUserPassword)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -83,7 +83,7 @@ func TestCompletedCleanupACLFailurePreservesRelatedRecordsAndRetries(t *testing.
 // finalization performed in response to a successfully completed download.
 func TestCompletedCleanupDryRunDoesNotMutateDuringReconciliation(t *testing.T) {
 	c := cleanupTest(t)
-	fileLink, httpErr := SetFile("test-password", 60, 1, false, false, "")
+	fileLink, httpErr := SetFile(archiveTestIdentity(t), 60, 1, false, false, "", ArchiveFormatAgeX25519)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -133,7 +133,7 @@ func TestCompletedCleanupDryRunDoesNotMutateDuringReconciliation(t *testing.T) {
 func TestSuccessfulDownloadFinalizationRemainsActiveDuringDryRun(t *testing.T) {
 	cleanupTest(t)
 	t.Setenv("OKURU_CLEANUP_DRY_RUN", "true")
-	fileLink, httpErr := SetFile("test-password", 60, 1, false, false, "")
+	fileLink, httpErr := SetFile(archiveTestIdentity(t), 60, 1, false, false, "", ArchiveFormatAgeX25519)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}

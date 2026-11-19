@@ -67,13 +67,13 @@ func TestEncryptedUploadArchive(t *testing.T) {
 		probeRelease()
 		releasedBeforeStreaming = true
 	}
-	if err = writeEncryptedUploadArchive(reserved, path, "test password", files, names, ArchiveFormatAge, releaseBeforeStreaming); err != nil {
+	if err = writeEncryptedUploadArchive(reserved, path, "test password", files, names, ArchiveFormatAgeUserPassword, releaseBeforeStreaming); err != nil {
 		t.Fatal(err)
 	}
 	if !releasedBeforeStreaming {
 		t.Fatal("KDF slot remained reserved during ZIP streaming")
 	}
-	if err := writeEncryptedUploadArchive(context.Background(), path, "test password", files, names, ArchiveFormatAge, nil); err == nil {
+	if err := writeEncryptedUploadArchive(context.Background(), path, "test password", files, names, ArchiveFormatAgeUserPassword, nil); err == nil {
 		t.Fatal("existing archive overwritten")
 	}
 	ciphertext, err := os.ReadFile(path)
