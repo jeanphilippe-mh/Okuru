@@ -35,6 +35,7 @@ router/echo_migration_errors_test.go
 router/csp_nonce_test.go
 router/errors_test.go
 router/http2_security_test.go
+router/prepared_upload_test.go
 router/security_observer_test.go
 router/limits_test.go
 router/links_slash_regression_test.go
