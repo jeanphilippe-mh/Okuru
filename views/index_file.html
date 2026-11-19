@@ -31,6 +31,10 @@
                 <br>
                 <div class="form-group">
                     <button type="submit" class="btn btn-primary" id="submit">Generate URL</button>
+                    {% if upload_blocks_enabled %}
+                    <button type="button" class="btn btn-outline-secondary" id="upload-blocks-start" hidden>Resumable upload</button>
+                    <noscript><small class="form-text password-help d-block">For files above the single-request limit, enable JavaScript to use resumable upload.</small></noscript>
+                    {% endif %}
                 </div>
                 <br>
             </div>
@@ -61,6 +65,10 @@
         </div>
         <progress id="upload-meter" max="100"></progress>
         <div id="upload-status" role="status"></div>
+        {% if upload_blocks_enabled %}
+        <button type="button" class="btn btn-outline-secondary mt-2" id="upload-blocks-resume" hidden>Resume upload</button>
+        <button type="button" class="btn btn-outline-secondary mt-2" id="upload-blocks-cancel" hidden>Cancel upload</button>
+        {% endif %}
     </div>
     <form id="upload-confirmation" action="/file/confirmation" method="post" hidden>
         <input type="hidden" name="_csrf" value="{{ csrfToken }}">
@@ -164,4 +172,10 @@
 })();
 </script>
 <script nonce="{{ csp_nonce }}" src="/scripts/upload-progress.js" integrity="sha512-4QdBupmNr8npYGAnYYS5sfZk51k+qTCDJryM1UVYKuriiXE4FpsCWhbkqunIxHPiPb1bTYUDKYAmewa482XFrQ=="></script>
+{% if upload_blocks_enabled %}
+<script nonce="{{ csp_nonce }}" src="/scripts/tus.min.js" integrity="sha512-ANMDrIMUl7SJ3/ykWfb5U5ZluVTPwgUEDxxLVcHSE4ATJXqUEsdlfbhtnyoSZbsBNb/aLsFzO/iWZZZTlMWr+w=="></script>
+<script nonce="{{ csp_nonce }}" src="/scripts/upload-blocks-transport.js" integrity="sha512-l1zaxkG5KeHG9zct+YJBHQumv8CQm+rzHTxwnW4/F1xrrSRevkqM9M7FpaIRJFz7Rw8S0hA/c14whFjVX/veTA=="></script>
+<script nonce="{{ csp_nonce }}" src="/scripts/upload-blocks-session.js" integrity="sha512-hum3Dtq3JvMtz+ICxCW+GD9UCtxmMCiF9vAGciS4XnB3eC8l1CvMdVeCH2nsXTKZqz6GdCCsW1ZB7wiwrFS4jA=="></script>
+<script nonce="{{ csp_nonce }}" src="/scripts/upload-blocks.js" integrity="sha512-6zz1eURqEpZSfLSO+vGh577krny2SOyFewBzAECrQezdxycz70UzLXalg8s6oIvX1LBhoL1rHo1nfyb4riShOg=="></script>
+{% endif %}
 {% endblock %}
