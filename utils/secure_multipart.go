@@ -133,6 +133,8 @@ func GetSecureMultipart(r *http.Request) *SecureMultipart {
 var ErrSecureMultipart = errors.New("Invalid multipart upload")
 var ErrSecureMultipartTooLarge = errors.New("Multipart upload exceeds its limit")
 var ErrSecureMultipartFilename = errors.New("Invalid or duplicate file name")
+var ErrSecureMultipartFileCount = fmt.Errorf("%w: too many files", ErrSecureMultipart)
+var ErrSecureMultipartFileSize = fmt.Errorf("%w: total file size", ErrSecureMultipartTooLarge)
 
 // ParseSecureMultipart never invokes net/http's form parser, which would spill
 // plaintext to os.TempDir. It consumes the body once before CSRF extraction.
@@ -250,8 +252,11 @@ func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 			values[name] = append(values[name], string(value))
 			continue
 		}
-		if name != "files" || len(filename) > 255 || len(form.Files) >= maxFiles {
+		if name != "files" || len(filename) > 255 {
 			return nil, ErrSecureMultipart
+		}
+		if len(form.Files) >= maxFiles {
+			return nil, ErrSecureMultipartFileCount
 		}
 		key, valid := UploadFilenameKey(filename)
 		if _, duplicate := seenNames[key]; !valid || duplicate {
@@ -294,7 +299,7 @@ func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 				if direct && limit < maxFileBytes-total {
 					return nil, ErrSecureMultipart
 				}
-				return nil, ErrSecureMultipartTooLarge
+				return nil, ErrSecureMultipartFileSize
 			}
 			if probeErr != io.EOF {
 				return nil, errors.Join(ErrSecureMultipart, probeErr)

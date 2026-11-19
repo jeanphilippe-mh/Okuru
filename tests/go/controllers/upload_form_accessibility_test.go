@@ -12,6 +12,7 @@ import (
 	"github.com/flosch/pongo2"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
+	"golang.org/x/net/html"
 )
 
 type uploadFormTemplateRenderer struct{ templates *pongo2.TemplateSet }
@@ -71,17 +72,56 @@ func TestUploadFormPreservesLimitsAndAccessibilityAfterError(t *testing.T) {
 			if recorder.Code != test.want {
 				t.Fatalf("status = %d, want %d", recorder.Code, test.want)
 			}
+			refresh := recorder.Header().Get("Refresh")
+			if test.want == http.StatusBadRequest {
+				if refresh != "3; url=/file" || !strings.Contains(recorder.Body.String(), `href="/file">Return now`) {
+					t.Fatal("missing three-second return after validation")
+				}
+			} else if refresh != "" {
+				t.Fatal("initial form should stay open")
+			}
 			for _, want := range []string{
 				"total max size <b>1 GB</b>",
 				"const maxsizeBytes = 1073741824;",
 				`aria-describedby="password-help"`,
 				`id="password-help"`,
-				`<span role="alert">`,
+				`aria-describedby="files-help"`,
+				`id="files-help"`,
+				"To add multiple files, select them all at once within the form.",
 				`value="csrf-test"`,
 			} {
 				if !strings.Contains(recorder.Body.String(), want) {
 					t.Errorf("rendered form is missing %q", want)
 				}
+			}
+			doc, err := html.Parse(recorder.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			foundAlert := false
+			for n := range doc.Descendants() {
+				if n.Type != html.ElementNode {
+					continue
+				}
+				var id, role string
+				for _, attr := range n.Attr {
+					switch attr.Key {
+					case "id":
+						id = attr.Val
+					case "role":
+						role = attr.Val
+					}
+				}
+				if id == "file-selection-error" && role == "alert" {
+					foundAlert = true
+					hasMessage := n.FirstChild != nil && strings.TrimSpace(n.FirstChild.Data) != ""
+					if hasMessage != (test.want == http.StatusBadRequest) {
+						t.Error("the upload alert should contain a message only after validation fails")
+					}
+				}
+			}
+			if !foundAlert {
+				t.Error("missing accessible file selection alert")
 			}
 		})
 	}

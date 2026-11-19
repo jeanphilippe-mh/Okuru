@@ -74,7 +74,7 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 				bodyBytes := r.ContentLength
 				if bodyBytes > maxUploadBodyBytes {
 					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
+					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large").Wrap(utils.ErrSecureMultipartFileSize)
 				}
 				leaseTTL := readTimeout
 				if writeTimeout > leaseTTL {

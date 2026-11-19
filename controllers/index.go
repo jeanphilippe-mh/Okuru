@@ -208,37 +208,34 @@ func RevealPassword(context *echo.Context) error {
 
 func AddIndex(context *echo.Context) error {
 	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	// Retrieve the CSRF token
-	csrfToken := context.Get("csrf")
-	dataContext["csrfToken"] = csrfToken
+	dataContext["csrfToken"] = context.Get("csrf")
+	fail := func(status int, message string) error {
+		dataContext["errors"] = message
+		return RenderFormError(context, status, "set_password.html", "/", dataContext)
+	}
 
 	var err error
 	p := new(Password)
 	p.Password = context.FormValue("password")
 	if err := ValidateSecretLength(p.Password); err != nil {
-		dataContext["errors"] = "Secret exceeds the maximum size"
-		return context.Render(http.StatusRequestEntityTooLarge, "set_password.html", dataContext)
+		return fail(http.StatusRequestEntityTooLarge, "Secret exceeds the maximum size")
 	}
 
 	p.TTL, err = ParseWebNumber(context.FormValue("ttl"))
 	if err != nil {
 		AuditAlert(context, "request.invalid_duration", "Invalid duration field")
-		dataContext["errors"] = "Invalid duration"
-		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
+		return fail(http.StatusBadRequest, "Invalid duration")
 	}
 
 	p.Views, err = ParseWebNumber(context.FormValue("ttlViews"))
 	if err != nil {
 		AuditAlert(context, "request.invalid_attempt_count", "Invalid attempt count field")
-		dataContext["errors"] = "Invalid attempt count"
-		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
+		return fail(http.StatusBadRequest, "Invalid attempt count")
 	}
 
 	p.Deletable = false
 	if err := ValidateWebLimits(p.TTL, p.Views); err != nil {
-		dataContext["errors"] = displayError(err.Error())
-		return context.Render(http.StatusBadRequest, "set_password.html", dataContext)
+		return fail(http.StatusBadRequest, displayError(err.Error()))
 	}
 
 	if context.FormValue("deletable") == "on" {
@@ -247,24 +244,20 @@ func AddIndex(context *echo.Context) error {
 
 	if err := context.Validate(p); err != nil {
 		AuditAlert(context, "secret.invalid_metadata", "Invalid secret metadata")
-		dataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
-		return context.Render(http.StatusOK, "set_password.html", dataContext)
+		return fail(http.StatusOK, "A problem occured during the processus. Please contact the administrator of the website")
 	}
 
 	if p.Password == "" {
-		dataContext["errors"] = "No input was provided. Please fill the following field to generate a link"
-		return context.Render(http.StatusOK, "set_password.html", dataContext)
+		return fail(http.StatusOK, "No input was provided. Please fill the following field to generate a link")
 	}
 
 	if p.TTL > 30 {
-		dataContext["errors"] = "TTL is too high"
-		return context.Render(http.StatusOK, "set_password.html", dataContext)
+		return fail(http.StatusOK, "TTL is too high")
 	}
 
 	p.TTL = GetTtlSeconds(p.TTL)
 	if admissionErr := admitSecretCreation(context); admissionErr != nil {
-		dataContext["errors"] = admissionErr.Message
-		return context.Render(admissionErr.Code, "set_password.html", dataContext)
+		return fail(admissionErr.Code, admissionErr.Message)
 	}
 
 	// Need to use err2 since it's not an error but an http error and it don't return nil otherwise.
@@ -272,11 +265,9 @@ func AddIndex(context *echo.Context) error {
 	if err2 != nil {
 		AuditError(context, "secret.create_failed", "Secret creation failed")
 		if err2.Code == http.StatusServiceUnavailable {
-			dataContext["errors"] = "Secret storage is temporarily unavailable"
-			return context.Render(http.StatusServiceUnavailable, "set_password.html", dataContext)
+			return fail(http.StatusServiceUnavailable, "Secret storage is temporarily unavailable")
 		}
-		dataContext["errors"] = "A problem occured during the processus. Please contact the administrator of the website"
-		return context.Render(http.StatusOK, "set_password.html", dataContext)
+		return fail(http.StatusOK, "A problem occured during the processus. Please contact the administrator of the website")
 	}
 	AuditEvent(context, "secret.create", "Secret created")
 

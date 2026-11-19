@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestErrorsKeepStatusAndAreWrittenOnce(t *testing.T) {
 	e := echo.New()
 	ConfigureErrorHandler(e, dir)
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		HandleError: true,
+		HandleError:   true,
 		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error { return nil },
 	}))
 	e.GET("/api/test", func(c *echo.Context) error { return echo.NewHTTPError(400, "private message") })
@@ -47,6 +48,51 @@ func TestErrorsKeepStatusAndAreWrittenOnce(t *testing.T) {
 		}
 		if path == "/web" && response.Body.String() != "<p>bad input</p>" {
 			t.Fatal("error HTML not served")
+		}
+	}
+}
+
+func TestFormNavigationErrorsReturnToOriginalForm(t *testing.T) {
+	e := echo.New()
+	e.Renderer = selectionLimitRenderer{}
+	ConfigureErrorHandler(e, t.TempDir())
+	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.Response().Header().Set("Retry-After", "60")
+			return echo.NewHTTPError(http.StatusTooManyRequests, "private detail")
+		}
+	})
+	for _, tc := range []struct {
+		method, path, mode, accept, xhr, destination string
+	}{
+		{http.MethodPost, "/", "navigate", echo.MIMETextHTML, "", "/"},
+		{http.MethodPost, "/file", "navigate", echo.MIMETextHTML, "", "/file"},
+		{http.MethodPost, "/file/", "", echo.MIMETextHTML, "", "/file"},
+		{http.MethodPost, "/file", "cors", echo.MIMEApplicationJSON, "", ""},
+		{http.MethodPost, "/file", "", echo.MIMETextHTML, "XMLHttpRequest", ""},
+		{http.MethodPost, "/api/v2/files/direct", "navigate", echo.MIMETextHTML, "", ""},
+		{http.MethodGet, "/file/key/download/session", "navigate", echo.MIMETextHTML, "", ""},
+		{http.MethodHead, "/file", "navigate", echo.MIMETextHTML, "", ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set(echo.HeaderAccept, tc.accept)
+		req.Header.Set("Sec-Fetch-Mode", tc.mode)
+		req.Header.Set("X-Requested-With", tc.xhr)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" ||
+			strings.Contains(rec.Body.String(), "private detail") {
+			t.Fatalf("%s %s returned status=%d, headers=%v, body=%q", tc.method, tc.path, rec.Code, rec.Header(), rec.Body.String())
+		}
+		if tc.destination == "" {
+			if rec.Header().Get("Refresh") != "" || tc.method == http.MethodHead && rec.Body.Len() != 0 {
+				t.Fatalf("%s %s received an unexpected form return", tc.method, tc.path)
+			}
+			continue
+		}
+		if rec.Header().Get("Refresh") != "3; url="+tc.destination || !strings.Contains(rec.Body.String(), `href="`+tc.destination+`">Return now`) ||
+			!strings.Contains(rec.Body.String(), "Too Many Requests") || strings.Contains(rec.Body.String(), `http-equiv="refresh"`) {
+			t.Fatalf("%s %s has no unique form return for %s", tc.method, tc.path, tc.destination)
 		}
 	}
 }

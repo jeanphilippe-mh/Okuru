@@ -51,8 +51,17 @@ func secureMultipart(next echo.HandlerFunc) echo.HandlerFunc {
 			// Echo v5 BodyLimit returns a status sentinel rather than an
 			// *echo.HTTPError. Parsing may wrap it with errors.Join.
 			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) || errors.Is(err, utils.ErrSecureMultipartTooLarge) || echo.StatusCode(err) == http.StatusRequestEntityTooLarge {
+			if errors.As(err, &tooLarge) || errors.Is(err, utils.ErrSecureMultipartFileSize) || echo.StatusCode(err) == http.StatusRequestEntityTooLarge {
+				return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Multipart upload too large").Wrap(utils.ErrSecureMultipartFileSize)
+			}
+			if errors.Is(err, utils.ErrSecureMultipartTooLarge) {
 				return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Multipart upload too large")
+			}
+			if errors.Is(err, utils.ErrSecureMultipartFileCount) {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload").Wrap(utils.ErrSecureMultipartFileCount)
+			}
+			if errors.Is(err, utils.ErrSecureMultipartFilename) {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload").Wrap(utils.ErrSecureMultipartFilename)
 			}
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload")
 		}
