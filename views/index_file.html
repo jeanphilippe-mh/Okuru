@@ -6,7 +6,7 @@
         <h2 id="file-title">Set Secret</h2>
     </div>
     <div>
-        <p><span role="alert">{% if (errors) %}&#128683; {{ errors }}{% endif %}</span> </p>
+        <p><span id="file-selection-error" role="alert">{% if (errors) %}&#128683; {{ errors }}{% endif %}</span> </p>
     </div>
 <form id="file_create" action="/file" aria-labelledby="file-title" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->
@@ -15,8 +15,8 @@
         <div class="row">
             <div class="col">
                 <div class="form-group">
-                    <label for="files"><b>File(s)</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
-                    <input type="file" id="files" name="files" class="form-control-file" aria-describedby="files-help" multiple />
+                    <label for="files"><b id="files-label-word">File</b> to upload {total max size <b>{{ maxFileSizeText }}</b>}:</label>
+                    <input type="file" id="files" name="files" class="form-control-file" aria-describedby="files-help" aria-invalid="false" multiple />
                     <small id="files-help" class="form-text password-help d-block">To add multiple files, select them all at once within the form.</small>
                 </div>
                 <br>
@@ -99,8 +99,9 @@
         rangeView = document.getElementById("ttlViews"),
         rangeViewValue = document.getElementById("ttlViews-value"),
         myFiles = document.getElementById('files'),
+        fileLabelWord = document.getElementById('files-label-word'),
         fileForm = document.getElementById("file_create"),
-        errorSpan = document.querySelector("p > span");
+        errorSpan = document.getElementById("file-selection-error");
 
   // Max file size in bytes configuration.
   const maxsizeBytes = {{ maxFileSize }};
@@ -121,13 +122,18 @@
 
   // These checks improve feedback before a potentially large upload. The
   // server independently validates every name and enforces the size limit.
-  function validateFiles() {
-    const files = Array.from(myFiles.files);
-    if (files.length === 0) return 'Select at least one file.';
+  function fileLimitError(files) {
     if (files.length > 100) return 'Select no more than 100 files.';
+    if (files.reduce((total, file) => total + file.size, 0) > maxsizeBytes) {
+      return `The total size of selected files exceeds the maximum of ${Math.floor(maxsizeBytes / 1024 / 1024)} MB.`;
+    }
+    return '';
+  }
+
+  function validateFileNames(files) {
+    if (files.length === 0) return 'Select at least one file.';
     const seen = new Set();
     const encoder = new TextEncoder();
-    let totalSize = 0;
     for (const file of files) {
       const name = file.name;
       const normalized = name.normalize('NFC');
@@ -143,35 +149,76 @@
       const key = normalized.toUpperCase().toLowerCase().normalize('NFC');
       if (seen.has(key)) return `Duplicate file name: ${name}`;
       seen.add(key);
-      totalSize += file.size;
-      if (file.size > maxsizeBytes || totalSize > maxsizeBytes) {
-        return `The total size of selected files exceeds the maximum of ${Math.floor(maxsizeBytes / 1024 / 1024)} MB.`;
-      }
     }
     return '';
   }
 
-  function showFileError(message) {
-    // Never interpret an attacker-controlled file name as HTML.
-    errorSpan.textContent = message ? `🚫 ${message}` : '';
-    myFiles.setAttribute('aria-invalid', message ? 'true' : 'false');
+  let returnTimer;
+  let serverLimit = '';
+  function cancelReturn() {
+    clearTimeout(returnTimer);
+    returnTimer = undefined;
   }
 
+  function checkSelection() {
+    const files = Array.from(myFiles.files);
+    const limitError = serverLimit || fileLimitError(files);
+    const message = limitError || validateFileNames(files);
+    const notice = limitError ? ' Returning to the upload form in 5 seconds.' : '';
+    // A file name may contain markup. Only display it as text.
+    errorSpan.textContent = message ? `🚫 ${message}${notice}` : '';
+    myFiles.setAttribute('aria-invalid', message ? 'true' : 'false');
+    myFiles.setAttribute('aria-describedby', message ? 'files-help file-selection-error' : 'files-help');
+    if (!limitError) {
+      cancelReturn();
+    } else if (returnTimer === undefined) {
+      returnTimer = setTimeout(() => window.location.replace('/file'), 5000);
+    }
+    return !message;
+  }
+
+  function updateFileLabel() {
+    fileLabelWord.textContent = myFiles.files.length > 1 ? 'Files' : 'File';
+  }
+
+  fileForm.addEventListener('file-selection-limit', event => {
+    serverLimit = event.detail;
+    checkSelection();
+    event.preventDefault(); // The alert above the form now owns this message.
+  });
+  window.addEventListener('pageshow', event => {
+    updateFileLabel();
+    if (event.persisted && myFiles.getAttribute('aria-invalid') === 'true') {
+      if (!myFiles.files.length) serverLimit = '';
+      checkSelection();
+    }
+  });
+  // The reset event fires before the browser clears the selection.
+  fileForm.addEventListener('reset', () => {
+    serverLimit = '';
+    cancelReturn();
+    errorSpan.textContent = '';
+    myFiles.setAttribute('aria-invalid', 'false');
+    myFiles.setAttribute('aria-describedby', 'files-help');
+    setTimeout(updateFileLabel, 0);
+  });
+  window.addEventListener('pagehide', cancelReturn);
   myFiles.addEventListener('change', function() {
-    showFileError(validateFiles());
+    serverLimit = '';
+    updateFileLabel();
+    cancelReturn();
+    checkSelection();
   });
 
   fileForm.addEventListener("submit", function(e) {
-    const error = validateFiles();
-    showFileError(error);
-    if (error) {
+    if (!checkSelection()) {
       e.preventDefault();
       myFiles.focus();
     }
   });
 })();
 </script>
-<script nonce="{{ csp_nonce }}" src="/scripts/upload-progress.js" integrity="sha512-4QdBupmNr8npYGAnYYS5sfZk51k+qTCDJryM1UVYKuriiXE4FpsCWhbkqunIxHPiPb1bTYUDKYAmewa482XFrQ=="></script>
+<script nonce="{{ csp_nonce }}" src="/scripts/upload-progress.js" integrity="sha512-niCxAiTSc2NqdMNIF13G3GbebdHGLKN2zKQLn1iBe+PQofoDjdMkdhU8/HlJJiAg4RVEFlPyqmyufaIbS+wopA=="></script>
 {% if upload_blocks_enabled %}
 <script nonce="{{ csp_nonce }}" src="/scripts/tus.min.js" integrity="sha512-ANMDrIMUl7SJ3/ykWfb5U5ZluVTPwgUEDxxLVcHSE4ATJXqUEsdlfbhtnyoSZbsBNb/aLsFzO/iWZZZTlMWr+w=="></script>
 <script nonce="{{ csp_nonce }}" src="/scripts/upload-blocks-transport.js" integrity="sha512-l1zaxkG5KeHG9zct+YJBHQumv8CQm+rzHTxwnW4/F1xrrSRevkqM9M7FpaIRJFz7Rw8S0hA/c14whFjVX/veTA=="></script>

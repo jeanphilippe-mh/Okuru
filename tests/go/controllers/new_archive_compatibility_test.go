@@ -236,7 +236,7 @@ func createCompatibilityUpload(t *testing.T, password string) (*echo.Echo, *comp
 	return e, renderer
 }
 
-func downloadCompatibilityFile(t *testing.T, e *echo.Echo, token, password string) (*httptest.ResponseRecorder, error) {
+func postDownload(t *testing.T, e *echo.Echo, token, password string) (*httptest.ResponseRecorder, error) {
 	t.Helper()
 	form := url.Values{"password": {password}}
 	req := httptest.NewRequest(http.MethodPost, "/file/"+token, strings.NewReader(form.Encode()))
@@ -245,6 +245,50 @@ func downloadCompatibilityFile(t *testing.T, e *echo.Echo, token, password strin
 	ctx := e.NewContext(req, rec)
 	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
 	return rec, DownloadFile(ctx)
+}
+
+// authorizedDownload checks the browser handoff before any ZIP bytes are served.
+func authorizedDownload(t *testing.T, token string, rec *httptest.ResponseRecorder) *http.Cookie {
+	t.Helper()
+	location := rec.Header().Get("Location")
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(location, "/file/dl-") || rec.Header().Get("Content-Type") == "application/zip" {
+		t.Fatalf("invalid download handoff: status=%d", rec.Code)
+	}
+	if rec.Header().Get("Cache-Control") != "private, no-store" || rec.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatal("download handoff is missing privacy headers")
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		name, err := downloadSessionCookie(token, cookie.Value)
+		if err == nil && cookie.Name == name && location == downloadSessionPath(token, downloadSessionDigest(cookie.Value)) && cookie.Path == location && cookie.Secure && cookie.HttpOnly && cookie.SameSite == http.SameSiteStrictMode && !strings.Contains(location, cookie.Value) {
+			return cookie
+		}
+	}
+	t.Fatal("missing private session cookie scoped to the redirect destination")
+	return nil
+}
+
+func downloadRequest(e *echo.Echo, w http.ResponseWriter, req *http.Request) error {
+	c := e.NewContext(req, w)
+	segment, sessionID, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/file/"), "/download/")
+	c.SetPathValues(echo.PathValues{{Name: "file_key", Value: segment}, {Name: "session_id", Value: sessionID}})
+	err := DownloadSessionFile(c)
+	if err != nil {
+		e.HTTPErrorHandler(c, err)
+	}
+	return err
+}
+
+func downloadCompatibilityFile(t *testing.T, e *echo.Echo, token, password string) (*httptest.ResponseRecorder, error) {
+	t.Helper()
+	rec, err := postDownload(t, e, token, password)
+	if err != nil || rec.Code != http.StatusSeeOther {
+		return rec, err
+	}
+	cookie := authorizedDownload(t, token, rec)
+	req := httptest.NewRequest(http.MethodGet, rec.Header().Get("Location"), nil)
+	req.AddCookie(cookie)
+	get := httptest.NewRecorder()
+	return get, downloadRequest(e, get, req)
 }
 
 func assertCompatibilityZIP(t *testing.T, body []byte) {

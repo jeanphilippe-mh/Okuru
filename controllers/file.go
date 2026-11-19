@@ -120,7 +120,7 @@ func Error508File(context *echo.Context) error {
 
 func ReadFile(context *echo.Context) error {
 	if context.Request().Header.Get("Range") != "" {
-		return resumeDownload(context)
+		return DownloadSessionFile(context)
 	}
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
@@ -259,7 +259,7 @@ func DownloadFile(context *echo.Context) error {
 	if err := ValidateSecretLength(password); err != nil {
 		return context.NoContent(http.StatusRequestEntityTooLarge)
 	}
-	if err := ValidateDownloadSessionTimeout(); err != nil {
+	if err := ValidateDownloadTimeouts(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
@@ -270,6 +270,9 @@ func DownloadFile(context *echo.Context) error {
 	if previewErr := GetFile(preview); previewErr != nil {
 		auditUnavailable(context, previewErr, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
+	}
+	if downloadSharePath(f.FileKey) == "" {
+		return context.NoContent(http.StatusNotFound)
 	}
 	var releaseKDF func()
 	needsKDF := preview.ArchiveFormat == ArchiveFormatAgeUserPassword && password != ""
@@ -347,27 +350,23 @@ func DownloadFile(context *echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	value, lifetime, session, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
+	defer archive.file.Close()
+	value, cookieLifetime, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
 	if err != nil {
-		_ = archive.file.Close()
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	progress := &downloadProgress{session: session, representationOK: true}
-	defer func() {
-		_ = archive.file.Close()
-		progress.finish()
-	}()
 	cookieName, err := downloadSessionCookie(f.FileKey, value)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
+	location := downloadSessionPath(f.FileKey, downloadSessionDigest(value))
 	context.SetCookie(&http.Cookie{
-		Name: cookieName, Value: value, Path: "/file/" + f.FileKey,
-		MaxAge: lifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
+		Name: cookieName, Value: value, Path: location,
+		MaxAge: cookieLifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
-	archive.etag = sessionETag(archive.etag, value)
-	AuditStarted(context, "file.download_started", "File download started")
-	return writeDownloadArchive(context, archive, archiveName, nil, progress)
+	context.Response().Header().Set("Cache-Control", "private, no-store")
+	context.Response().Header().Set("Referrer-Policy", "no-referrer")
+	return context.Redirect(http.StatusSeeOther, location)
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.
