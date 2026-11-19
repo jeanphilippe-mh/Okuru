@@ -3,13 +3,7 @@ package controllers_test
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hkdf"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -130,7 +124,7 @@ func shortLinkWebTest(t *testing.T) *echo.Echo {
 		c, err := redis.Dial("tcp", addr, redis.DialDatabase(12))
 		if err == nil {
 			defer c.Close()
-			for _, pattern := range []string{"resource_security_short_v1_*", "resource_security_short_v2_*"} {
+			for _, pattern := range []string{"resource_security_short_v2_*"} {
 				keys, _ := redis.Strings(c.Do("KEYS", pattern))
 				for _, key := range keys {
 					_, _ = c.Do("DEL", key)
@@ -156,45 +150,6 @@ func requireRootShortLink(t *testing.T, link string) *url.URL {
 		t.Fatal("short URL is not a canonical 128-bit alias at the root")
 	}
 	return u
-}
-
-// createLegacyShortLink writes a synthetic record using the original
-// 32-byte alias and v1 Redis record format. This exercises an entry created
-// before 16-byte aliases existed, without adding a production legacy API.
-func createLegacyShortLink(t *testing.T, token string, kind byte) string {
-	t.Helper()
-	seed := make([]byte, 32)
-	if _, err := rand.Read(seed); err != nil {
-		t.Fatal(err)
-	}
-	index, err := hkdf.Key(sha256.New, seed, nil, "okuru/short-link/v1/lookup", 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := hkdf.Key(sha256.New, seed, nil, "okuru/short-link/v1/aes-256-gcm", 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aead, err := cipher.NewGCMWithRandomNonce(block)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aad := append([]byte("okuru/short-link/v1/record:"), index...)
-	plaintext := append([]byte{kind}, token...)
-	ciphertext := aead.Seal(nil, nil, plaintext, aad)
-	c, err := redis.Dial("tcp", os.Getenv("OKURU_TEST_REDIS_ADDR"), redis.DialDatabase(12))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	if _, err := c.Do("SET", u.REDIS_PREFIX+"short_v1_"+hex.EncodeToString(index), ciphertext, "PX", 60000); err != nil {
-		t.Fatal(err)
-	}
-	return base64.RawURLEncoding.EncodeToString(seed)
 }
 
 func requireLongSecretLink(t *testing.T, link string) {
@@ -284,7 +239,8 @@ func TestShortLinkWebSecretRoundTripAndViews(t *testing.T) {
 
 func TestShortLinkWebFileRedirectAndDownload(t *testing.T) {
 	e := shortLinkWebTest(t)
-	token, err := u.SetFile("sample-file-password", 120, 1, true, false, "")
+	identity := resourceTestIdentity(t)
+	token, err := u.SetFile(identity, 120, 1, true, false, "", u.ArchiveFormatAgeX25519)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,15 +248,17 @@ func TestShortLinkWebFileRedirectAndDownload(t *testing.T) {
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
-	if err := os.WriteFile(filepath.Join(u.FILEFOLDER, id+".zip"), []byte("file-content"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	writeResourceTestArchive(t, filepath.Join(u.FILEFOLDER, id+".zip"), identity, "file-content", false)
 	alias, createErr := u.CreateShortLink(context.Background(), token, true)
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
-	legacyAlias := createLegacyShortLink(t, token, 'f')
-	for _, candidate := range []string{alias, legacyAlias} {
+	t.Setenv("OKURU_SHORTLINK_BITS", "256")
+	strongAlias, createErr := u.CreateShortLink(t.Context(), token, true)
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	for _, candidate := range []string{alias, strongAlias} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, httptest.NewRequest(method, "/"+candidate, nil))
@@ -330,8 +288,12 @@ func TestShortLinkRootVariantsAndRemovedPrefix(t *testing.T) {
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
-	legacyAlias := createLegacyShortLink(t, token, 's')
-	for _, candidate := range []string{alias, legacyAlias} {
+	t.Setenv("OKURU_SHORTLINK_BITS", "256")
+	strongAlias, createErr := u.CreateShortLink(t.Context(), token, false)
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	for _, candidate := range []string{alias, strongAlias} {
 		encoded := fmt.Sprintf("/%%%02X%s", candidate[0], candidate[1:])
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			for _, path := range []string{"/" + candidate, "/" + candidate + "/", encoded} {
@@ -500,7 +462,7 @@ func TestShortLinkWebFallbackForUntrustedOrigin(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer c.Close()
-			for _, pattern := range []string{"resource_security_short_v1_*", "resource_security_short_v2_*"} {
+			for _, pattern := range []string{"resource_security_short_v2_*"} {
 				keys, err := redis.Strings(c.Do("KEYS", pattern))
 				if err != nil || len(keys) != 0 {
 					t.Fatalf("invalid origin created alias for %s: %v", pattern, err)

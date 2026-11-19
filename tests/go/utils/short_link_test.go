@@ -72,7 +72,7 @@ func TestShortLinkEncryptedRoundTripAndExpiry(t *testing.T) {
 		var token string
 		var shareErr error
 		if isFile {
-			fileToken, err := SetFile("short-test-password", 120, 2, true, false, "")
+			fileToken, err := SetFile(archiveTestIdentity(t), 120, 2, true, false, "", ArchiveFormatAgeX25519)
 			if err != nil {
 				shareErr = err
 			} else {
@@ -122,11 +122,11 @@ func TestShortLinkEncryptedRoundTripAndExpiry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		index, _, format, err := shortAliasMaterial(alias)
+		index, _, err := shortAliasMaterial(alias)
 		if err != nil {
 			t.Fatal(err)
 		}
-		aliasKey := shortStorageKey(index, format)
+		aliasKey := shortStorageKey(index)
 		aliasExpiry, err := redis.Int64(aliasConn.Do("PEXPIRETIME", aliasKey))
 		if err != nil || aliasExpiry != primaryExpiry {
 			t.Fatalf("alias expiry does not match original: %d != %d (%v)", aliasExpiry, primaryExpiry, err)
@@ -185,8 +185,7 @@ func TestShortLinkRejectsNonCanonicalAndWrongAliases(t *testing.T) {
 	}
 }
 
-// This independently reconstructs the original deployed v1 storage format so
-// changing the configured strength cannot invalidate already-issued links.
+// Both strengths use v2. A valid v1 record is deliberately unreachable.
 func TestShortLinkStrengthConfigurationAndRotation(t *testing.T) {
 	mainConn, aliasConn, _ := shortTestRedis(t)
 	token, httpErr := SetPassword("sample", 120, 2, false)
@@ -242,7 +241,9 @@ func TestShortLinkStrengthConfigurationAndRotation(t *testing.T) {
 	if _, err := aliasConn.Do("SET", legacyKey, ciphertext, "PXAT", expiresAt); err != nil {
 		t.Fatal(err)
 	}
-	aliases = append(aliases, legacyAlias)
+	if _, err := ResolveShortLink(t.Context(), legacyAlias); !errors.Is(err, ErrShortLinkNotFound) {
+		t.Fatal("retired alias resolved")
+	}
 
 	for _, setting := range []string{"128", "256", "", "invalid"} {
 		t.Setenv("OKURU_SHORTLINK_BITS", setting)
@@ -258,17 +259,7 @@ func TestShortLinkStrengthConfigurationAndRotation(t *testing.T) {
 			t.Fatalf("invalid strength %q issued an alias", invalid)
 		}
 	}
-	actualExpiry, err := redis.Int64(aliasConn.Do("PEXPIRETIME", legacyKey))
-	if err != nil || actualExpiry != expiresAt {
-		t.Fatalf("legacy expiry changed: %v", err)
-	}
-	ciphertext[len(ciphertext)-1] ^= 1
-	if _, err := aliasConn.Do("SET", legacyKey, ciphertext, "KEEPTTL"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ResolveShortLink(context.Background(), legacyAlias); !errors.Is(err, ErrShortLinkNotFound) {
-		t.Fatal("tampered legacy ciphertext was accepted")
-	}
+
 }
 
 func TestShortLinkRefusesMissingOrSoonExpiringTargetAndBadConfiguration(t *testing.T) {
