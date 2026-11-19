@@ -9,12 +9,12 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-const tusVersion = "1.0.0"
+const TusVersion = "1.0.0"
 
 func UploadTusOptions(c *echo.Context) error {
 	privateUploadResponse(c)
 	h := c.Response().Header()
-	h.Set("Tus-Version", tusVersion)
+	h.Set("Tus-Version", TusVersion)
 	h.Set("Tus-Max-Size", strconv.FormatInt(utils.MaxFileSize, 10))
 	h.Set("Allow", "OPTIONS, HEAD, PATCH")
 	return c.NoContent(http.StatusNoContent)
@@ -23,12 +23,6 @@ func UploadTusOptions(c *echo.Context) error {
 func tusFile(c *echo.Context) (*utils.UploadSession, int, string, bool, error) {
 	privateUploadResponse(c)
 	r := c.Request()
-	h := c.Response().Header()
-	h.Set("Tus-Resumable", tusVersion)
-	if len(r.Header.Values("Tus-Resumable")) != 1 || r.Header.Get("Tus-Resumable") != tusVersion {
-		h.Set("Tus-Version", tusVersion)
-		return nil, 0, "", false, uploadSessionHTTPResponse(c, http.StatusPreconditionFailed, "unsupported_tus_version")
-	}
 	bearer := utils.UploadBearer(r)
 	s, err := utils.AuthorizeUploadSession(r.Context(), c.Param("id"), bearer, false)
 	if err != nil {

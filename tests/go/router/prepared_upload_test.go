@@ -31,8 +31,7 @@ func newFileSessionFixture(t *testing.T) *fileSessionFixture {
 	utils.FILEFOLDER = t.TempDir()
 	utils.MaxFileSize = 500_000_000
 	t.Cleanup(func() { utils.FILEFOLDER, utils.MaxFileSize = folder, max })
-	t.Setenv("OKURU_FILE_API", "true")
-	t.Setenv("OKURU_UPLOAD_BLOCKS", "true")
+	t.Setenv("OKURU_UPLOAD_CHUNKS", "true")
 	t.Setenv("OKURU_SHORTLINK_PUBLIC_ORIGIN", "")
 	t.Setenv("OKURU_STORAGE_MIN_FREE_BYTES", "1")
 	t.Setenv("OKURU_STORAGE_QUOTA_BYTES", "4294967296")

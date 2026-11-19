@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -174,6 +175,20 @@ func run(supervisedWorker bool) error {
 	keyFile := "key.pem"
 	tlsConfig := newServerTLSConfig()
 
+	// Shutdown can time out while a finalizer still owns staging files. Interrupt
+	// its request and join handlers before releasing any disk owner or Redis pool.
+	requests, cancelRequests := context.WithCancel(context.Background())
+	var serving sync.RWMutex
+	closed := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serving.RLock()
+		defer serving.RUnlock()
+		if closed {
+			http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		e.ServeHTTP(w, r)
+	})
 	s := &http.Server{
 		Addr:              ":" + APP_PORT,
 		ErrorLog:          NewHTTPDiagnosticLogger(log.StandardLogger()),
@@ -183,8 +198,17 @@ func run(supervisedWorker bool) error {
 		IdleTimeout:       timeouts.idle,
 		MaxHeaderBytes:    32 << 10,
 		TLSConfig:         tlsConfig,
-		Handler:           e,
+		Handler:           handler,
+		BaseContext:       func(net.Listener) context.Context { return requests },
 	}
+
+	defer func() {
+		cancelRequests()
+		_ = s.Close()
+		serving.Lock()
+		closed = true
+		serving.Unlock()
+	}()
 
 	if err := http2.ConfigureServer(s, &http2.Server{
 		MaxConcurrentStreams: 32,

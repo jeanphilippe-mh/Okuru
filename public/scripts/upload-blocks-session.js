@@ -22,7 +22,7 @@
         !Number.isSafeInteger(data.max_total_bytes) || data.max_total_bytes < 1) {
       throw new TransferError('Resumable uploads are currently unavailable.');
     }
-    return { csrf, chunkSize: Math.min(16 * 1024 * 1024, data.max_patch_bytes), limit: data.max_total_bytes };
+    return { csrf, chunkSize: data.max_patch_bytes, limit: data.max_total_bytes };
   }
 
   function wait(ms, signal) {
@@ -138,7 +138,7 @@
       if (data?.state === 'finalizing' || data?.state === 'ready') {
         throw new TransferError('Publication is still in progress.', 503, '', 1000);
       }
-      if (!['receiving', 'prepared', 'received'].includes(data?.state) ||
+      if (!['open', 'receiving'].includes(data?.state) ||
           data.measure !== 'file_bytes_confirmed' || data.bytes !== this.total || data.total !== this.total) {
         throw new TransferError('The upload state does not allow finalization.');
       }
@@ -186,7 +186,14 @@
 
     async cancel(signal) {
       const response = await request(this.path, 'DELETE', this.auth(signal));
-      if (response.status !== 204) throw await httpError(response);
+      if (response.status === 204) return;
+      const failure = await httpError(response);
+      if (failure.status === 409) {
+        // A PATCH holding the session lock and publication can both yield 409.
+        const { data } = await json(this.path, 'GET', this.auth(signal), [200]);
+        if (data?.state === 'finalizing' || data?.state === 'ready') this.phase = 'recover';
+      }
+      throw failure;
     }
   }
   window.OkuruBlockSession = Object.freeze({ bootstrap, Session });

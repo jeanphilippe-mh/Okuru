@@ -185,8 +185,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 
 	// Limit reporting requests before the general small-body buffer and CSRF.
 	e.Use(browserSecurityGuard(&processBrowserReportLimiter))
-	directEnabled, _ := strconv.ParseBool(os.Getenv("OKURU_FILE_API"))
-	e.Use(directUploadGuard(directEnabled))
+	e.Use(directUploadGuard)
 
 	// Protect parsing, including CSRF form extraction, before entering middleware.
 	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))

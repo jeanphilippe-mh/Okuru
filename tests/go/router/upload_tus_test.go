@@ -31,7 +31,6 @@ func tusRequest(f *fileSessionFixture, method, index, offset, version, bearer, c
 func TestTusTransferAndPublication(t *testing.T) {
 	f := newFileSessionFixture(t)
 	f.prepare("blocks")
-	t.Setenv("OKURU_UPLOAD_MAX_PATCH_BYTES", "4")
 	run := func(method, index, offset string, body io.Reader) *httptest.ResponseRecorder {
 		return tusRequest(f, method, index, offset, "1.0.0", f.bearer, f.csrf, body)
 	}
@@ -53,9 +52,6 @@ func TestTusTransferAndPublication(t *testing.T) {
 	if r := run("PATCH", "1", "0", nil); r.Code != 204 || r.Header().Get("Upload-Offset") != "0" {
 		t.Fatal("empty PATCH", r.Code, r.Body.String())
 	}
-	if r := run("PATCH", "0", "0", io.NopCloser(strings.NewReader("abcde"))); r.Code != 413 {
-		t.Fatal("chunked limit", r.Code)
-	}
 	if r := run("PATCH", "0", "0", bytes.NewBufferString("abcd")); r.Code != 204 || r.Header().Get("Upload-Offset") != "4" {
 		t.Fatal("first chunk", r.Code, r.Body.String())
 	}
@@ -75,6 +71,30 @@ func TestTusTransferAndPublication(t *testing.T) {
 	f.checkPublication(f.call("POST", complete, "", nil))
 	if rec := f.call("POST", complete, "", nil); rec.Code != 200 {
 		t.Fatal("replayed completion", rec.Code)
+	}
+}
+
+func TestTusConfiguredChunkSize(t *testing.T) {
+	t.Setenv("OKURU_UPLOAD_CHUNKS_SIZE", "1")
+	f := newFileSessionFixture(t)
+	manifest := `{"mode":"blocks","files":[{"name":"limit.bin","size":1000001}]}`
+	if r := f.call("POST", sessionPath, "application/json", strings.NewReader(manifest)); r.Code != http.StatusCreated {
+		t.Fatal("prepare", r.Code)
+	}
+	data := make([]byte, 1_000_001)
+	patch := func(version string, body io.Reader) *httptest.ResponseRecorder {
+		return tusRequest(f, "PATCH", "0", "0", version, f.bearer, f.csrf, body)
+	}
+	if r := patch("0.2", bytes.NewReader(data)); r.Code != 412 || r.Header().Get("Tus-Version") != "1.0.0" {
+		t.Fatalf("wrong version must precede size admission: %d", r.Code)
+	}
+	for _, body := range []io.Reader{bytes.NewReader(data), io.NopCloser(bytes.NewReader(data))} {
+		if r := patch("1.0.0", body); r.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("accepted a chunk larger than 1 MB: %d", r.Code)
+		}
+	}
+	if r := patch("1.0.0", bytes.NewReader(data[:1_000_000])); r.Code != http.StatusNoContent || r.Header().Get("Upload-Offset") != "1000000" {
+		t.Fatal("one full decimal MB did not commit at the original offset", r.Code)
 	}
 }
 

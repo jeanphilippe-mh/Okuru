@@ -11,8 +11,20 @@ import (
 // Bound archive creation across processes, including tiny/passwordless
 // uploads, before spending the shared retained-archive quota. Client identity
 // is derived using the explicitly configured trusted proxies.
+const fileCreationPerClient, fileCreationGlobal = 20, 100
+const fileCreationWindow = 24 * time.Hour
+
 func admitFileCreation(c *echo.Context) *echo.HTTPError {
-	allowed, err := AllowClientAction(c.Request(), "file_create", 20, 100, 24*time.Hour)
+	allowed, err := AllowClientAction(c.Request(), "file_create", fileCreationPerClient, fileCreationGlobal, fileCreationWindow)
+	return fileCreationAdmissionResult(c, allowed, err)
+}
+
+func admitPreparedFileCreation(c *echo.Context, id, bearer string) *echo.HTTPError {
+	allowed, err := AllowPreparedFileCreation(c.Request(), id, bearer, fileCreationPerClient, fileCreationGlobal, fileCreationWindow)
+	return fileCreationAdmissionResult(c, allowed, err)
+}
+
+func fileCreationAdmissionResult(c *echo.Context, allowed bool, err error) *echo.HTTPError {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "File creation is unavailable")
 	}

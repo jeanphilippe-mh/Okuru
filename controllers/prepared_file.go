@@ -34,7 +34,7 @@ func publishPreparedFile(c *echo.Context, s *utils.UploadSession, bearer string,
 			_ = utils.RevertUploadPublication(cleanup, s.ID, bearer)
 		}
 	}()
-	if err := admitFileCreation(c); err != nil {
+	if err := admitPreparedFileCreation(c, s.ID, bearer); err != nil {
 		return err
 	}
 	stage, err := utils.CreateLockedStagingDir(utils.FILEFOLDER, ".okuru-upload-")
