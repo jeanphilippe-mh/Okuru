@@ -96,49 +96,48 @@ func TestDownloadSessionDeletedAtomicallyWithFileAndACLFailure(t *testing.T) {
 }
 
 func TestDownloadSessionTimeoutValidation(t *testing.T) {
-	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "")
-	if got, err := downloadSessionSeconds(0); err != nil || got != 5*60 {
-		t.Fatalf("default timeout: %d %v", got, err)
-	}
 	for _, tc := range []struct {
-		size int64
-		want int
+		name, session, resume   string
+		wantSession, wantResume int
 	}{
-		{1 << 30, 300 + 8192},
-		{maxExactSessionBytes, 24 * 60 * 60},
+		{"defaults", "", "", 900, 300},
+		{"only session configured", "17", "", 17, 300},
+		{"only resume configured", "", "23", 900, 23},
+		{"existing operator duration", "2h", "23", 7200, 23},
+		{"separate windows", "2", "29", 2, 29},
+		{"operational bounds", "1", "86401", 1, 86400},
 	} {
-		if got, err := downloadSessionSeconds(tc.size); err != nil || got != tc.want {
-			t.Fatalf("size %d: got %d, error %v; want %d", tc.size, got, err, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", tc.session)
+			t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", tc.resume)
+			session, resume, err := downloadTimeouts()
+			if err != nil || session != tc.wantSession || resume != tc.wantResume {
+				t.Fatalf("windows = (%d, %d, %v), want (%d, %d)", session, resume, err, tc.wantSession, tc.wantResume)
+			}
+		})
 	}
-	for _, value := range []string{"garbage", "0", "-1s", "1ms"} {
-		t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", value)
-		if _, err := downloadSessionSeconds(0); err == nil {
-			t.Fatalf("accepted invalid timeout %q", value)
-		}
-	}
-	for _, tc := range []struct {
-		value string
-		want  int
-	}{
-		{"1s", 1},
-		{"2m", 2 * 60},
-		{"5m", 5 * 60},
-		{"15m", 15 * 60},
-		{"1h", 60 * 60},
-		{"3h", 3 * 60 * 60},
-		{"1000h", 24 * 60 * 60},
-	} {
-		t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", tc.value)
-		if got, err := downloadSessionSeconds(0); err != nil || got != tc.want {
-			t.Errorf("timeout %q: got %d, error %v; want %d", tc.value, got, err, tc.want)
-		}
+	for _, key := range []string{"OKURU_DOWNLOAD_SESSION_TIMEOUT", "OKURU_DOWNLOAD_RESUME_TIMEOUT"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "300")
+			t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "300")
+			invalid := []string{"0", "-1", "1.25", "abc", "99999999999999999999999"}
+			if key == "OKURU_DOWNLOAD_RESUME_TIMEOUT" {
+				invalid = append(invalid, "5m")
+			}
+			for _, value := range invalid {
+				t.Setenv(key, value)
+				if err := ValidateDownloadTimeouts(); err == nil {
+					t.Errorf("%s accepted invalid seconds %q", key, value)
+				}
+			}
+		})
 	}
 }
 
-func TestDownloadSessionLifetimeRespectsConfiguredDurationAndParent(t *testing.T) {
+func TestLegacyRangeSessionLifetimeRespectsResumeWindowAndParent(t *testing.T) {
 	admin := cleanupTest(t)
-	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "3h")
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "86400")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "10800")
 	for _, ttl := range []int{4 * 60 * 60, 2 * 60} {
 		link, httpErr := SetFile(archiveTestIdentity(t), ttl, 1, true, false, "", ArchiveFormatAgeX25519)
 		if httpErr != nil {
@@ -195,10 +194,10 @@ func TestLegacyDownloadSessionIsRevokedWithoutDeletingShare(t *testing.T) {
 	}
 }
 
-func TestInitialGETIsAtomicAndLeavesRangeBudgetUntouched(t *testing.T) {
-	c := cleanupTest(t)
-	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "")
-	link, httpErr := SetFile(archiveTestIdentity(t), 4*60*60, 1, false, false, "", ArchiveFormatAgeX25519)
+// A 1 GiB ZIP exercises timing for a long transfer without allocating the payload.
+func claimLargeDownload(t *testing.T, parentSeconds int) (*models.File, string, string, int) {
+	t.Helper()
+	link, httpErr := SetFile(archiveTestIdentity(t), parentSeconds, 1, false, false, "", ArchiveFormatAgeX25519)
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
@@ -207,13 +206,25 @@ func TestInitialGETIsAtomicAndLeavesRangeBudgetUntouched(t *testing.T) {
 	if httpErr != nil {
 		t.Fatal(httpErr)
 	}
-	cookie, life, err := CreateClaimedDownloadSession(f, "test-secret", 1<<30, claim, `"`+strings.Repeat("1", 64)+`"`)
-	if err != nil || life != 300+8192 {
-		t.Fatalf("session creation: lifetime=%d error=%v", life, err)
+	cookie, cookieLifetime, err := CreateClaimedDownloadSession(f, "test-secret", 1<<30, claim, `"`+strings.Repeat("1", 64)+`"`)
+	if err != nil {
+		t.Fatal(err)
 	}
+	id, _, err := ParseToken(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f, cookie, downloadSessionKey(id, cookie), cookieLifetime
+}
+
+func TestInitialGETIsAtomicAndLeavesRangeBudgetUntouched(t *testing.T) {
+	c := cleanupTest(t)
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "300")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "300")
+	f, cookie, sessionKey, _ := claimLargeDownload(t, 4*60*60)
+	link := f.FileKey
 	id, _, _ := ParseToken(link)
-	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
-	t.Cleanup(func() { _, _ = c.Do("DEL", fileKey, sessionKey) })
+	fileKey := REDIS_PREFIX + "file_" + id
 	if _, _, fault := ResumeStartedFileDownload(f, cookie); fault == nil {
 		t.Fatal("Accepted Range before the initial GET")
 	}
@@ -254,14 +265,14 @@ func TestInitialGETIsAtomicAndLeavesRangeBudgetUntouched(t *testing.T) {
 	if err != nil || state["requests"] != "0" || state["used"] != "0" || state["active"] != "1" {
 		t.Fatalf("initial GET: requests=%s used=%s active=%s err=%v", state["requests"], state["used"], state["active"], err)
 	}
-	if err := AbandonInitialDownload(winner); err != nil {
+	if err := AbandonDownloadPreparation(winner); err != nil {
 		t.Fatal(err)
 	}
 	_, retry, fault := StartTrackedFileDownload(f, cookie)
 	if fault != nil {
 		t.Fatal("Could not retry a GET rejected before response headers", fault)
 	}
-	if err := AbandonInitialDownload(winner); err != nil {
+	if err := AbandonDownloadPreparation(winner); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, fault := StartTrackedFileDownload(f, cookie); fault == nil {
@@ -279,5 +290,178 @@ func TestInitialGETIsAtomicAndLeavesRangeBudgetUntouched(t *testing.T) {
 	}
 	if count, err := redis.Int(c.Do("HGET", fileKey, "views_count")); count != 1 || err != nil {
 		t.Fatalf("After initial GET and Range: views=%d error=%v", count, err)
+	}
+}
+
+func sessionExpiryMillis(t *testing.T, c redis.Conn, key string) int64 {
+	t.Helper()
+	expiry, err := redis.Int64(c.Do("PEXPIRETIME", key))
+	if err != nil || expiry <= 0 {
+		t.Fatalf("expected an expiring download record, got %d: %v", expiry, err)
+	}
+	return expiry
+}
+
+func TestDownloadSessionHasAbsoluteAndIdleDeadlines(t *testing.T) {
+	c := cleanupTest(t)
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "64")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "37")
+	f, cookie, key, cookieLifetime := claimLargeDownload(t, 90)
+
+	startTTL, err := redis.Int64(c.Do("PTTL", key))
+	if err != nil || startTTL < 63000 || startTTL > 64000 || cookieLifetime < 63 || cookieLifetime > 64 {
+		t.Fatalf("pending 1 GiB download: Redis %dms, cookie %ds, error %v", startTTL, cookieLifetime, err)
+	}
+	startExpiry := sessionExpiryMillis(t, c, key)
+	_, initial, failure := StartTrackedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if err := AbandonDownloadPreparation(initial); err != nil {
+		t.Fatal(err)
+	}
+	if retryExpiry := sessionExpiryMillis(t, c, key); retryExpiry > startExpiry+2 || retryExpiry < startExpiry-2 {
+		t.Fatalf("rejected preparation moved initial deadline by %dms", retryExpiry-startExpiry)
+	}
+	_, initial, failure = StartTrackedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if expiry := sessionExpiryMillis(t, c, key); expiry > startExpiry+2 {
+		t.Fatal("starting the ZIP extended the absolute session deadline")
+	}
+	if err := RecordDownloadProgress(initial, 0, 1024, true, false); err != nil {
+		t.Fatal(err)
+	}
+	resumeTTL, err := redis.Int64(c.Do("PTTL", key))
+	if err != nil || resumeTTL < 36000 || resumeTTL > 37000 {
+		t.Fatalf("after interruption: Redis TTL %dms, error %v", resumeTTL, err)
+	}
+	// A new process reads the same Redis state. It must honor the window
+	// captured at POST even if the operator has changed the environment.
+	CloseRedisPool()
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "1")
+	_, resumed, failure := ResumeStartedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if err := RecordDownloadProgress(resumed, 1024, 512, true, false); err != nil {
+		t.Fatal(err)
+	}
+	resumeTTL, err = redis.Int64(c.Do("PTTL", key))
+	if err != nil || resumeTTL < 36000 || resumeTTL > 37000 {
+		t.Fatalf("existing session lost its resume policy: TTL %dms, error %v", resumeTTL, err)
+	}
+
+}
+
+func TestRunningDownloadRenewsItsLeaseAndStopsAfterInterruption(t *testing.T) {
+	c := cleanupTest(t)
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "30")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "1")
+	f, cookie, key, _ := claimLargeDownload(t, 60)
+	_, initial, failure := StartTrackedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if err := initial.MarkDownloadStreaming(); err != nil {
+		t.Fatal(err)
+	}
+	firstExpiry := sessionExpiryMillis(t, c, key)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := KeepDownloadSessionAlive(ctx, initial)
+	// At least one renewal must have occurred beyond the originally allotted
+	// second. A one-shot extension at GET is insufficient for a long transfer.
+	cleanupEventually(t, func() bool {
+		expiry, err := redis.Int64(c.Do("PEXPIRETIME", key))
+		return err == nil && expiry > firstExpiry+1000
+	})
+	stop()
+	if err := RecordDownloadProgress(initial, 0, 1024, true, false); err != nil {
+		t.Fatal(err)
+	}
+	// With no writer left this session now expires by itself, although its
+	// parent share has nearly a minute left.
+	cleanupEventually(t, func() bool {
+		exists, err := redis.Int(c.Do("EXISTS", key))
+		return err == nil && exists == 0
+	})
+	if _, _, failure := ResumeStartedFileDownload(f, cookie); failure == nil {
+		t.Fatal("accepted a resume after the inactivity window")
+	}
+	if exists, err := redis.Int(c.Do("EXISTS", initial.fileKey)); exists != 1 || err != nil {
+		t.Fatalf("session expiry removed its share: %d %v", exists, err)
+	}
+}
+
+func TestAbsoluteSessionExpiryPreventsResumingALongRunningZIP(t *testing.T) {
+	c := cleanupTest(t)
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "2")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "9")
+	f, cookie, key, lifetime := claimLargeDownload(t, 60)
+	if lifetime != 2 {
+		t.Fatalf("cookie lifetime %ds exceeds the two-second session or expires too early", lifetime)
+	}
+	deadline := sessionExpiryMillis(t, c, key)
+	_, initial, failure := StartTrackedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if err := initial.MarkDownloadStreaming(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := KeepDownloadSessionAlive(ctx, initial)
+	defer stop()
+	if current := sessionExpiryMillis(t, c, key); current > deadline+2 {
+		t.Fatal("streaming extended the absolute session deadline")
+	}
+	cleanupEventually(t, func() bool {
+		exists, err := redis.Int(c.Do("EXISTS", key))
+		return err == nil && exists == 0
+	})
+	if _, _, failure := ResumeStartedFileDownload(f, cookie); failure == nil {
+		t.Fatal("the running ZIP accepted another request beyond its absolute deadline")
+	}
+	if err := RecordDownloadProgress(initial, 0, 1024, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if exists, err := redis.Int(c.Do("EXISTS", key)); exists != 0 || err != nil {
+		t.Fatalf("finishing a response resurrected its expired session: %d, %v", exists, err)
+	}
+}
+
+func TestAlreadyIssuedDedicatedDownloadKeepsItsOriginalDeadline(t *testing.T) {
+	c := cleanupTest(t)
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "60")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "300")
+	f, cookie, key, _ := claimLargeDownload(t, 600)
+	// A dedicated session issued before separate timers had no resume_seconds
+	// field, and the browser already has its original fixed-lifetime cookie.
+	if _, err := c.Do("HDEL", key, "resume_seconds"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Do("HSET", key, "session_version", "3"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := sessionExpiryMillis(t, c, key)
+	_, initial, failure := StartTrackedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if err := RecordDownloadProgress(initial, 0, 1024, true, false); err != nil {
+		t.Fatal(err)
+	}
+	_, resumed, failure := ResumeStartedFileDownload(f, cookie)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if err := RecordDownloadProgress(resumed, 1024, 512, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionExpiryMillis(t, c, key); got != deadline {
+		t.Fatalf("existing session deadline changed by %dms", got-deadline)
 	}
 }

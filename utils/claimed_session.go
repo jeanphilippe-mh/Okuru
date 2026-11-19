@@ -12,7 +12,7 @@ import (
 
 // The pending marker is not removed until the new session is indexed. If an
 // ACL or Redis operation fails, any remaining marker makes cleanup fail closed.
-var createClaimedDownloadSessionScript = redis.NewScript(2, `
+var createClaimedDownloadSessionScript = redis.NewScript(2, sessionClockLua+`
 local ttl = redis.call('PTTL', KEYS[1])
 if ttl < 1001 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return 0 end
 if redis.call('HGET', KEYS[1], ARGV[6]) ~= '1' then return 0 end
@@ -24,9 +24,11 @@ local probe = redis.pcall('PEXPIRE', KEYS[2], duration)
 if type(probe) == 'table' and probe.err then return probe end
 local cleanup = redis.pcall('DEL', KEYS[2])
 if type(cleanup) == 'table' and cleanup.err then return cleanup end
+local deadline = nowMillis() + duration
 local created = redis.pcall('HSET', KEYS[2], 'secret', ARGV[2], 'requests', 0, 'used', 0,
   'limit', ARGV[4], 'session_version', '3', 'tracking', '1', 'active', 0, 'intervals', '', 'complete', '0',
-  'representation', ARGV[7], 'unsafe', '0', 'initial_started', '0')
+  'representation', ARGV[7], 'unsafe', '0', 'initial_started', '0',
+  'resume_seconds', ARGV[8], 'absolute_deadline', deadline, 'idle_deadline', deadline)
 if type(created) == 'table' and created.err then return created end
 local expiry = redis.pcall('PEXPIRE', KEYS[2], duration)
 if expiry ~= 1 then
@@ -59,7 +61,7 @@ func CreateClaimedDownloadSession(f *models.File, secret string, size int64, cla
 	if _, err := hex.DecodeString(representationETag[1:65]); err != nil {
 		return "", 0, errors.New("Invalid download representation")
 	}
-	seconds, err := downloadSessionSeconds(size)
+	seconds, resume, err := downloadTimeouts()
 	if err != nil {
 		return "", 0, err
 	}
@@ -76,7 +78,7 @@ func CreateClaimedDownloadSession(f *models.File, secret string, size int64, cla
 	c := NewPool().Get()
 	defer c.Close()
 	duration, err := redis.Int(createClaimedDownloadSessionScript.Do(c, claim.fileKey, sessionKey,
-		claim.token, ciphertext, seconds, size, downloadSessionDigest(cookie), claim.field, representationETag))
+		claim.token, ciphertext, seconds, size, downloadSessionDigest(cookie), claim.field, representationETag, resume))
 	if err != nil || duration < 1 {
 		return "", 0, errors.New("Cannot create claimed download session")
 	}

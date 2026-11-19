@@ -219,10 +219,14 @@ type downloadProgress struct {
 	start, written          int64
 	integrityOK, responseOK bool
 	representationOK        bool
+	started                 bool
 }
 
 func (p *downloadProgress) finish() {
-	if p == nil || p.session == nil {
+	if !p.started {
+		if err := AbandonDownloadPreparation(p.session); err != nil {
+			log.Error("Could not release download preparation")
+		}
 		return
 	}
 	if err := RecordDownloadProgress(p.session, p.start, p.written, p.integrityOK, p.responseOK); err != nil {
@@ -255,10 +259,9 @@ func (b *downloadBudget) finish() {
 	}
 }
 
-func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress ...*downloadProgress) error {
+func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress *downloadProgress) error {
 	start, length, status := int64(0), a.size, http.StatusOK
 	if budget != nil {
-		defer budget.finish()
 		if a.size != budget.session.Size() {
 			return echo.NewHTTPError(http.StatusPreconditionFailed, "Archive changed")
 		}
@@ -270,7 +273,6 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 		}
 		if validator := c.Request().Header.Get("If-Range"); validator == "" || validator == a.etag {
 			status = http.StatusPartialContent
-			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, start+length-1, a.size))
 		} else {
 			start, length = 0, a.size
 		}
@@ -281,13 +283,20 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 			budget.reserved = length
 		}
 	}
+	if err := progress.session.MarkDownloadStreaming(); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
+	}
 	h := c.Response().Header()
+	if status == http.StatusPartialContent {
+		h.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, start+length-1, a.size))
+	}
 	h.Set(echo.HeaderContentType, "application/zip")
 	h.Set(echo.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	h.Set("Accept-Ranges", "bytes")
 	h.Set("Cache-Control", "private, no-store")
 	h.Set("ETag", a.etag)
 	h.Set(echo.HeaderContentLength, strconv.FormatInt(length, 10))
+	progress.started = true
 	c.Response().WriteHeader(status)
 	writer := &responseWriteTracker{ResponseWriter: c.Response()}
 	written, err := io.CopyN(writer, io.NewSectionReader(a.reader, start, length), length)
@@ -300,13 +309,10 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 		budget.written = written
 	}
 	integrityErr := a.verifyUnchanged()
-	if len(progress) > 0 && progress[0] != nil {
-		p := progress[0]
-		p.start, p.written = start, written
-		p.responseOK = p.representationOK && err == nil && integrityErr == nil && c.Request().Context().Err() == nil
-		p.integrityOK = p.representationOK && integrityErr == nil &&
-			(p.responseOK || (writer.writeErr != nil && written < length))
-	}
+	progress.start, progress.written = start, written
+	progress.responseOK = progress.representationOK && err == nil && integrityErr == nil && c.Request().Context().Err() == nil
+	progress.integrityOK = progress.representationOK && integrityErr == nil &&
+		(progress.responseOK || (writer.writeErr != nil && written < length))
 	if err != nil || integrityErr != nil {
 		// A committed response must be interrupted when a chunk fails its
 		// authentication or the transport cannot finish the bytes promised.
@@ -382,16 +388,11 @@ func DownloadSessionFile(c *echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 	progress := &downloadProgress{session: session}
-	handedOff := false
-	defer func() {
-		if initial && !handedOff {
-			if err := AbandonInitialDownload(session); err != nil {
-				log.Error("Could not release initial download preparation")
-			}
-			return
-		}
-		progress.finish()
-	}()
+	defer progress.finish()
+	// Keep a long response eligible for resumption until the request ends.
+	// Stop renewing before its finalizer records the idle deadline in Redis.
+	stopLease := KeepDownloadSessionAlive(c.Request().Context(), session)
+	defer stopLease()
 	if !bytes.Equal(preview.Token, f.Token) || preview.ArchiveFormat != f.ArchiveFormat || preview.PasswordProvided != f.PasswordProvided {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
 	}
@@ -408,11 +409,7 @@ func DownloadSessionFile(c *echo.Context) error {
 			return httpErr
 		}
 		budget = &downloadBudget{session: session, reserved: length}
-		defer func() {
-			if !handedOff {
-				budget.finish()
-			}
-		}()
+		defer budget.finish()
 	}
 	archive, err := openDownloadArchive(c, f, secret, name)
 	if releaseKDF != nil {
@@ -436,6 +433,5 @@ func DownloadSessionFile(c *echo.Context) error {
 		AuditStarted(c, "file.download_started", "File download started")
 	}
 	archive.etag = sessionETag(archive.etag, cookie.Value)
-	handedOff = true
 	return writeDownloadArchive(c, archive, name, budget, progress)
 }

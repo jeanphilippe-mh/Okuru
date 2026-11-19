@@ -1,12 +1,14 @@
 package utils
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/fernet/fernet-go"
@@ -18,11 +20,17 @@ import (
 // A session permits bounded continuation of one already reserved download.
 // It never outlives the file's metadata, and every continuation checks that
 // metadata again. The cookie is the only place containing the encryption key.
-const DownloadSessionLifetime = 5 * time.Minute
-const maxDownloadSessionLifetime = 24 * time.Hour
-const downloadBytesPerSecond = 128 * 1024
+const maxDownloadTimeoutSeconds = 24 * 60 * 60
 const maxDownloadSessionRequests = 32
 const maxExactSessionBytes = int64(1 << 53)
+
+// All workers use Redis time for stored deadlines. Neither a worker clock
+// change nor a later adjustment to a share's TTL can extend authorization.
+const sessionClockLua = `local function nowMillis()
+  local clock = redis.call('TIME')
+  return tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+end
+`
 
 var createDownloadSessionScript = redis.NewScript(2, `
 local ttl = redis.call('PTTL', KEYS[1])
@@ -52,7 +60,7 @@ end
 return math.floor(duration / 1000)
 `)
 
-var inspectDownloadSessionScript = redis.NewScript(2, `
+var inspectDownloadSessionScript = redis.NewScript(2, sessionClockLua+`
 local ttl = redis.call('TTL', KEYS[1])
 if ttl < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return nil end
 if redis.call('TTL', KEYS[2]) < 0 then return nil end
@@ -76,6 +84,18 @@ else
 end
 local tracked = redis.call('HGET', KEYS[2], 'tracking') == '1' and ARGV[5] ~= ''
 if version == '3' and redis.call('HGET', KEYS[2], 'tracking') ~= '1' then return nil end
+local resume = tonumber(redis.call('HGET', KEYS[2], 'resume_seconds')) or 0
+if resume > 0 then
+  -- A preparation can hold the record while opening the archive, but it
+  -- cannot authorize another request beyond the last valid idle deadline.
+  local now = nowMillis()
+  local absolute = tonumber(redis.call('HGET', KEYS[2], 'absolute_deadline'))
+  local idle = tonumber(redis.call('HGET', KEYS[2], 'idle_deadline'))
+  if not tracked or not absolute or not idle or now >= math.min(absolute, idle) then return nil end
+  local lease = math.min(redis.call('PTTL', KEYS[1]), absolute - now, resume * 1000)
+  if lease < 1 then return nil end
+  redis.call('PEXPIRE', KEYS[2], lease)
+end
 local record = redis.call('HGETALL', KEYS[1])
 if tracked then
   local active = tonumber(redis.call('HGET', KEYS[2], 'active'))
@@ -90,13 +110,13 @@ if tracked then
   table.insert(changes, '1')
 end
 redis.call('HSET', KEYS[2], unpack(changes))
-return {record, ttl, secret, limit, tracked and 1 or 0}
+return {record, ttl, secret, limit, tracked and 1 or 0, resume}
 `)
 
 // The preview authenticates a continuation without incrementing its request
 // count. KDF admission must happen before the consuming transition above, so
 // temporary overload does not spend one of the client's bounded resume tries.
-var previewDownloadSessionScript = redis.NewScript(2, `
+var previewDownloadSessionScript = redis.NewScript(2, sessionClockLua+`
 local ttl = redis.call('TTL', KEYS[1])
 if ttl < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return nil end
 local version = redis.call('HGET', KEYS[2], 'session_version')
@@ -106,6 +126,8 @@ local count = tonumber(redis.call('HGET', KEYS[2], 'requests'))
 local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
 local limit = tonumber(redis.call('HGET', KEYS[2], 'limit'))
 if not secret or not count or not used or not limit then return nil end
+local idle = redis.call('HGET', KEYS[2], 'idle_deadline')
+if idle and nowMillis() >= tonumber(idle) then return nil end
 local pending = version == '3' and redis.call('HGET', KEYS[2], 'initial_started') == '0'
 if not pending and (count >= tonumber(ARGV[2]) or used >= limit) then return nil end
 return {redis.call('HGETALL', KEYS[1]), secret}
@@ -139,6 +161,7 @@ type DownloadSession struct {
 	fileKey, sessionKey string
 	token, encrypted    []byte
 	size                int64
+	resumeSeconds       int
 	archiveID           string
 	tracked, initial    bool
 	progressField       string
@@ -146,27 +169,36 @@ type DownloadSession struct {
 
 func (s *DownloadSession) Size() int64 { return s.size }
 
-func downloadSessionSeconds(size int64) (int, error) {
-	value := os.Getenv("OKURU_DOWNLOAD_SESSION_TIMEOUT")
+// Old deployments may already specify the session limit as a Go duration.
+// New configurations use whole seconds for both settings.
+func downloadTimeoutSeconds(name string, fallback int, allowDuration bool) (int, error) {
+	value := os.Getenv(name)
 	if value == "" {
-		// Budget transfer time at 128 KiB/s, in addition to the normal resume window.
-		seconds := int64(DownloadSessionLifetime/time.Second) + size/downloadBytesPerSecond
-		return int(min(seconds, int64(maxDownloadSessionLifetime/time.Second))), nil
+		return fallback, nil
 	}
-	d, err := time.ParseDuration(value)
-	if err != nil || d < time.Second {
-		return 0, errors.New("Invalid download session timeout")
+	if n, err := strconv.ParseUint(value, 10, 64); err == nil && n > 0 {
+		return int(min(n, maxDownloadTimeoutSeconds)), nil
 	}
-	if d > maxDownloadSessionLifetime {
-		d = maxDownloadSessionLifetime
+	if allowDuration {
+		if d, err := time.ParseDuration(value); err == nil && d >= time.Second {
+			return int(min(d/time.Second, maxDownloadTimeoutSeconds)), nil
+		}
 	}
-	return int(d / time.Second), nil
+	return 0, errors.New("Invalid " + name)
 }
 
-// ValidateDownloadSessionTimeout allows rejecting a bad operator setting
-// before consuming one of a share's allowed views.
-func ValidateDownloadSessionTimeout() error {
-	_, err := downloadSessionSeconds(0)
+func downloadTimeouts() (int, int, error) {
+	session, err := downloadTimeoutSeconds("OKURU_DOWNLOAD_SESSION_TIMEOUT", 900, true)
+	if err != nil {
+		return 0, 0, err
+	}
+	resume, err := downloadTimeoutSeconds("OKURU_DOWNLOAD_RESUME_TIMEOUT", 300, false)
+	return session, resume, err
+}
+
+// ValidateDownloadTimeouts rejects invalid settings before reserving a view.
+func ValidateDownloadTimeouts() error {
+	_, _, err := downloadTimeouts()
 	return err
 }
 
@@ -195,7 +227,7 @@ func CreateDownloadSession(f *models.File, secret string, size int64) (string, i
 	if err != nil || len(f.Token) == 0 || len(secret) > MaxSecretBytes || size < 0 || size > maxExactSessionBytes {
 		return "", 0, errors.New("Invalid download session")
 	}
-	seconds, err := downloadSessionSeconds(size)
+	absolute, resume, err := downloadTimeouts()
 	if err != nil {
 		return "", 0, err
 	}
@@ -210,7 +242,7 @@ func CreateDownloadSession(f *models.File, secret string, size int64) (string, i
 	cookie := key.Encode()
 	c := NewPool().Get()
 	defer c.Close()
-	duration, err := redis.Int(createDownloadSessionScript.Do(c, REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie), f.Token, ciphertext, seconds, size, downloadSessionDigest(cookie)))
+	duration, err := redis.Int(createDownloadSessionScript.Do(c, REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie), f.Token, ciphertext, min(absolute, resume), size, downloadSessionDigest(cookie)))
 	if err != nil || duration < 1 {
 		return "", 0, errors.New("Cannot create download session")
 	}
@@ -303,11 +335,11 @@ func admitFileDownload(f *models.File, cookie, version string, initial, track bo
 		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	var record []interface{}
-	var ttl int
+	var ttl, resumeSeconds int
 	var size int64
 	var tracked bool
 	var encrypted []byte
-	if _, err := redis.Scan(reply, &record, &ttl, &encrypted, &size, &tracked); err != nil || size < 0 || size > maxExactSessionBytes || redis.ScanStruct(record, f) != nil {
+	if _, err := redis.Scan(reply, &record, &ttl, &encrypted, &size, &tracked, &resumeSeconds); err != nil || size < 0 || size > maxExactSessionBytes || redis.ScanStruct(record, f) != nil {
 		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(cookie)
@@ -320,7 +352,84 @@ func admitFileDownload(f *models.File, cookie, version string, initial, track bo
 	}
 	f.TTL = ttl
 	return string(secret), &DownloadSession{fileKey: fileKey, sessionKey: sessionKey, token: token, encrypted: encrypted, size: size,
-		tracked: tracked, initial: initial, archiveID: id, progressField: field}, nil
+		tracked: tracked, resumeSeconds: resumeSeconds, initial: initial, archiveID: id, progressField: field}, nil
+}
+
+// The operation marker changes from preparation to streaming immediately
+// before ZIP headers are committed. Both phases keep the record available;
+// only an actual stream can extend the idle authorization for other requests.
+var renewDownloadLeaseScript = redis.NewScript(2, sessionClockLua+`
+if redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return 0 end
+local phase = redis.call('HGET', KEYS[2], ARGV[3])
+if phase ~= '1' and phase ~= 'streaming' then return 0 end
+local now = nowMillis()
+local absolute = tonumber(redis.call('HGET', KEYS[2], 'absolute_deadline'))
+local resume = tonumber(redis.call('HGET', KEYS[2], 'resume_seconds'))
+if not absolute or not resume then return 0 end
+local lease = math.min(redis.call('PTTL', KEYS[1]), absolute - now, resume * 1000)
+if lease < 1 then return 0 end
+if ARGV[4] == '1' or phase == 'streaming' then
+  redis.call('HSET', KEYS[2], ARGV[3], 'streaming', 'idle_deadline', now + lease)
+end
+return redis.call('PEXPIRE', KEYS[2], lease)
+`)
+
+var errExpiredDownloadLease = errors.New("Download session no longer available")
+
+func (s *DownloadSession) renewLease(ctx context.Context, startStreaming bool) error {
+	c, err := NewPool().GetContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	ok, err := redis.Bool(renewDownloadLeaseScript.DoContext(ctx, c, s.fileKey, s.sessionKey, s.token, s.encrypted, s.progressField, startStreaming))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errExpiredDownloadLease
+	}
+	return nil
+}
+
+// MarkDownloadStreaming starts the idle window only after archive validation.
+func (s *DownloadSession) MarkDownloadStreaming() error {
+	if s == nil || s.resumeSeconds == 0 {
+		return nil
+	}
+	return s.renewLease(context.Background(), true)
+}
+
+// KeepDownloadSessionAlive renews a live transfer within the share and
+// session deadlines. A terminated worker naturally stops granting renewals.
+func KeepDownloadSessionAlive(ctx context.Context, session *DownloadSession) func() {
+	if session == nil || session.resumeSeconds == 0 {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		interval := min(30*time.Second, time.Duration(session.resumeSeconds)*time.Second/3)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// An unavailable Redis cannot grant an extension. Never recreate
+				// missing records; a later tick may recover before lease expiry.
+				if errors.Is(session.renewLease(ctx, false), errExpiredDownloadLease) {
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // ReserveDownloadBytes atomically limits both continuation count and the

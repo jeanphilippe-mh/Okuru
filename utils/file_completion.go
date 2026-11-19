@@ -143,7 +143,7 @@ func VerifyDownloadRepresentation(session *DownloadSession, rawETag string) (boo
 
 // Ranges are represented as sorted disjoint half-open intervals. The bounded
 // continuation count limits the representation to at most 33 intervals.
-var recordDownloadProgressScript = redis.NewScript(2, `
+var recordDownloadProgressScript = redis.NewScript(2, sessionClockLua+`
 if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return 0 end
 if redis.call('HGET', KEYS[1], ARGV[7]) ~= '1' then return 2 end
 local parentSize, parentStart, parentWritten = tonumber(ARGV[8]), tonumber(ARGV[3]), tonumber(ARGV[4])
@@ -164,7 +164,8 @@ if sessionTTL == -2 then
 end
 if sessionTTL < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return 0 end
 if redis.call('HGET', KEYS[2], 'tracking') ~= '1' then return 0 end
-if redis.call('HGET', KEYS[2], ARGV[7]) ~= '1' then return redis.error_reply('operation marker missing') end
+local phase = redis.call('HGET', KEYS[2], ARGV[7])
+if phase ~= '1' and phase ~= 'streaming' then return redis.error_reply('operation marker missing') end
 local active = tonumber(redis.call('HGET', KEYS[2], 'active'))
 local size = tonumber(redis.call('HGET', KEYS[2], 'limit'))
 local start, written = tonumber(ARGV[3]), tonumber(ARGV[4])
@@ -213,8 +214,23 @@ redis.call('HDEL', KEYS[2], ARGV[7])
 redis.call('HSET', KEYS[2], 'active', active - 1, 'intervals', result, 'complete', complete, 'unsafe', unsafe)
 -- A preparation failure before headers leaves the full GET available for a
 -- retry, unless a Range already joined this attempt.
-if ARGV[9] == '1' and active == 1 and redis.call('HGET', KEYS[2], 'requests') == '0' then
+if ARGV[9] == '1' and ARGV[10] == '1' and active == 1 and redis.call('HGET', KEYS[2], 'requests') == '0' then
   redis.call('HSET', KEYS[2], 'initial_started', '0')
+end
+-- An abandoned preparation restores the original eligibility deadline. Only
+-- a response that actually started earns a new resume window on disconnect.
+local resume = tonumber(redis.call('HGET', KEYS[2], 'resume_seconds'))
+if resume then
+  local now = nowMillis()
+  local absolute = tonumber(redis.call('HGET', KEYS[2], 'absolute_deadline'))
+  local idle = tonumber(redis.call('HGET', KEYS[2], 'idle_deadline'))
+  if ARGV[9] ~= '1' then
+    idle = math.min(absolute, now + resume * 1000)
+    redis.call('HSET', KEYS[2], 'idle_deadline', idle)
+  end
+  if active == 1 or ARGV[9] ~= '1' then
+    redis.call('PEXPIRE', KEYS[2], math.min(redis.call('PTTL', KEYS[1]), idle - now))
+  end
 end
 if complete == '1' and unsafe ~= '1' then redis.call('HSET', KEYS[1], 'completed_download', '1') end
 redis.call('HDEL', KEYS[1], ARGV[7])
@@ -228,13 +244,9 @@ func RecordDownloadProgress(session *DownloadSession, start, written int64, inte
 	return finishDownloadResponse(session, start, written, integrityOK, responseOK, false)
 }
 
-// AbandonInitialDownload releases a failed attempt before the handler sends
-// any archive headers or bytes. A session that already served data must use
-// RecordDownloadProgress instead.
-func AbandonInitialDownload(session *DownloadSession) error {
-	if session == nil || !session.initial {
-		return errors.New("Invalid initial download")
-	}
+// AbandonDownloadPreparation releases a failed GET or Range attempt before
+// it has sent any archive headers, without renewing the idle timeout.
+func AbandonDownloadPreparation(session *DownloadSession) error {
 	return finishDownloadResponse(session, 0, 0, false, false, true)
 }
 
@@ -256,7 +268,7 @@ func finishDownloadResponse(session *DownloadSession, start, written int64, inte
 	defer c.Close()
 	status, err := redis.Int(recordDownloadProgressScript.Do(c, session.fileKey, session.sessionKey,
 		session.token, session.encrypted, strconv.FormatInt(start, 10), strconv.FormatInt(written, 10), valid, success, session.progressField,
-		strconv.FormatInt(session.size, 10), abandoned))
+		strconv.FormatInt(session.size, 10), abandoned, session.initial))
 	if err != nil {
 		return err
 	}

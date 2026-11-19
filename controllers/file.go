@@ -260,7 +260,7 @@ func DownloadFile(context *echo.Context) error {
 	if err := ValidateSecretLength(password); err != nil {
 		return context.NoContent(http.StatusRequestEntityTooLarge)
 	}
-	if err := ValidateDownloadSessionTimeout(); err != nil {
+	if err := ValidateDownloadTimeouts(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
@@ -349,7 +349,7 @@ func DownloadFile(context *echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	defer archive.file.Close()
-	value, lifetime, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
+	value, cookieLifetime, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
@@ -360,7 +360,7 @@ func DownloadFile(context *echo.Context) error {
 	location := "/file/" + url.PathEscape(f.FileKey) + "/download/" + downloadSessionDigest(value)
 	context.SetCookie(&http.Cookie{
 		Name: cookieName, Value: value, Path: location,
-		MaxAge: lifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
+		MaxAge: cookieLifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 	context.Response().Header().Set("Cache-Control", "private, no-store")
 	context.Response().Header().Set("Referrer-Policy", "no-referrer")

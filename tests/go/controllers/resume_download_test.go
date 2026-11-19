@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -222,9 +223,10 @@ func TestDownloadRedirectRequiresCookieAndAllowsOneInitialGET(t *testing.T) {
 	}
 }
 
-func TestLargeZIPGetsLongerResumeWindowAndResumesFromExactOffset(t *testing.T) {
+func TestLongRunningZIPResumesFromExactOffsetWithFreshIdleWindow(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "")
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "45")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "2")
 	var archive bytes.Buffer
 	zw := zip.NewWriter(&archive)
 	entry, err := zw.CreateHeader(&zip.FileHeader{Name: "large.bin", Method: zip.Store})
@@ -239,16 +241,22 @@ func TestLargeZIPGetsLongerResumeWindowAndResumesFromExactOffset(t *testing.T) {
 	}
 	e, token, _, plain := resumeFixtureForZIP(t, conn, u.ArchiveFormatAgeX25519, false, archive.Bytes(), 3600)
 	const offset = (1 << 20) + 19
-	cookie, prefix, etag := interruptedSession(t, conn, e, token, offset)
-	// Four MiB of stored ZIP extends the default five minutes by at least 32 seconds.
-	if cookie.MaxAge < 332 {
-		t.Fatalf("large ZIP cookie expires in %ds", cookie.MaxAge)
+	handoff, err := postDownload(t, e, token, "")
+	if err != nil {
+		t.Fatal(err)
 	}
+	cookie := authorizedDownload(t, token, handoff)
+	if cookie.MaxAge < 44 || cookie.MaxAge > 45 {
+		t.Fatalf("cookie must cover the 45-second session: got %ds", cookie.MaxAge)
+	}
+	// Hold the first socket write past the idle timeout, then disconnect after a known byte.
+	// A live request retains its session even if no new bytes fit into the socket.
+	prefix, etag := interruptAuthorizedGET(t, e, token, cookie, offset, 2500*time.Millisecond)
 	id, _ := finalizationArchive(t, token)
 	key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
 	ttl, err := redis.Int64(conn.Do("PTTL", key))
-	if err != nil || ttl <= 300_000 || ttl > int64(cookie.MaxAge)*1000+1000 {
-		t.Fatalf("large ZIP Redis TTL=%dms, cookie lifetime=%ds, err=%v", ttl, cookie.MaxAge, err)
+	if err != nil || ttl < 1200 || ttl > 2000 {
+		t.Fatalf("interrupted transfer should have a fresh two-second resume window: %dms, err=%v", ttl, err)
 	}
 	rest, err := getResume(e, token, cookie, "bytes="+strconv.Itoa(offset)+"-", etag)
 	if err != nil || rest.Code != http.StatusPartialContent || !bytes.Equal(prefix, plain[:offset]) || !bytes.Equal(rest.Body.Bytes(), plain[offset:]) {
@@ -404,13 +412,13 @@ func TestMutationDuringStreamAborts(t *testing.T) {
 	}
 	a := &downloadArchive{file: file, info: info, reader: &changingReaderAt{file: file}, size: info.Size(), etag: `"test"`}
 	e := echo.New()
-	c := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/test", nil), httptest.NewRecorder())
+	c := e.NewContext(httptest.NewRequest(http.MethodGet, "/file/test/download/session", nil), httptest.NewRecorder())
 	defer func() {
 		if recover() != http.ErrAbortHandler {
 			t.Error("mutation during streaming did not abort")
 		}
 	}()
-	_ = writeDownloadArchive(c, a, "test.zip", nil)
+	_ = writeDownloadArchive(c, a, "test.zip", nil, &downloadProgress{})
 }
 
 func TestEncryptedValidatorRejectsShortRead(t *testing.T) {
@@ -430,10 +438,15 @@ func TestEncryptedValidatorRejectsShortRead(t *testing.T) {
 
 type interruptedResponseWriter struct {
 	*httptest.ResponseRecorder
-	remaining int
+	remaining       int
+	firstWriteDelay time.Duration
 }
 
 func (w *interruptedResponseWriter) Write(p []byte) (int, error) {
+	if w.firstWriteDelay > 0 {
+		time.Sleep(w.firstWriteDelay)
+		w.firstWriteDelay = 0
+	}
 	if w.remaining <= 0 {
 		return 0, io.ErrClosedPipe
 	}
@@ -479,10 +492,19 @@ func interruptedSessionWithPassword(t *testing.T, conn redis.Conn, e *echo.Echo,
 		t.Fatal(err)
 	}
 	cookie := authorizedDownload(t, token, handoff)
-	req := httptest.NewRequest(http.MethodGet, handoff.Header().Get("Location"), nil)
+	prefix, etag := interruptAuthorizedGET(t, e, token, cookie, prefixLen, 0)
+	id, _, _ := u.ParseToken(token)
+	key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+	t.Cleanup(func() { _, _ = conn.Do("DEL", key) })
+	return cookie, prefix, etag
+}
+
+func interruptAuthorizedGET(t *testing.T, e *echo.Echo, token string, cookie *http.Cookie, prefixLen int, delay time.Duration) ([]byte, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, cookie.Path, nil)
 	req.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
-	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: prefixLen}
+	writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: prefixLen, firstWriteDelay: delay}
 	func() {
 		defer func() {
 			if recover() != http.ErrAbortHandler {
@@ -495,11 +517,7 @@ func interruptedSessionWithPassword(t *testing.T, conn redis.Conn, e *echo.Echo,
 		recorder.Header().Get("ETag") == "" || recorder.Header().Get("Accept-Ranges") != "bytes" {
 		t.Fatal("interrupted initial GET missing validator or bytes")
 	}
-	id, _, _ := u.ParseToken(token)
-	digest := sha256.Sum256([]byte(cookie.Value))
-	key := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
-	t.Cleanup(func() { _, _ = conn.Do("DEL", key) })
-	return cookie, bytes.Clone(recorder.Body.Bytes()), recorder.Header().Get("ETag")
+	return bytes.Clone(recorder.Body.Bytes()), recorder.Header().Get("ETag")
 }
 
 func TestTwoInterruptedSessionsForSameFileResumeIndependently(t *testing.T) {
@@ -722,9 +740,62 @@ func TestResumeByteBudgetIsAtomic(t *testing.T) {
 	}
 }
 
+func TestUnusedDownloadAuthorizationExpiresBeforeFirstGET(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "1")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "60")
+	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	handoff, err := postDownload(t, e, token, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := authorizedDownload(t, token, handoff)
+	time.Sleep(1200 * time.Millisecond)
+	if rec, err := getResume(e, token, cookie, "", ""); err != nil || rec.Code != http.StatusNotFound {
+		t.Fatalf("first GET after start deadline: status=%d err=%v", rec.Code, err)
+	}
+}
+
+func TestInvalidResumeTimeoutDoesNotConsumeView(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "invalid")
+	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	_, err := postDownload(t, e, token, "")
+	var httpErr *echo.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Code != http.StatusInternalServerError {
+		t.Fatalf("invalid resume timeout: want 500, got %v", err)
+	}
+	id, _ := finalizationArchive(t, token)
+	views, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count"))
+	if err != nil || views != 0 {
+		t.Fatalf("invalid configuration spent a view: count=%d err=%v", views, err)
+	}
+}
+
+func TestRejectedRangeDoesNotExtendResumeDeadline(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "30")
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie, _, etag := interruptedSession(t, conn, e, token, 11)
+	id, _ := finalizationArchive(t, token)
+	key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+	expires, err := redis.Int64(conn.Do("PEXPIRETIME", key))
+	if err != nil || expires <= 0 {
+		t.Fatalf("resume deadline unavailable: %d, err=%v", expires, err)
+	}
+	time.Sleep(75 * time.Millisecond)
+	if rec, err := getResume(e, token, cookie, "bytes="+strconv.Itoa(len(plain))+"-", etag); err != nil || rec.Code != http.StatusRequestedRangeNotSatisfiable {
+		t.Fatalf("range beyond the ZIP: status=%d err=%v", rec.Code, err)
+	}
+	after, err := redis.Int64(conn.Do("PEXPIRETIME", key))
+	if err != nil || after != expires {
+		t.Fatalf("rejected range changed idle deadline from %d to %d, err=%v", expires, after, err)
+	}
+}
+
 func TestResumeSessionExpiry(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "1s")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "1")
 	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
 	cookie, _, _ := interruptedSession(t, conn, e, token, 11)
 	time.Sleep(1200 * time.Millisecond)
