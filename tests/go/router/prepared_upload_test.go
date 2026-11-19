@@ -114,8 +114,7 @@ func (f *fileSessionFixture) checkPublication(rec *httptest.ResponseRecorder) {
 	r := httptest.NewRequest("POST", "https://example.test"+view.Path, strings.NewReader("password="))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.Header.Set("Sec-Fetch-Site", "same-origin")
-	download := httptest.NewRecorder()
-	f.e.ServeHTTP(download, r)
+	download := followDownloadForm(f.t, f.e, r)
 	if download.Code != 200 {
 		f.t.Fatalf("download=%d", download.Code)
 	}

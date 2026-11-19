@@ -79,7 +79,7 @@ func enforceArchiveRetention(ctx context.Context, now time.Time) error {
 		return err
 	}
 	defer guard.Close()
-	root, err := os.OpenRoot(path)
+	root, err := openRuntimeArchiveRoot(path)
 	if err != nil {
 		return err
 	}
