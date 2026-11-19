@@ -5,8 +5,6 @@ import (
 	"crypto/subtle"
 	"mime"
 	"net/http"
-	"os"
-	"strconv"
 
 	"github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
@@ -16,20 +14,6 @@ const directFilePath = "/api/v2/files/direct"
 const uploadBootstrapPath = "/api/v2/uploads/bootstrap"
 const directCSRFCookie = "__Host-okuru-upload-csrf"
 const directRequestLimit int64 = 90_000_000
-
-// A zone or origin can advertise a lower limit while keeping the same client.
-func uploadMaxPatchBytes() int64 {
-	const ceiling int64 = 90_000_000
-	s := os.Getenv("OKURU_UPLOAD_MAX_PATCH_BYTES")
-	if s == "" {
-		return ceiling
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n < 1 || n > ceiling {
-		return 0
-	}
-	return n
-}
 
 // The two v2 endpoints share a host-only cookie across their different paths.
 // When the cookie is already present, a bootstrap from another tab reuses it.
@@ -51,11 +35,11 @@ func directUploadBootstrap(c *echo.Context) error {
 	if api {
 		modes = append(modes, "multipart")
 	}
-	if blocks && api && uploadMaxPatchBytes() > 0 {
+	if blocks && api && utils.UploadPatchLimit() > 0 {
 		modes = append(modes, "blocks")
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"modes": modes, "max_total_bytes": utils.MaxFileSize, "max_patch_bytes": uploadMaxPatchBytes(),
+		"modes": modes, "max_total_bytes": utils.MaxFileSize, "max_patch_bytes": utils.UploadPatchLimit(),
 		"direct_url": directFilePath, "max_request_bytes": directRequestLimit,
 		"max_file_bytes_total": min(utils.MaxFileSize, directRequestLimit),
 	})
@@ -100,6 +84,14 @@ func directUploadGuard(enabled bool) echo.MiddlewareFunc {
 			if (site != "" && site != "same-origin" && site != "none" && site != "same-site") ||
 				err != nil || token == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(token)) != 1 {
 				return reject(http.StatusForbidden)
+			}
+			if r.Method == http.MethodPatch && c.Path() == tusResource {
+				if err := checkPatchAdmission(c); err != nil {
+					return err
+				}
+				if resp, e := echo.UnwrapResponse(c.Response()); e != nil || resp.Committed {
+					return nil
+				}
 			}
 			if r.URL.Path == preparedFilePath && r.Method == http.MethodPost {
 				return receivePreparedMultipart(c, next)
