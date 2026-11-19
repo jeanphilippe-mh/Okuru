@@ -49,6 +49,10 @@ func StartPreparedUploads(parent context.Context) (func(), error) {
 		release()
 		return nil, err
 	}
+	if err = SweepUploadParts(parent); err != nil {
+		release()
+		return nil, err
+	}
 	ctx, stop := context.WithCancel(parent)
 	done := make(chan struct{})
 	go func() {
@@ -60,11 +64,11 @@ func StartPreparedUploads(parent context.Context) (func(), error) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if err := ReconcileUploadPublications(ctx); err != nil {
+				if err := errors.Join(ReconcileUploadPublications(ctx), SweepUploadParts(ctx)); err != nil {
 					log.Warn("Pending upload publication needs reconciliation")
 				}
 			}
 		}
 	}()
-	return func() { stop(); <-done; release() }, nil
+	return func() { stop(); <-done; CloseUploadPartOwners(); release() }, nil
 }
