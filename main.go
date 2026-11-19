@@ -15,11 +15,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/jeanphilippe-mh/Okuru/router"
+	"github.com/jeanphilippe-mh/Okuru/routes"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
@@ -135,37 +137,25 @@ func run(supervisedWorker bool) error {
 		return err
 	}
 
+	stopTracking := StartArchiveDirectoryTracking()
+	defer stopTracking()
 	stopRetention := StartArchiveRetention()
 	defer stopRetention()
 
-	pool := NewPool()
 	defer CloseRedisPool()
 	defer CloseShortLinkPool()
-	c := pool.Get()
-	redisReady := Ping(c)
-	_ = c.Close()
-	if !redisReady {
-		return fmt.Errorf("Redis is unavailable")
-	}
-
-	cleanupContext, stopCleanup := context.WithCancel(context.Background())
-	stopUploads, err := StartPreparedUploads(cleanupContext)
-	if err != nil {
-		stopCleanup()
-		return fmt.Errorf("starting file upload storage: %w", err)
-	}
-	defer stopUploads()
-	cleanupDone := make(chan struct{})
-	go func() {
-		defer close(cleanupDone)
-		RunFileCleanup(cleanupContext)
-	}()
+	health := NewRuntimeHealth()
+	serviceContext, stopService := context.WithCancel(context.Background())
+	var background sync.WaitGroup
+	background.Go(func() { health.Run(serviceContext) })
+	background.Go(func() { maintainArchiveStorage(serviceContext, health) })
 	defer func() {
-		stopCleanup()
-		<-cleanupDone
+		stopService()
+		background.Wait()
 	}()
 
 	e := router.NewWithTimeouts(timeouts.transferIdle, timeouts.read, timeouts.write)
+	routes.RuntimeHealth(e, health)
 
 	ex, err := os.Executable()
 	if err != nil {
@@ -188,6 +178,18 @@ func run(supervisedWorker bool) error {
 		defer serving.RUnlock()
 		if closed {
 			http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		if r.URL.Path != "/ping" && r.URL.Path != "/ready" && !health.CanServe(router.NeedsArchiveCapacity(r)) {
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.Header().Set("Retry-After", "5")
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"code":"unavailable","message":"Service temporarily unavailable"}`))
+			} else {
+				http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+			}
 			return
 		}
 		e.ServeHTTP(w, r)
@@ -262,6 +264,7 @@ func run(supervisedWorker bool) error {
 		}
 		return nil
 	}
+	health.SetStorageReady(false)
 	log.WithField("event", "server.shutdown").Info("Server shutdown requested")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -272,4 +275,55 @@ func run(supervisedWorker bool) error {
 	}
 	log.WithField("event", "server.stopped").Info("Server stopped gracefully")
 	return nil
+}
+
+// Keep Echo responsive while Redis or startup reconciliation is unavailable.
+// After recovery, preserve the owner generation across temporary Redis outages.
+func maintainArchiveStorage(ctx context.Context, health *RuntimeHealth) {
+	wait := time.NewTimer(0)
+	defer wait.Stop()
+	retrying := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wait.C:
+		}
+		if !health.RedisReady() {
+			wait.Reset(time.Second)
+			continue
+		}
+		// Establish the archive root once at startup. Subsequent probes only
+		// recognize this same directory, including after a mount is restored.
+		var monitor *ArchiveStorageMonitor
+		var stopUploads func()
+		err := InitializeArchiveDirectory(FILEFOLDER)
+		if err == nil {
+			monitor, err = OpenArchiveStorageMonitor(FILEFOLDER)
+		}
+		if err == nil {
+			stopUploads, err = StartPreparedUploads(ctx)
+		}
+		if err != nil {
+			if monitor != nil {
+				_ = monitor.Close()
+			}
+			if !retrying && ctx.Err() == nil {
+				log.WithField("event", "storage.recovery_pending").Warn("Archive storage recovery will retry")
+			}
+			retrying = true
+			wait.Reset(5 * time.Second)
+			continue
+		}
+		defer monitor.Close()
+		defer stopUploads()
+		health.SetStorageReady(true)
+		defer health.SetStorageReady(false)
+		log.WithField("event", "storage.ready").Info("Archive storage ready")
+		cleanupDone := make(chan struct{})
+		go func() { defer close(cleanupDone); RunFileCleanup(ctx) }()
+		health.RunStorage(ctx, monitor)
+		<-cleanupDone
+		return
+	}
 }

@@ -66,7 +66,17 @@ func CleanupExpiredArchives(ctx context.Context) error {
 		return err
 	}
 	defer guard.Close()
-	entries, err := os.ReadDir(FILEFOLDER)
+	root, err := openRuntimeArchiveRoot(FILEFOLDER)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	dir, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		return err
 	}
@@ -111,6 +121,14 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 		return err
 	}
 	defer guard.Close()
+	root, err := openRuntimeArchiveRoot(FILEFOLDER)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	exists, err := redis.Bool(c.Do("EXISTS", REDIS_PREFIX+"file_"+id))
 	if err != nil {
 		return err
@@ -134,14 +152,6 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 		}
 		return finalizeCompletedDownload(c, id, token)
 	}
-	root, err := os.OpenRoot(FILEFOLDER)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer root.Close()
 	name := id + ".zip"
 	info, err := root.Lstat(name)
 	if os.IsNotExist(err) {

@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -365,8 +364,16 @@ func CleanFile(fileName string) error {
 		return err
 	}
 	defer guard.Close()
-	filePathName := filepath.Join(FILEFOLDER, fileName+".zip")
-	info, err := os.Lstat(filePathName)
+	root, err := openRuntimeArchiveRoot(FILEFOLDER)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	filePathName := fileName + ".zip"
+	info, err := root.Lstat(filePathName)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -376,7 +383,7 @@ func CleanFile(fileName string) error {
 	if !info.Mode().IsRegular() {
 		return errors.New("Archive is not a regular file")
 	}
-	if err := os.Remove(filePathName); err != nil && !os.IsNotExist(err) {
+	if err := root.Remove(filePathName); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil

@@ -1,5 +1,7 @@
 [Unit]
 Description=Okuru
+StartLimitIntervalSec=15min
+StartLimitBurst=4
 
 [Service]
 NoNewPrivileges=true
@@ -16,6 +18,11 @@ ExecStart=/home/freebox/Okuru/Okuru --internal-log-supervisor
 User=freebox
 Group=freebox
 KillMode=mixed
+NotifyAccess=main
+WatchdogSec=90s
+WatchdogSignal=SIGTERM
+TimeoutAbortSec=15s
+TimeoutStopSec=15s
 Restart=always
 RestartSec=5s
 LogNamespace=okuru

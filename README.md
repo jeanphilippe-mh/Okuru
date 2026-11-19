@@ -83,6 +83,11 @@ You can configure the following via environment variables.
 
 **OKURU_ZIP_AUTO_THRESHOLD_MB**: The ZIP compression threshold (in MB) for 'auto' mode (default 100 if unset or invalid).
 
+## Operations
+
+* [Runtime health checks and automatic recovery](docs/runtime-health.md)
+* [Archive cleanup and the seven-day retention limit](docs/archive-cleanup.md)
+
 ## Credits
 
 * [Pinterest's snappass](https://github.com/pinterest/snappass) for the original software and idea.
