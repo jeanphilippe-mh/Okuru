@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -327,5 +328,156 @@ func TestRemoveFileACLFailurePreservesBothRecordsAndArchive(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("archive retained after retry")
+	}
+}
+
+func retentionTestFolder(t *testing.T) {
+	t.Helper()
+	previous := FILEFOLDER
+	FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { FILEFOLDER = previous })
+	t.Setenv("OKURU_CLEANUP_DRY_RUN", "false")
+}
+
+func stampRetentionTestFile(t *testing.T, path string, stamp time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArchiveRetentionSevenDayBoundaryAndGuards(t *testing.T) {
+	retentionTestFolder(t)
+	now := time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-7 * 24 * time.Hour)
+	boundary, older := cleanupArchive(t, uuid.NewString()), cleanupArchive(t, uuid.NewString())
+	younger, future := cleanupArchive(t, uuid.NewString()), cleanupArchive(t, uuid.NewString())
+	stampRetentionTestFile(t, boundary, cutoff)
+	stampRetentionTestFile(t, older, cutoff.Add(-time.Hour))
+	stampRetentionTestFile(t, younger, cutoff.Add(time.Second))
+	stampRetentionTestFile(t, future, now.Add(time.Minute))
+
+	unmanaged := cleanupArchive(t, "example")
+	stampRetentionTestFile(t, unmanaged, cutoff)
+	outside := filepath.Join(t.TempDir(), "unrelated.zip")
+	if err := os.WriteFile(outside, []byte("unrelated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stampRetentionTestFile(t, outside, cutoff)
+	symlink := filepath.Join(FILEFOLDER, uuid.NewString()+".zip")
+	if err := os.Symlink(outside, symlink); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(FILEFOLDER, uuid.NewString()+".zip")
+	if err := os.Mkdir(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	stampRetentionTestFile(t, nested, cutoff)
+	journal, err := publicationRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected := []string{younger, future, unmanaged, symlink, outside, nested}
+	for _, marker := range []string{"", "collision-"} {
+		id := uuid.NewString()
+		path := cleanupArchive(t, id)
+		stampRetentionTestFile(t, path, cutoff)
+		if err := os.Mkdir(filepath.Join(journal, marker+id), 0700); err != nil {
+			t.Fatal(err)
+		}
+		protected = append(protected, path)
+	}
+	// Include enough non-candidates to span several bounded batches.
+	for i := range 257 {
+		if err := os.WriteFile(filepath.Join(FILEFOLDER, strconv.Itoa(i)), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("OKURU_CLEANUP_DRY_RUN", "true")
+	if err := enforceArchiveRetention(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{boundary, older} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatal("dry-run removed an archive", err)
+		}
+	}
+	t.Setenv("OKURU_CLEANUP_DRY_RUN", "false")
+	if err := enforceArchiveRetention(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{boundary, older} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatal("deadline did not unlink archive", err)
+		}
+	}
+	for _, path := range protected {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatal("protected or ineligible entry was removed", err)
+		}
+	}
+}
+
+func TestArchiveRetentionIgnoresStuckRedisMetadata(t *testing.T) {
+	c := cleanupTest(t)
+	id := uuid.NewString()
+	path := cleanupArchive(t, id)
+	key := REDIS_PREFIX + "file_" + id
+	if _, err := c.Do("HSET", key, "token", "synthetic", "views", 2); err != nil {
+		t.Fatal(err)
+	}
+	stampRetentionTestFile(t, path, time.Now().Add(-8*24*time.Hour))
+	if err := enforceArchiveRetention(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatal("stuck key retained archive", err)
+	}
+	if ttl, err := redis.Int(c.Do("TTL", key)); err != nil || ttl != -1 {
+		t.Fatal("unexpected Redis mutation", ttl, err)
+	}
+}
+
+func TestArchiveRetentionStartsAndRepeatsWithoutRedis(t *testing.T) {
+	retentionTestFolder(t)
+	db := REDIS_DB
+	REDIS_DB = "unavailable"
+	t.Cleanup(func() { REDIS_DB = db })
+	if c, err := cleanupConnection(t.Context(), time.Second); err == nil {
+		c.Close()
+		t.Fatal("fixture must reject every Redis connection")
+	}
+	path := cleanupArchive(t, uuid.NewString())
+	stale := time.Now().Add(-8 * 24 * time.Hour)
+	stampRetentionTestFile(t, path, stale)
+	absent := func(path string) bool { _, err := os.Lstat(path); return os.IsNotExist(err) }
+	stop := startArchiveRetention(time.Hour)
+	stop() // Simulates immediate startup failure; first scan still completes.
+	if !absent(path) {
+		t.Fatal("startup missed an overdue archive without Redis")
+	}
+	stop = startArchiveRetention(15 * time.Millisecond)
+	defer stop()
+	newPath := cleanupArchive(t, uuid.NewString())
+	stampRetentionTestFile(t, newPath, stale)
+	cleanupEventually(t, func() bool { return absent(newPath) })
+}
+
+func TestPublicationStartsArchiveRetentionClock(t *testing.T) {
+	retentionTestFolder(t)
+	source := filepath.Join(t.TempDir(), "sealed")
+	if err := os.WriteFile(source, []byte("sealed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stampRetentionTestFile(t, source, time.Now().Add(-10*24*time.Hour))
+	path := filepath.Join(FILEFOLDER, uuid.NewString()+".zip")
+	if err := LinkPublishedArchive(source, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := enforceArchiveRetention(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatal("new publication inherited old staging time", err)
 	}
 }

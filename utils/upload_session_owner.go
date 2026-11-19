@@ -12,6 +12,9 @@ import (
 )
 
 var errUploadOwnerBusy = errors.New("another process owns prepared uploads")
+var retentionOwnerLifetime sync.RWMutex
+
+const uploadOwnerMarker = ".okuru-upload-v2-owner"
 
 var uploadSessionOwner struct {
 	sync.RWMutex
@@ -116,7 +119,7 @@ func AcquireUploadSessionOwner(storageDir string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(root, ".okuru-upload-v2-owner")
+	path := filepath.Join(root, uploadOwnerMarker)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		_ = guard.Close()
@@ -140,6 +143,12 @@ func AcquireUploadSessionOwner(storageDir string) (func(), error) {
 		return reject(uploadSessionError("unavailable"))
 	}
 	if !locked {
+		// Offline journal retirement takes a short shared lock. Storage startup
+		// must retry instead of mistaking that reader for a permanent publisher.
+		shared, e := trySharedOwnerLock(f)
+		if e != nil || shared {
+			return reject(uploadSessionError("unavailable"))
+		}
 		return reject(errUploadOwnerBusy)
 	}
 	uploadSessionOwner.generation = uuid.NewString()
@@ -147,6 +156,8 @@ func AcquireUploadSessionOwner(storageDir string) (func(), error) {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
+			retentionOwnerLifetime.Lock()
+			defer retentionOwnerLifetime.Unlock()
 			uploadSessionOwner.Lock()
 			defer uploadSessionOwner.Unlock()
 			uploadSessionOwner.generation = ""
@@ -190,4 +201,64 @@ func LockUploadSession(id string) (func(), error) {
 			}
 		})
 	}, nil
+}
+
+// The normal owner excludes all other publishers and locks individual sessions.
+// Without a local owner (including cold startup with Redis offline), a shared
+// lock on its stable marker proves that no publisher can run during retirement.
+func lockJournalForRetention(root *os.Root, id, session string) (func(), error) {
+	retentionOwnerLifetime.RLock()
+	if sessionGeneration() != "" {
+		if session == "" {
+			unlock, ok := lockPublicationJournal(id)
+			if ok {
+				return func() { unlock(); retentionOwnerLifetime.RUnlock() }, nil
+			}
+			retentionOwnerLifetime.RUnlock()
+			return nil, nil
+		}
+		unlock, err := LockUploadSession(session)
+		if err == nil {
+			return func() { unlock(); retentionOwnerLifetime.RUnlock() }, nil
+		}
+		retentionOwnerLifetime.RUnlock()
+		if err == uploadSessionError("busy") || err == uploadSessionError("capacity") || err == uploadSessionError("unavailable") {
+			return nil, nil
+		}
+		return unlock, err
+	}
+	retentionOwnerLifetime.RUnlock()
+	info, err := root.Lstat(uploadOwnerMarker)
+	if os.IsNotExist(err) {
+		// Restored storage may omit the stable lock file. Publish an empty
+		// one exclusively, exactly where the upload owner also takes its lock.
+		f, createErr := root.OpenFile(uploadOwnerMarker, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+		if createErr != nil && !os.IsExist(createErr) {
+			return nil, createErr
+		}
+		if f != nil {
+			if err := f.Close(); err != nil {
+				return nil, err
+			}
+		}
+		info, err = root.Lstat(uploadOwnerMarker)
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, err
+	}
+	f, err := root.OpenFile(uploadOwnerMarker, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		f.Close()
+		return nil, err
+	}
+	held, err := trySharedOwnerLock(f)
+	if err != nil || !held {
+		f.Close()
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil
 }

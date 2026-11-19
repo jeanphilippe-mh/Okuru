@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
@@ -17,11 +19,23 @@ import (
 var (
 	errPublicationIsolated = errors.New("publication destination already exists")
 	errPublicationRejected = errors.New("publication failed Redis admission")
+	errPublicationOverdue  = errors.New("publication exceeded archive retention")
 )
 
 const journalDirName = ".okuru-publications"
 const intentFileName = "intent.json"
 const witnessName = "archive"
+
+// Before the intent is durable, recovery has no session ID. A FileID-scoped
+// lock distinguishes this journal's live creator from unrelated transfers.
+var formingPublications sync.Map
+
+func lockPublicationJournal(id string) (func(), bool) {
+	if _, busy := formingPublications.LoadOrStore(id, struct{}{}); busy {
+		return nil, false
+	}
+	return func() { formingPublications.Delete(id) }, true
+}
 
 // The intent contains only identifiers, already-encrypted Redis fields and
 // the creator-encrypted result. Recovery does not need any client secret.
@@ -115,6 +129,11 @@ func (p *UploadPublication) Save(ctx context.Context, bearer, archive string) (b
 	if !canonicalArchiveID(p.FileID) || !canonicalArchiveID(p.Session) {
 		return false, errors.New("invalid publication identifier")
 	}
+	unlock, ok := lockPublicationJournal(p.FileID)
+	if !ok {
+		return false, uploadSessionError("busy")
+	}
+	defer unlock()
 	dir := filepath.Join(root, p.FileID)
 	if err := os.Mkdir(dir, 0700); err != nil {
 		return false, err
@@ -125,7 +144,7 @@ func (p *UploadPublication) Save(ctx context.Context, bearer, archive string) (b
 			_ = os.RemoveAll(dir)
 		}
 	}()
-	if err = os.Link(archive, filepath.Join(dir, witnessName)); err != nil {
+	if err = LinkPublishedArchive(archive, filepath.Join(dir, witnessName)); err != nil {
 		return false, err
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "intent.tmp"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -152,6 +171,25 @@ func (p *UploadPublication) Save(ctx context.Context, bearer, archive string) (b
 }
 
 func (p *UploadPublication) finish(ctx context.Context, dir string) error {
+	// A delayed Redis recovery must never materialize an expired private
+	// witness, even if it runs before the independent disk worker.
+	witness := filepath.Join(dir, witnessName)
+	info, err := os.Lstat(witness)
+	if os.IsNotExist(err) {
+		// A disk pass may have retired the journal after it was enumerated.
+		if _, dirErr := os.Lstat(dir); os.IsNotExist(dirErr) {
+			return nil
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("invalid publication witness")
+	}
+	if !info.ModTime().After(time.Now().Add(-maxArchiveRetention)) {
+		return errPublicationOverdue
+	}
 	sess, index := UploadSessionRedisKeys(p.Session)
 	conn, err := NewPool().GetContext(ctx)
 	if err != nil {
@@ -185,7 +223,6 @@ func (p *UploadPublication) finish(ctx context.Context, dir string) error {
 		}
 		return os.RemoveAll(dir)
 	}
-	witness := filepath.Join(dir, witnessName)
 	dest := filepath.Join(FILEFOLDER, p.FileID+".zip")
 	if err = os.Link(witness, dest); err != nil {
 		if !os.IsExist(err) {
@@ -278,9 +315,9 @@ func markPublicationCollision(id string) error {
 
 // The cleaner calls this after first observing the file, before removing it.
 // A witness is created before the public hard link and survives until Redis commit.
-func guardedUploadPublication(id string) (bool, error) {
-	for _, name := range []string{id, "collision-" + id} {
-		_, err := os.Lstat(filepath.Join(FILEFOLDER, journalDirName, name))
+func guardedUploadPublication(root *os.Root, id string) (bool, error) {
+	for _, name := range []string{id, retiredPublicationPrefix + id, "collision-" + id} {
+		_, err := root.Lstat(filepath.Join(journalDirName, name))
 		if err == nil {
 			return true, nil
 		}
@@ -328,6 +365,9 @@ func ReconcileUploadPublications(ctx context.Context) error {
 		}
 		err = p.finish(ctx, dir)
 		unlock()
+		if errors.Is(err, errPublicationOverdue) {
+			continue // The disk worker owns retirement and never requires Redis.
+		}
 		if errors.Is(err, errPublicationIsolated) || errors.Is(err, errPublicationRejected) {
 			log.WithField("archive", p.FileID).Warn(err.Error())
 			continue

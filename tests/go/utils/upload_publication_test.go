@@ -77,6 +77,21 @@ func TestPreparedPublicationRecoversWithoutCreatorKey(t *testing.T) {
 				if err = os.Link(filepath.Join(dir, witnessName), final); err != nil {
 					t.Fatal(err)
 				}
+				// Lose the commit after linking. Each subsequent retry must
+				// preserve the original deadline of this same ciphertext.
+				published := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
+				stampRetentionTestFile(t, final, published)
+				t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "invalid")
+				for range 2 {
+					if err := ReconcileUploadPublications(ctx); err == nil {
+						t.Fatal("expected the pre-commit failure")
+					}
+					fi, err := os.Stat(final)
+					if err != nil || !fi.ModTime().Equal(published) {
+						t.Fatal("a publication retry renewed the archive deadline", err)
+					}
+				}
+				t.Setenv("OKURU_REDIS_SECRET_MAX_KEYS", "100000")
 			}
 			err = ReconcileUploadPublications(ctx)
 			defer conn.Do("DEL", REDIS_PREFIX+"file_"+p.FileID, REDIS_PREFIX+p.PasswordID)
@@ -129,6 +144,227 @@ func TestPreparedPublicationRecoversWithoutCreatorKey(t *testing.T) {
 				t.Fatal("live share lost after receipt expiry", err)
 			}
 		})
+	}
+}
+
+func TestArchiveRetentionRetiresOwnedJournalsOffline(t *testing.T) {
+	for _, mode := range []string{"published", "private only", "another inode", "retirement interrupted", "active session", "foreign owner", "before intent", "temporary intent"} {
+		t.Run(mode, func(t *testing.T) {
+			retentionTestFolder(t)
+			db := REDIS_DB
+			REDIS_DB = "unavailable"
+			t.Cleanup(func() { REDIS_DB = db })
+			owner, err := AcquireUploadSessionOwner(FILEFOLDER)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owner()
+			p := UploadPublication{FileID: uuid.NewString(), Session: uuid.NewString()}
+			root, err := publicationRoot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(root, p.FileID)
+			if err := os.Mkdir(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			intent, _ := json.Marshal(p)
+			switch mode {
+			case "before intent":
+			case "temporary intent":
+				if err := os.WriteFile(filepath.Join(dir, "intent.tmp"), []byte("{"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if err := os.WriteFile(filepath.Join(dir, intentFileName), intent, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			witness := filepath.Join(dir, witnessName)
+			if err := os.WriteFile(witness, []byte("private ciphertext"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			stale := time.Now().Add(-maxArchiveRetention - time.Hour)
+			stampRetentionTestFile(t, witness, stale)
+			public := filepath.Join(FILEFOLDER, p.FileID+".zip")
+			switch mode {
+			case "private only", "before intent", "temporary intent":
+			case "another inode":
+				if err := os.WriteFile(public, []byte("unrelated file"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				stampRetentionTestFile(t, public, stale)
+			default:
+				if err := os.Link(witness, public); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := p.finish(t.Context(), dir); err != errPublicationOverdue {
+				t.Fatalf("recovery accepted an expired witness: %v", err)
+			}
+			if mode == "retirement interrupted" {
+				target := filepath.Join(root, retiredPublicationPrefix+p.FileID)
+				if err := os.Rename(dir, target); err != nil {
+					t.Fatal(err)
+				}
+				dir = target
+				if err := os.Remove(public); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sweep := func() {
+				t.Helper()
+				if err := enforceArchiveRetention(t.Context(), time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode == "active session" || mode == "before intent" || mode == "temporary intent" {
+				var done func()
+				if mode == "active session" {
+					done, err = LockUploadSession(p.Session)
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					var ok bool
+					done, ok = lockPublicationJournal(p.FileID)
+					if !ok {
+						t.Fatal("could not simulate active journal creation")
+					}
+				}
+				sweep()
+				done()
+				if _, err := os.Stat(witness); err != nil {
+					t.Fatal("active session affected", err)
+				}
+			}
+			if mode == "temporary intent" {
+				// An unrelated, continuously active upload cannot retain this orphan.
+				done, err := LockUploadSession(uuid.NewString())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer done()
+			} else {
+				owner() // The service can be offline before ordinary recovery has an owner.
+			}
+			if mode == "foreign owner" {
+				file, err := os.OpenFile(filepath.Join(FILEFOLDER, uploadOwnerMarker), os.O_RDWR, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer file.Close()
+				if ok, err := quotaTryLock(file); err != nil || !ok {
+					t.Fatal("cannot lock", err)
+				}
+				sweep()
+				if _, err := os.Stat(witness); err != nil {
+					t.Fatal("foreign owner was disturbed", err)
+				}
+				if err := quotaUnlock(file); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("OKURU_CLEANUP_DRY_RUN", "true")
+			sweep()
+			if _, err := os.Stat(filepath.Join(dir, witnessName)); err != nil {
+				t.Fatal("dry run removed the private ciphertext", err)
+			}
+			t.Setenv("OKURU_CLEANUP_DRY_RUN", "false")
+			sweep()
+			if err := ReconcileUploadPublications(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			sweep()
+			if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+				t.Fatal("journal survives", err)
+			}
+			if _, err := os.Lstat(filepath.Join(root, retiredPublicationPrefix+p.FileID)); !os.IsNotExist(err) {
+				t.Fatal("retired witness survives", err)
+			}
+			if mode == "another inode" {
+				if b, err := os.ReadFile(public); err != nil || string(b) != "unrelated file" {
+					t.Fatal("foreign archive lost", err)
+				}
+			} else if _, err := os.Lstat(public); !os.IsNotExist(err) {
+				t.Fatal("expired archive was resurrected", err)
+			}
+		})
+	}
+}
+
+func TestArchiveRetentionStagingAndOwnerShutdown(t *testing.T) {
+	retentionTestFolder(t)
+	active, err := CreateLockedStagingDir(FILEFOLDER, ".okuru-upload-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close()
+	archive := filepath.Join(active.Path, "archive.tmp")
+	if err := os.WriteFile(archive, []byte("sealed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stampRetentionTestFile(t, archive, time.Now().Add(-maxArchiveRetention-time.Hour))
+	// Reconstruct the surviving hard link and unlocked marker left by a crash.
+	orphan := filepath.Join(FILEFOLDER, ".okuru-upload-123")
+	if err := os.Mkdir(orphan, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(archive, filepath.Join(orphan, "archive.tmp")); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := os.ReadFile(filepath.Join(active.Path, ".okuru-staging-lock-v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphan, ".okuru-staging-lock-v1"), marker, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OKURU_CLEANUP_DRY_RUN", "true")
+	if err := enforceArchiveRetention(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(orphan, "archive.tmp")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OKURU_CLEANUP_DRY_RUN", "false")
+	if err := enforceArchiveRetention(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(orphan); !os.IsNotExist(err) {
+		t.Fatal("inactive ciphertext remains", err)
+	}
+	if _, err := os.Lstat(archive); err != nil {
+		t.Fatal("active stage was collected", err)
+	}
+
+	release, err := AcquireUploadSessionOwner(FILEFOLDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	store, err := os.OpenRoot(FILEFOLDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	unlock, err := lockJournalForRetention(store, uuid.NewString(), uuid.NewString())
+	if err != nil || unlock == nil {
+		t.Fatal("failed to acquire journal retirement lock", err)
+	}
+	started, stopped := make(chan struct{}), make(chan struct{})
+	go func() { close(started); release(); close(stopped) }()
+	<-started
+	select {
+	case <-stopped:
+		t.Fatal("the owner released its file lock while retirement was active")
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the retiring journal prevented a clean owner shutdown")
 	}
 }
 

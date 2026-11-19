@@ -338,13 +338,13 @@ func CleanupStaleStagingDirs(root string) error {
 	var all error
 	for _, entry := range entries {
 		if entry.IsDir() && validStagingName(entry.Name()) {
-			all = errors.Join(all, cleanupStaleWindowsStaging(filepath.Join(root, entry.Name())))
+			all = errors.Join(all, cleanupStaleStagingDir(filepath.Join(root, entry.Name())))
 		}
 	}
 	return all
 }
 
-func cleanupStaleWindowsStaging(dir string) error {
+func cleanupStaleStagingDir(dir string) error {
 	dirInfo, err := os.Lstat(dir)
 	if os.IsNotExist(err) {
 		return nil
