@@ -186,8 +186,12 @@ func getResume(e *echo.Echo, token string, cookie *http.Cookie, rangeValue, vali
 func TestDownloadRedirectRequiresCookieAndAllowsOneInitialGET(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	id, _ := finalizationArchive(t, token)
+	id, archivePath := finalizationArchive(t, token)
 	fileKey := u.REDIS_PREFIX + "file_" + id
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Leave another view on the share so completion does not remove the session.
 	if _, err := conn.Do("HSET", fileKey, "views", 2); err != nil {
 		t.Fatal(err)
@@ -213,6 +217,13 @@ func TestDownloadRedirectRequiresCookieAndAllowsOneInitialGET(t *testing.T) {
 	if first.Header().Get("Content-Length") != strconv.Itoa(len(plain)) || first.Header().Get("ETag") == "" || first.Header().Get("Accept-Ranges") != "bytes" {
 		t.Fatal("initial GET did not advertise resumable ZIP metadata")
 	}
+	modified := info.ModTime().UTC().Format(http.TimeFormat)
+	if got := first.Header().Get("Last-Modified"); got != modified {
+		t.Fatalf("initial Last-Modified=%q, want %q", got, modified)
+	}
+	if got := first.Header().Get("Cache-Control"); got != "private, no-store, no-transform" {
+		t.Fatalf("initial Cache-Control=%q", got)
+	}
 	rec = httptest.NewRecorder()
 	if err := downloadRequest(e, rec, req, token); rec.Code != http.StatusNotFound {
 		t.Fatalf("replayed first GET: status=%d err=%v", rec.Code, err)
@@ -220,6 +231,71 @@ func TestDownloadRedirectRequiresCookieAndAllowsOneInitialGET(t *testing.T) {
 	views, err := redis.Int(conn.Do("HGET", fileKey, "views_count"))
 	if err != nil || views != 1 {
 		t.Fatalf("POST plus GET requests used %d views: %v", views, err)
+	}
+}
+
+func TestDownloadIfRangeHTTPDate(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	modified := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second).Add(250 * time.Millisecond)
+	date := modified.Format(http.TimeFormat)
+	future := modified.Add(time.Hour)
+	for _, tc := range []struct {
+		name             string
+		fileTime         time.Time
+		validator        string
+		wantLastModified string
+		wantStatus       int
+	}{
+		{"exact HTTP second", modified, date, date, http.StatusPartialContent},
+		{"older date", modified, modified.Add(-time.Second).Format(http.TimeFormat), date, http.StatusOK},
+		{"newer date", modified, modified.Add(time.Second).Format(http.TimeFormat), date, http.StatusOK},
+		{"invalid date", modified, "yesterday", date, http.StatusOK},
+		{"future archive timestamp", future, future.Format(http.TimeFormat), "", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+			_, path := finalizationArchive(t, token)
+			if err := os.Chtimes(path, tc.fileTime, tc.fileTime); err != nil {
+				t.Fatal(err)
+			}
+			const offset = 11
+			cookie, prefix, etag := interruptedSession(t, conn, e, token, offset)
+			missingCookie := httptest.NewRequest(http.MethodGet, cookie.Path, nil)
+			missingCookie.Header.Set("Range", "bytes=11-")
+			missingCookie.Header.Set("If-Range", tc.validator)
+			denied := httptest.NewRecorder()
+			if err := downloadRequest(e, denied, missingCookie, token); err != nil || denied.Code != http.StatusNotFound || denied.Body.Len() != 0 {
+				t.Fatalf("validator without cookie: status=%d err=%v", denied.Code, err)
+			}
+			rec, err := getResume(e, token, cookie, "bytes=11-", tc.validator)
+			if err != nil || rec.Code != tc.wantStatus {
+				t.Fatalf("resume returned status=%d err=%v, want %d", rec.Code, err, tc.wantStatus)
+			}
+			wantRange := ""
+			data := rec.Body.Bytes()
+			if tc.wantStatus == http.StatusPartialContent {
+				wantRange = "bytes 11-" + strconv.Itoa(len(plain)-1) + "/" + strconv.Itoa(len(plain))
+				data = append(prefix, data...)
+			}
+			if !bytes.Equal(data, plain) || rec.Header().Get("Content-Range") != wantRange {
+				t.Fatalf("ZIP data or Content-Range differs: %q", rec.Header().Get("Content-Range"))
+			}
+			if rec.Header().Get("Last-Modified") != tc.wantLastModified || rec.Header().Get("ETag") != etag ||
+				rec.Header().Get("Cache-Control") != "private, no-store, no-transform" {
+				t.Fatal("resumed response changed its validators or cache policy")
+			}
+		})
+	}
+}
+
+func TestDownloadIfRangeRejectsWeakETag(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie, _, etag := interruptedSession(t, conn, e, token, 11)
+	rec, err := getResume(e, token, cookie, "bytes=11-", "W/"+etag)
+	if err != nil || rec.Code != http.StatusOK || rec.Header().Get("Content-Range") != "" ||
+		!bytes.Equal(rec.Body.Bytes(), plain) {
+		t.Fatalf("weak If-Range must return the complete ZIP: status=%d err=%v", rec.Code, err)
 	}
 }
 

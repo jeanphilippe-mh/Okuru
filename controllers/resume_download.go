@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
@@ -259,7 +260,24 @@ func (b *downloadBudget) finish() {
 	}
 }
 
+func matchesDownloadIfRange(validator, etag string, lastModified time.Time) bool {
+	if validator == "" || validator == etag {
+		return true
+	}
+	date, err := http.ParseTime(validator)
+	return err == nil && !lastModified.IsZero() && date.Equal(lastModified)
+}
+
 func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress *downloadProgress) error {
+	// A dedicated session is pinned to one immutable ZIP representation.
+	// Only such a resource can use its HTTP-second timestamp as a strong validator.
+	var lastModified time.Time
+	if c.Param("session_id") != "" && progress.representationOK && a.info != nil {
+		mtime := a.info.ModTime().UTC().Truncate(time.Second)
+		if !mtime.After(time.Now()) {
+			lastModified = mtime
+		}
+	}
 	start, length, status := int64(0), a.size, http.StatusOK
 	if budget != nil {
 		if a.size != budget.session.Size() {
@@ -271,7 +289,7 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", a.size))
 			return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
 		}
-		if validator := c.Request().Header.Get("If-Range"); validator == "" || validator == a.etag {
+		if matchesDownloadIfRange(c.Request().Header.Get("If-Range"), a.etag, lastModified) {
 			status = http.StatusPartialContent
 		} else {
 			start, length = 0, a.size
@@ -293,8 +311,11 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 	h.Set(echo.HeaderContentType, "application/zip")
 	h.Set(echo.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	h.Set("Accept-Ranges", "bytes")
-	h.Set("Cache-Control", "private, no-store")
+	h.Set("Cache-Control", "private, no-store, no-transform")
 	h.Set("ETag", a.etag)
+	if !lastModified.IsZero() {
+		h.Set("Last-Modified", lastModified.Format(http.TimeFormat))
+	}
 	h.Set(echo.HeaderContentLength, strconv.FormatInt(length, 10))
 	progress.started = true
 	c.Response().WriteHeader(status)
