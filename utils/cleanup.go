@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +31,7 @@ func runFileCleanup(ctx context.Context, interval time.Duration) {
 	defer ticker.Stop()
 	for {
 		if err := CleanupExpiredArchives(ctx); err != nil && ctx.Err() == nil {
-			logCleanupFailure("archive.reconciliation_failed", "Archive reconciliation failed; existing files retained on Redis errors", err)
+			logCleanupFailure("archive.reconciliation_failed", "Redis archive reconciliation failed; disk retention remains active", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -135,8 +134,16 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 		}
 		return finalizeCompletedDownload(c, id, token)
 	}
-	path := filepath.Join(FILEFOLDER, id+".zip")
-	info, err := os.Lstat(path)
+	root, err := os.OpenRoot(FILEFOLDER)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	name := id + ".zip"
+	info, err := root.Lstat(name)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -146,7 +153,7 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 	if !info.Mode().IsRegular() {
 		return nil
 	}
-	protected, err := guardedUploadPublication(id)
+	protected, err := guardedUploadPublication(root, id)
 	if err != nil || protected {
 		return err
 	}
@@ -160,7 +167,14 @@ func removeExpiredArchive(c redis.Conn, id string) error {
 		log.WithField("archive", id+".zip").Warn("Cleanup dry-run: expired archive would be removed")
 		return nil
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	current, err := root.Lstat(name)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || !current.Mode().IsRegular() || !os.SameFile(current, info) {
+		return err
+	}
+	if err := root.Remove(name); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil

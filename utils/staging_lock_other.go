@@ -6,6 +6,9 @@ import "errors"
 
 type LockedStagingDir struct{ Path string }
 
+func validStagingName(string) bool            { return false }
+func cleanupStaleStagingDir(dir string) error { return CleanupStaleStagingDirs(dir) }
+
 func stagingRoot(string) (string, error) {
 	return "", errors.New("Interprocess staging locks are unsupported on this platform")
 }

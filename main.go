@@ -135,6 +135,9 @@ func run(supervisedWorker bool) error {
 		return err
 	}
 
+	stopRetention := StartArchiveRetention()
+	defer stopRetention()
+
 	pool := NewPool()
 	defer CloseRedisPool()
 	defer CloseShortLinkPool()
