@@ -266,6 +266,15 @@ type lostDownloadReplyConn struct {
 
 func (c *lostDownloadReplyConn) Do(command string, args ...any) (any, error) {
 	reply, err := c.ConnWithContext.Do(command, args...)
+	return c.maybeLoseReply(command, args, reply, err)
+}
+
+func (c *lostDownloadReplyConn) DoContext(ctx context.Context, command string, args ...any) (any, error) {
+	reply, err := c.ConnWithContext.DoContext(ctx, command, args...)
+	return c.maybeLoseReply(command, args, reply, err)
+}
+
+func (c *lostDownloadReplyConn) maybeLoseReply(command string, args []any, reply any, err error) (any, error) {
 	if err == nil && (command == "EVALSHA" || command == "EVAL") && c.match(args) && c.calls.Add(1) == 1 {
 		_ = c.ConnWithContext.Close()
 		return nil, io.ErrUnexpectedEOF
@@ -303,7 +312,7 @@ func TestDownloadLostRedisReply(t *testing.T) {
 				}
 				switch stage {
 				case "preview":
-					return len(args) == 6
+					return len(args) == 7 && args[5] == 32 && args[6] == false
 				case "admission":
 					return len(args) == 10 && args[6] == "3"
 				}

@@ -449,7 +449,7 @@ func DownloadSessionFile(c *echo.Context) error {
 	// Authenticate without incrementing the session request count. A busy KDF
 	// or a rate-limit denial must not consume a continuation attempt or bytes.
 	preview := &File{FileKey: token}
-	if previewErr := PreviewDownloadSession(preview, cookie.Value); previewErr != nil {
+	if previewErr := PreviewDownloadSession(c.Request().Context(), preview, cookie.Value, full); previewErr != nil {
 		if previewErr.Code == http.StatusServiceUnavailable {
 			// The cookie matches the selector, but Redis could not verify it.
 			// This read-only check left the session and its budget untouched.

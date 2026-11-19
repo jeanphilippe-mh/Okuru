@@ -24,12 +24,23 @@ import (
 const maxDownloadTimeoutSeconds = 24 * 60 * 60
 const maxDownloadSessionRequests = 32
 const maxExactSessionBytes = int64(1 << 53)
+const downloadHandoffWait = 150 * time.Millisecond
+const downloadHandoffPoll = 25 * time.Millisecond
 
 // All workers use Redis time for stored deadlines. Neither a worker clock
 // change nor a later adjustment to a share's TTL can extend authorization.
 const sessionClockLua = `local function nowMillis()
   local clock = redis.call('TIME')
   return tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+end
+`
+
+const interruptedPrefixLua = `local function verifiedInterruptedPrefix(key, size, previous)
+  local initial = tonumber(redis.call('HGET', key, 'initial_written'))
+  local prefix = tonumber(redis.call('HGET', key, 'interrupted_prefix'))
+  if not size or not initial or not prefix or not previous or initial <= 0 or initial >= prefix or prefix >= size or
+     previous <= 0 or previous > size-initial then return nil end
+  return prefix
 end
 `
 
@@ -61,7 +72,7 @@ end
 return math.floor(duration / 1000)
 `)
 
-var inspectDownloadSessionScript = redis.NewScript(2, sessionClockLua+`
+var inspectDownloadSessionScript = redis.NewScript(2, sessionClockLua+interruptedPrefixLua+`
 local ttl = redis.call('TTL', KEYS[1])
 if ttl < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return nil end
 if redis.call('TTL', KEYS[2]) < 0 then return nil end
@@ -89,10 +100,28 @@ else
   if restart then
     -- A plain GET has no offset. Reserve the entire continuation budget
     -- together with the exclusive claim before decrypting or writing.
-    if version ~= '3' or used ~= 0 or redis.call('HGET', KEYS[2], 'restart_available') ~= '1' or
+    if version ~= '3' or
        redis.call('HGET', KEYS[2], 'active') ~= '0' or redis.call('HGET', KEYS[2], 'complete') ~= '0' or
        redis.call('HGET', KEYS[2], 'unsafe') ~= '0' then return nil end
+    local restartAvailable = redis.call('HGET', KEYS[2], 'restart_available') == '1'
     changes = {'requests', count + 1, 'restart_available', '0', 'used', redis.call('HGET', KEYS[2], 'limit')}
+    if used == 0 then
+      if not restartAvailable then return nil end
+    else
+      -- Reuse the same proof and reservation as forward-gap recovery when
+      -- the client makes a plain GET after its first interrupted 206.
+      local first = count == 1 and restartAvailable
+      local retry = ARGV[6] ~= '' and redis.call('HGET', KEYS[2], 'gap_retry_request') == ARGV[6] and
+        tonumber(redis.call('HGET', KEYS[2], 'gap_retry_after')) == count
+      if (not first and not retry) or used ~= tonumber(redis.call('HGET', KEYS[2], 'first_range_written')) or
+         not verifiedInterruptedPrefix(KEYS[2], limit, used) then return nil end
+      local idleBefore = redis.call('HGET', KEYS[2], 'idle_deadline')
+      if not idleBefore then return nil end
+      table.insert(changes, 'gap_promoted_owner')
+      table.insert(changes, ARGV[5])
+      table.insert(changes, 'gap_idle_before')
+      table.insert(changes, idleBefore)
+    end
   end
 end
 local tracked = redis.call('HGET', KEYS[2], 'tracking') == '1' and ARGV[5] ~= ''
@@ -153,11 +182,27 @@ local count = tonumber(redis.call('HGET', KEYS[2], 'requests'))
 local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
 local limit = tonumber(redis.call('HGET', KEYS[2], 'limit'))
 if not secret or not count or not used or not limit then return nil end
-local idle = redis.call('HGET', KEYS[2], 'idle_deadline')
-if idle and nowMillis() >= tonumber(idle) then return nil end
-local pending = version == '3' and redis.call('HGET', KEYS[2], 'initial_started') == '0'
-if not pending and (count >= tonumber(ARGV[2]) or used >= limit) then return nil end
-return {redis.call('HGETALL', KEYS[1]), secret}
+local storedIdle = redis.call('HGET', KEYS[2], 'idle_deadline')
+local idle = tonumber(storedIdle)
+local now = nowMillis()
+if storedIdle and (not idle or now >= idle) then return nil end
+local started = redis.call('HGET', KEYS[2], 'initial_started')
+local pending = version == '3' and started == '0'
+local handoff = false
+-- A native retry can arrive before the old handler refunds its reservation and
+-- records an interruption. Only report this state for a plain GET that could
+-- become eligible when that operation finishes. No rights are granted here.
+if ARGV[3] == '1' and version == '3' and started == '1' and count <= 1 and
+   redis.call('HGET', KEYS[2], 'active') == '1' and redis.call('HGET', KEYS[2], 'complete') == '0' and
+   redis.call('HGET', KEYS[2], 'unsafe') == '0' then
+  local absolute = tonumber(redis.call('HGET', KEYS[2], 'absolute_deadline'))
+  local afterInitial = count == 0 and used == 0
+  local afterRange = count == 1 and used <= limit and redis.call('HGET', KEYS[2], 'restart_available') == '1' and
+    (tonumber(redis.call('HGET', KEYS[2], 'initial_written')) or 0) > 0
+  handoff = absolute and idle and now < absolute and (afterInitial or afterRange)
+end
+if not pending and (count >= tonumber(ARGV[2]) or (used >= limit and not handoff)) then return nil end
+return {redis.call('HGETALL', KEYS[1]), secret, handoff and 1 or 0}
 `)
 
 var reserveDownloadBytesScript = redis.NewScript(2, `
@@ -175,7 +220,7 @@ return 1
 // A second open-ended retry may describe bytes the server never wrote. When
 // the first two interrupted responses form one verified prefix, charge their
 // combined bytes to the initial allowance and reserve one full replacement.
-var restartDownloadGapScript = redis.NewScript(2, sessionClockLua+`
+var restartDownloadGapScript = redis.NewScript(2, sessionClockLua+interruptedPrefixLua+`
 if redis.call('PTTL', KEYS[1]) <= 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] or
    redis.call('PTTL', KEYS[2]) <= 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] or
    redis.call('HGET', KEYS[2], ARGV[3]) ~= '1' then return -1 end
@@ -192,12 +237,11 @@ if (not first and not retry) or redis.call('HGET', KEYS[2], 'active') ~= '1' or
    redis.call('HGET', KEYS[2], 'complete') ~= '0' or redis.call('HGET', KEYS[2], 'unsafe') ~= '0' then return owner and -1 or 0 end
 local size = tonumber(redis.call('HGET', KEYS[2], 'limit'))
 local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
-local initial = tonumber(redis.call('HGET', KEYS[2], 'initial_written'))
-local prefix = tonumber(redis.call('HGET', KEYS[2], 'interrupted_prefix'))
 local previous = tonumber(redis.call('HGET', KEYS[2], 'first_range_written'))
+local prefix = verifiedInterruptedPrefix(KEYS[2], size, previous)
 local start, reserved = tonumber(ARGV[4]), tonumber(ARGV[5])
-if not initial or not prefix or not previous or initial <= 0 or initial >= prefix or prefix >= size or prefix >= start or
-   previous <= 0 or previous > size-initial or reserved ~= math.max(0, size-start) or used-reserved ~= previous then return owner and -1 or 0 end
+if not prefix or prefix >= start or
+   reserved ~= math.max(0, size-start) or used-reserved ~= previous then return owner and -1 or 0 end
 redis.call('HSET', KEYS[2], 'used', redis.call('HGET', KEYS[2], 'limit'), 'restart_available', '0',
   'gap_idle_before', redis.call('HGET', KEYS[2], 'idle_deadline'), 'gap_promoted_owner', ARGV[3])
 return 1
@@ -228,7 +272,7 @@ type DownloadSession struct {
 	progressField             string
 	validatedOpenRange        bool
 	interruptedPrefix         int64
-	rangeIdentity             string
+	retryIdentity             string
 }
 
 func (s *DownloadSession) Size() int64 { return s.size }
@@ -252,7 +296,7 @@ func (s *DownloadSession) ValidateOpenRange(start, reserved int64) (bool, error)
 	}
 	c := NewPool().Get()
 	defer c.Close()
-	promoted, err := redis.Int(restartDownloadGapScript.Do(c, s.fileKey, s.sessionKey, s.token, s.encrypted, s.progressField, start, reserved, s.rangeIdentity))
+	promoted, err := redis.Int(restartDownloadGapScript.Do(c, s.fileKey, s.sessionKey, s.token, s.encrypted, s.progressField, start, reserved, s.retryIdentity))
 	if err != nil {
 		return false, err
 	}
@@ -359,53 +403,84 @@ func downloadRedisFailure(c redis.Conn) *echo.HTTPError {
 	return echo.NewHTTPError(status, http.StatusText(status))
 }
 
-func authenticatedDownloadToken(c redis.Conn, fileKey, linkKey string) ([]byte, *echo.HTTPError) {
+func authenticateDownloadLink(ctx context.Context, fileKey, linkKey string) (redis.Conn, []byte, *echo.HTTPError) {
 	if len(linkKey) > hex.EncodedLen(len(fernet.Key{})) {
-		return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		return nil, nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(linkKey)
 	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		return nil, nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	token, err := redis.Bytes(c.Do("HGET", fileKey, "token"))
+	c, err := NewPool().GetContext(ctx)
 	if err != nil {
-		return nil, downloadRedisFailure(c)
+		return nil, nil, echo.NewHTTPError(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable))
+	}
+	token, err := redis.Bytes(redis.DoContext(c, ctx, "HGET", fileKey, "token"))
+	if err != nil {
+		fault := downloadRedisFailure(c)
+		_ = c.Close()
+		return nil, nil, fault
 	}
 	if fernet.VerifyAndDecrypt(token, 0, keys) == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		_ = c.Close()
+		return nil, nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	return token, nil
+	return c, token, nil
 }
 
-// PreviewDownloadSession authenticates the bearer and session cookie while
-// leaving request and byte counters untouched. It must not replace the atomic
-// consuming check in ResumeFileDownload, which remains authoritative.
-func PreviewDownloadSession(f *models.File, cookie string) *echo.HTTPError {
+// PreviewDownloadSession authenticates the bearer and cookie without changing
+// the session. A full GET may briefly wait for another transfer to finish
+// recording progress. Atomic admission remains authoritative after the wait.
+func PreviewDownloadSession(ctx context.Context, f *models.File, cookie string, full bool) *echo.HTTPError {
 	id, linkKey, err := ParseToken(f.FileKey)
 	if err != nil || !validDownloadSessionCookie(cookie) {
 		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	c := NewPool().Get()
-	defer c.Close()
 	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
-	token, fault := authenticatedDownloadToken(c, fileKey, linkKey)
-	if fault != nil {
+	waiting, fault := previewDownloadSession(ctx, f, fileKey, sessionKey, linkKey, cookie, full)
+	if !waiting || fault != nil {
 		return fault
 	}
-	reply, err := redis.Values(previewDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests))
+	ctx, cancel := context.WithTimeout(ctx, downloadHandoffWait)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	ticker := time.NewTicker(downloadHandoffPoll)
+	defer ticker.Stop()
+	for waiting && ctx.Err() == nil {
+		select {
+		case <-ticker.C:
+			waiting, fault = previewDownloadSession(ctx, f, fileKey, sessionKey, linkKey, cookie, full)
+		case <-ctx.Done():
+		}
+	}
+	// The Redis socket deadline can fire before the context reports expiry.
+	if ctx.Err() != nil || !time.Now().Before(deadline) {
+		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	}
+	return fault
+}
+
+func previewDownloadSession(ctx context.Context, f *models.File, fileKey, sessionKey, linkKey, cookie string, full bool) (bool, *echo.HTTPError) {
+	c, token, fault := authenticateDownloadLink(ctx, fileKey, linkKey)
+	if fault != nil {
+		return false, fault
+	}
+	defer c.Close()
+	reply, err := redis.Values(previewDownloadSessionScript.DoContext(ctx, c, fileKey, sessionKey, token, maxDownloadSessionRequests, full))
 	if err != nil {
-		return downloadRedisFailure(c)
+		return false, downloadRedisFailure(c)
 	}
 	var record []interface{}
 	var encrypted []byte
-	if _, err := redis.Scan(reply, &record, &encrypted); err != nil || redis.ScanStruct(record, f) != nil {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	var waiting bool
+	if _, err := redis.Scan(reply, &record, &encrypted, &waiting); err != nil || redis.ScanStruct(record, f) != nil {
+		return false, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(cookie)
 	if err != nil || fernet.VerifyAndDecrypt(encrypted, 0, keys) == nil {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		return false, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	return nil
+	return waiting, nil
 }
 
 // ResumeFileDownload takes one bounded continuation attempt without tracking
@@ -421,9 +496,10 @@ func ResumeTrackedFileDownload(f *models.File, cookie string) (string, *Download
 }
 
 // StartTrackedFileDownload claims the initial full GET or a single budgeted
-// full restart after its interruption. Neither operation reserves another view.
+// restart after a verified interruption. Neither operation reserves another view.
 func StartTrackedFileDownload(f *models.File, cookie string) (string, *DownloadSession, *echo.HTTPError) {
-	return admitFileDownload(f, cookie, "3", true, true, "")
+	// The retry key cannot collide with the hex digest used for a Range.
+	return admitFileDownload(f, cookie, "3", true, true, "plain")
 }
 
 // ResumeStartedFileDownload takes a bounded Range attempt from a session
@@ -442,18 +518,17 @@ func ResumeStartedFileRange(f *models.File, cookie, byteRange, validator string)
 	return admitFileDownload(f, cookie, "3", false, true, identity)
 }
 
-func admitFileDownload(f *models.File, cookie, version string, full, track bool, rangeIdentity string) (string, *DownloadSession, *echo.HTTPError) {
+func admitFileDownload(f *models.File, cookie, version string, full, track bool, retryIdentity string) (string, *DownloadSession, *echo.HTTPError) {
 	id, linkKey, err := ParseToken(f.FileKey)
 	if err != nil || !validDownloadSessionCookie(cookie) {
 		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	c := NewPool().Get()
-	defer c.Close()
 	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
-	token, fault := authenticatedDownloadToken(c, fileKey, linkKey)
+	c, token, fault := authenticateDownloadLink(context.Background(), fileKey, linkKey)
 	if fault != nil {
 		return "", nil, fault
 	}
+	defer c.Close()
 	var field string
 	if track {
 		var random [16]byte
@@ -462,7 +537,7 @@ func admitFileDownload(f *models.File, cookie, version string, full, track bool,
 		}
 		field = "operation_" + hex.EncodeToString(random[:])
 	}
-	reply, err := redis.Values(inspectDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests, version, full, field, rangeIdentity))
+	reply, err := redis.Values(inspectDownloadSessionScript.Do(c, fileKey, sessionKey, token, maxDownloadSessionRequests, version, full, field, retryIdentity))
 	if err != nil {
 		return "", nil, downloadRedisFailure(c)
 	}
@@ -484,7 +559,7 @@ func admitFileDownload(f *models.File, cookie, version string, full, track bool,
 	}
 	f.TTL = ttl
 	return string(secret), &DownloadSession{fileKey: fileKey, sessionKey: sessionKey, token: token, encrypted: encrypted, size: size,
-		tracked: tracked, resumeSeconds: resumeSeconds, initial: full && !restart, restart: restart, archiveID: id, progressField: field, interruptedPrefix: interruptedPrefix, rangeIdentity: rangeIdentity}, nil
+		tracked: tracked, resumeSeconds: resumeSeconds, initial: full && !restart, restart: restart, archiveID: id, progressField: field, interruptedPrefix: interruptedPrefix, retryIdentity: retryIdentity}, nil
 }
 
 // The operation marker changes from preparation to streaming immediately

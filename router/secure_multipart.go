@@ -60,6 +60,9 @@ func secureMultipart(next echo.HandlerFunc) echo.HandlerFunc {
 			if errors.Is(err, utils.ErrSecureMultipartFileCount) {
 				return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload").Wrap(utils.ErrSecureMultipartFileCount)
 			}
+			if errors.Is(err, utils.ErrSecureMultipartFilename) {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload").Wrap(utils.ErrSecureMultipartFilename)
+			}
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid multipart upload")
 		}
 		return next(c)

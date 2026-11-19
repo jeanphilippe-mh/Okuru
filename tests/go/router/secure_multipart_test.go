@@ -51,6 +51,7 @@ func TestFileSelectionLimitResponses(t *testing.T) {
 		{"count", "text/html", "navigate", "Select no more than 100 files.", 101, 0, 400},
 		{"size", "text/html,application/xhtml+xml", "", "exceeds the size limit", 2, 6, 413},
 		{"declared body", "text/html", "navigate", "exceeds the size limit", 1, 0, 413},
+		{"invalid filename", "text/html", "navigate", "Invalid or duplicate file name", 1, 0, 400},
 		{"progress size", "application/json", "cors", "exceeds the size limit", 1, 11, 413},
 		{"progress count", "application/json", "cors", "Select no more than 100 files.", 101, 0, 400},
 		{"progress declared body", "application/json", "cors", "exceeds the size limit", 1, 0, 413},
@@ -62,7 +63,11 @@ func TestFileSelectionLimitResponses(t *testing.T) {
 			var body bytes.Buffer
 			w := multipart.NewWriter(&body)
 			for i := 0; i < tc.files; i++ {
-				file, err := w.CreateFormFile("files", fmt.Sprintf("test-%d.txt", i))
+				filename := fmt.Sprintf("test-%d.txt", i)
+				if tc.name == "invalid filename" {
+					filename = "bad?.txt"
+				}
+				file, err := w.CreateFormFile("files", filename)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -88,7 +93,7 @@ func TestFileSelectionLimitResponses(t *testing.T) {
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 			refresh := rec.Header().Get("Refresh")
-			if rec.Code != tc.status || (tc.message == "" && refresh != "") {
+			if rec.Code != tc.status {
 				t.Fatalf("status=%d refresh=%q", rec.Code, refresh)
 			}
 			if tc.accept == "application/json" {
@@ -106,9 +111,17 @@ func TestFileSelectionLimitResponses(t *testing.T) {
 						t.Fatal("missing typed JSON selection error")
 					}
 				}
-			} else if tc.message != "" && (refresh != "5; url=/file" || !strings.Contains(rec.Body.String(), tc.message) ||
-				!strings.Contains(rec.Body.String(), `href="/file">Return now</a>`)) {
-				t.Fatal("missing native return or selection message")
+			} else if tc.mode != "cors" {
+				message := tc.message
+				if message == "" {
+					message = http.StatusText(tc.status)
+				}
+				if refresh != "3; url=/file" || !strings.Contains(rec.Body.String(), message) ||
+					!strings.Contains(rec.Body.String(), `href="/file">Return now</a>`) {
+					t.Fatal("missing native return or selection message")
+				}
+			} else if refresh != "" {
+				t.Fatal("fetch response contains a navigation header")
 			}
 			if files, err := filepath.Glob(filepath.Join(utils.FILEFOLDER, ".okuru-multipart-*")); err != nil || len(files) != 0 {
 				t.Fatalf("staging left after rejection: %v", files)

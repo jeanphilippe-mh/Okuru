@@ -26,6 +26,25 @@ func fileSelectionMessage(r *http.Request, err error) string {
 	}
 }
 
+func formErrorDestination(r *http.Request) string {
+	if r.Method != http.MethodPost || r.Header.Get("X-Requested-With") != "" {
+		return ""
+	}
+	accept, mode := r.Header.Get(echo.HeaderAccept), r.Header.Get("Sec-Fetch-Mode")
+	navigation := mode == "navigate" || (mode == "" && strings.HasPrefix(accept, echo.MIMETextHTML))
+	if accept == echo.MIMEApplicationJSON || !navigation {
+		return ""
+	}
+	switch r.URL.Path {
+	case "/":
+		return "/"
+	case "/file", "/file/":
+		return "/file"
+	default:
+		return ""
+	}
+}
+
 // Preserve the error status and write each response only once, including when
 // RequestLogger has already invoked the handler through HandleError.
 func ConfigureErrorHandler(e *echo.Echo, viewDir string) {
@@ -57,22 +76,23 @@ func ConfigureErrorHandler(e *echo.Echo, viewDir string) {
 			return
 		}
 		r := c.Request()
-		if message := fileSelectionMessage(r, err); message != "" {
-			accept, mode := r.Header.Get("Accept"), r.Header.Get("Sec-Fetch-Mode")
-			if accept == echo.MIMEApplicationJSON {
-				c.Response().Header().Set("Cache-Control", "private, no-store")
-				_ = c.JSON(code, map[string]string{"code": "file_selection_limit", "error": message})
-				return
+		message := fileSelectionMessage(r, err)
+		if message != "" && r.Header.Get(echo.HeaderAccept) == echo.MIMEApplicationJSON {
+			c.Response().Header().Set(echo.HeaderCacheControl, "private, no-store")
+			_ = c.JSON(code, map[string]string{"code": "file_selection_limit", "error": message})
+			return
+		}
+		if destination := formErrorDestination(r); destination != "" {
+			if destination == "/file" && errors.Is(err, utils.ErrSecureMultipartFilename) {
+				message = utils.ErrSecureMultipartFilename.Error()
 			}
-			navigation := mode == "navigate" || (mode == "" && strings.HasPrefix(accept, echo.MIMETextHTML))
-			if navigation && r.Header.Get("X-Requested-With") == "" {
-				data := utils.NewDataContext()
-				data["message"] = message
-				c.Response().Header().Set("Refresh", "5; url=/file")
-				if renderErr := c.Render(code, "file_upload_limit.html", data); renderErr == nil || response.Committed {
-					return
-				}
-				c.Response().Header().Del("Refresh")
+			if message == "" {
+				message = http.StatusText(code)
+			}
+			data := utils.NewDataContext()
+			data["errors"] = message
+			if renderErr := utils.RenderFormError(c, code, "form_error.html", destination, data); renderErr == nil || response.Committed {
+				return
 			}
 		}
 		page, readErr := os.ReadFile(filepath.Join(viewDir, fmt.Sprintf("%d.html", code)))

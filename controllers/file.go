@@ -515,7 +515,7 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 		data["maxFileSize"] = MaxFileSize
 		data["maxFileSizeText"] = GetMaxFileSizeText()
 		data["errors"] = displayError(message)
-		return context.Render(status, "index_file.html", data)
+		return RenderFormError(context, status, "index_file.html", "/file", data)
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
@@ -532,10 +532,10 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 	if form == nil {
 		form, err = ParseSecureMultipart(context.Request(), FILEFOLDER, MaxFileSize, maxUploadFiles)
 		if err != nil {
-			if mode == progressFileUpload {
-				return fail(http.StatusBadRequest, "Invalid multipart upload")
+			if mode == webFileUpload && errors.Is(err, ErrSecureMultipartFilename) {
+				return fail(http.StatusBadRequest, ErrSecureMultipartFilename.Error())
 			}
-			return context.NoContent(http.StatusBadRequest)
+			return fail(http.StatusBadRequest, "Invalid multipart upload")
 		}
 		defer func() {
 			if err := form.Close(); err != nil {

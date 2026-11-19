@@ -7,6 +7,7 @@
     </div>
     <div>
         <p><span id="file-selection-error" role="alert">{% if (errors) %}&#128683; {{ errors }}{% endif %}</span> </p>
+        {% include "form_error_return.html" %}
     </div>
 <form id="file_create" action="/file" aria-labelledby="file-title" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->

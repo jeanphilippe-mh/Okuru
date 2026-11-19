@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section aria-labelledby="form-error">
+    <h2 id="form-error">Unable to submit the form</h2>
+    <p role="alert">{{ errors }}</p>
+    {% include "form_error_return.html" %}
+</section>
+{% endblock %}

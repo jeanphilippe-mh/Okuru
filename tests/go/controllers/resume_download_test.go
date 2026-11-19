@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -392,6 +393,388 @@ func TestDoubleInterruptedValidatedRangeGap(t *testing.T) {
 	}
 }
 
+func TestPlainGETRestartsAfterFirstVerifiedRangeInterrupted(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	id, path := finalizationArchive(t, token)
+	cookie, _, etag := interruptedSession(t, conn, e, token, 5)
+	first := interruptDownloadRange(t, e, cookie, "bytes=3-", etag, 7)
+	if first.Code != http.StatusPartialContent || !bytes.Equal(first.Body.Bytes(), plain[3:10]) {
+		t.Fatal("first continuation did not deliver the expected partial bytes")
+	}
+	for _, value := range []string{"", "invalid"} {
+		req := httptest.NewRequest(http.MethodGet, cookie.Path, nil)
+		if value != "" {
+			req.AddCookie(&http.Cookie{Name: cookie.Name, Value: value})
+		}
+		rec := httptest.NewRecorder()
+		if err := downloadRequest(e, rec, req); err != nil || rec.Code != http.StatusNotFound || rec.Body.Len() != 0 {
+			t.Fatalf("plain GET without valid cookie: status=%d err=%v", rec.Code, err)
+		}
+	}
+	if views, err := redis.Int(conn.Do("HGET", u.REDIS_PREFIX+"file_"+id, "views_count")); err != nil || views != 1 {
+		t.Fatalf("initial POST and partial transfers reserved %d views: %v", views, err)
+	}
+	rec, err := getResume(e, token, cookie, "", "")
+	if err != nil || rec.Code != http.StatusOK || rec.Header().Get("Content-Range") != "" ||
+		rec.Header().Get("Content-Length") != strconv.Itoa(len(plain)) ||
+		rec.Header().Get("ETag") != etag || !bytes.Equal(rec.Body.Bytes(), plain) {
+		t.Fatalf("plain restart did not return the full ZIP: status=%d bytes=%d err=%v", rec.Code, rec.Body.Len(), err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("completed one-view archive was not deleted: %v", err)
+	}
+	if rec, err := getResume(e, token, cookie, "", ""); err != nil || rec.Code != http.StatusNotFound {
+		t.Fatalf("duplicate full restart: status=%d err=%v", rec.Code, err)
+	}
+}
+
+type downloadHandoffTestConn struct {
+	redis.ConnWithContext
+	settlingArgs int
+	sessionKey   string
+	finishing    chan<- struct{}
+	allowFinish  <-chan struct{}
+	rechecking   chan<- struct{}
+	finishPaused *atomic.Bool
+	previewReads *atomic.Int32
+}
+
+func (c *downloadHandoffTestConn) Do(command string, args ...any) (any, error) {
+	if (command == "EVALSHA" || command == "EVAL") && len(args) == c.settlingArgs && args[3] == c.sessionKey &&
+		c.finishPaused.CompareAndSwap(false, true) {
+		close(c.finishing)
+		<-c.allowFinish
+	}
+	reply, err := c.ConnWithContext.Do(command, args...)
+	c.observePreview(command, args, err)
+	return reply, err
+}
+
+func (c *downloadHandoffTestConn) DoContext(ctx context.Context, command string, args ...any) (any, error) {
+	reply, err := c.ConnWithContext.DoContext(ctx, command, args...)
+	c.observePreview(command, args, err)
+	return reply, err
+}
+
+func (c *downloadHandoffTestConn) observePreview(command string, args []any, err error) {
+	if err == nil && (command == "EVALSHA" || command == "EVAL") &&
+		(len(args) == 6 || len(args) == 7) && args[3] == c.sessionKey && args[5] == 32 && c.previewReads.Add(1) == 2 {
+		c.rechecking <- struct{}{}
+	}
+}
+
+func TestAuthenticatedPlainGETWaitsForInterruptedTransfer(t *testing.T) {
+	t.Run("initial GET", func(t *testing.T) { testAuthenticatedPlainGETHandoff(t, false) })
+	t.Run("first range GET", func(t *testing.T) { testAuthenticatedPlainGETHandoff(t, true) })
+}
+
+func testAuthenticatedPlainGETHandoff(t *testing.T, firstRange bool) {
+	t.Helper()
+	conn := configureCompatibilityRedis(t)
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	id, path := finalizationArchive(t, token)
+	var cookie *http.Cookie
+	var validator string
+	settlingArgs, expectedRequests, expectedUsed := 17, 0, 0 // RecordDownloadProgress
+	if firstRange {
+		cookie, _, validator = interruptedSession(t, conn, e, token, 5)
+		settlingArgs, expectedRequests, expectedUsed = 8, 1, len(plain) // RefundDownloadBytes
+	} else {
+		handoff, err := postDownload(t, e, token, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cookie = authorizedDownload(t, token, handoff)
+	}
+	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+	t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
+
+	if err := u.CloseRedisPool(); err != nil {
+		t.Fatal(err)
+	}
+	finishing, allowFinish, rechecking := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+	release := sync.OnceFunc(func() { close(allowFinish) })
+	var finishPaused atomic.Bool
+	var previewReads atomic.Int32
+	pool := u.NewPool()
+	dial := pool.DialContext
+	pool.DialContext = func(ctx context.Context) (redis.Conn, error) {
+		c, err := dial(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &downloadHandoffTestConn{c.(redis.ConnWithContext), settlingArgs, sessionKey, finishing, allowFinish, rechecking, &finishPaused, &previewReads}, nil
+	}
+	t.Cleanup(func() { _ = u.CloseRedisPool() })
+
+	initial := httptest.NewRequest(http.MethodGet, cookie.Path, nil)
+	initial.AddCookie(cookie)
+	written, previousStatus := 5, http.StatusOK
+	if firstRange {
+		initial.Header.Set("Range", "bytes=0-")
+		initial.Header.Set("If-Range", validator)
+		written, previousStatus = 9, http.StatusPartialContent
+	}
+	initialResponse := &interruptedResponseWriter{ResponseRecorder: httptest.NewRecorder(), remaining: written}
+	initialDone := make(chan any, 1)
+	go func() {
+		defer func() { initialDone <- recover() }()
+		_ = downloadRequest(e, initialResponse, initial)
+	}()
+	defer func() {
+		release()
+		if result := <-initialDone; result != http.ErrAbortHandler {
+			t.Errorf("original GET did not abort: %v", result)
+		}
+	}()
+	select {
+	case <-finishing:
+	case <-time.After(time.Second):
+		t.Fatal("original GET did not reach Redis finalization")
+	}
+	if initialResponse.Code != previousStatus || initialResponse.Body.Len() != written {
+		t.Fatalf("original GET returned %d and %d bytes", initialResponse.Code, initialResponse.Body.Len())
+	}
+	state := func() string {
+		t.Helper()
+		fields, err := redis.Strings(conn.Do("HMGET", sessionKey, "active", "requests", "used", "idle_deadline", "absolute_deadline"))
+		if err != nil || len(fields) != 5 || fields[0] != "1" ||
+			fields[1] != strconv.Itoa(expectedRequests) || fields[2] != strconv.Itoa(expectedUsed) {
+			t.Fatalf("waiting GET changed active transfers or budgets: %v err=%v", fields, err)
+		}
+		return strings.Join(fields, ",")
+	}
+	before := state()
+	previewReads.Store(0)
+	missing := httptest.NewRecorder()
+	if err := downloadRequest(e, missing, httptest.NewRequest(http.MethodGet, cookie.Path, nil)); err != nil ||
+		missing.Code != http.StatusNotFound || missing.Body.Len() != 0 || previewReads.Load() != 0 {
+		t.Fatalf("GET without cookie reached the handoff: status=%d err=%v", missing.Code, err)
+	}
+	resumed := make(chan *httptest.ResponseRecorder, 2)
+	resume := func(ctx context.Context) {
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, cookie.Path, nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		_ = downloadRequest(e, rec, req)
+		resumed <- rec
+	}
+	requireRecheck := func() {
+		t.Helper()
+		select {
+		case <-rechecking:
+		case rec := <-resumed:
+			t.Fatalf("replacement GET returned %d before the original GET was finalized", rec.Code)
+		case <-time.After(time.Second):
+			t.Fatal("replacement GET did not recheck the active transfer")
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go resume(ctx)
+	requireRecheck()
+	cancel()
+	select {
+	case rec := <-resumed:
+		if rec.Code != http.StatusNotFound || rec.Body.Len() != 0 {
+			t.Fatalf("canceled handoff returned %d and %d bytes", rec.Code, rec.Body.Len())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handoff did not stop after request cancellation")
+	}
+	if after := state(); after != before {
+		t.Fatalf("canceled handoff changed session deadlines: before=%s after=%s", before, after)
+	}
+	previewReads.Store(0)
+	go resume(t.Context())
+	requireRecheck()
+	go resume(t.Context())
+	release()
+	accepted := 0
+	for range 2 {
+		select {
+		case rec := <-resumed:
+			switch rec.Code {
+			case http.StatusOK:
+				accepted++
+				if rec.Header().Get("Content-Range") != "" || !bytes.Equal(rec.Body.Bytes(), plain) {
+					t.Fatal("replacement GET did not deliver the full original ZIP")
+				}
+			case http.StatusNotFound:
+				if rec.Body.Len() != 0 {
+					t.Fatal("concurrent replacement received bytes")
+				}
+			default:
+				t.Fatalf("unexpected replacement status %d", rec.Code)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("replacement GET did not finish")
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("%d replacement GETs were admitted, want exactly one", accepted)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("completed one-view archive was not deleted: %v", err)
+	}
+}
+
+func TestAuthenticatedPlainGETHandoffHonorsWaitLimit(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	handoff, err := postDownload(t, e, token, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := authorizedDownload(t, token, handoff)
+	_, initial, fault := u.StartTrackedFileDownload(&models.File{FileKey: token}, cookie.Value)
+	if fault != nil {
+		t.Fatal(fault)
+	}
+	defer func() { _ = u.AbandonDownloadPreparation(initial) }()
+	if err := initial.MarkDownloadStreaming(); err != nil {
+		t.Fatal(err)
+	}
+	id, _, _ := u.ParseToken(token)
+	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+	t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
+	state := func() string {
+		t.Helper()
+		fields, err := redis.Strings(conn.Do("HMGET", sessionKey, "active", "requests", "used", "idle_deadline", "absolute_deadline"))
+		if err != nil || len(fields) != 5 {
+			t.Fatalf("could not read session state: %v err=%v", fields, err)
+		}
+		return strings.Join(fields, ",")
+	}
+	before := state()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, cookie.Path, nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	started := time.Now()
+	if err := downloadRequest(e, rec, req); err != nil || rec.Code != http.StatusNotFound || rec.Body.Len() != 0 {
+		t.Fatalf("handoff returned status=%d err=%v while the first GET was active", rec.Code, err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second || elapsed < 100*time.Millisecond {
+		t.Fatalf("handoff ignored its bounded wait: elapsed=%s", elapsed)
+	}
+	if after := state(); after != before {
+		t.Fatalf("handoff changed deadlines or budget: before=%s after=%s", before, after)
+	}
+}
+
+func TestPlainGETAfterRangeRequiresVerifiedPrefixAndByteBudget(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	for _, scenario := range []string{"unvalidated", "prefix gap", "overlap exceeds first allowance", "later admitted range"} {
+		t.Run(scenario, func(t *testing.T) {
+			e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+			initial := len(plain) / 2
+			cookie, _, etag := interruptedSession(t, conn, e, token, initial)
+			byteRange, validator, written := "bytes=1-", etag, initial
+			switch scenario {
+			case "unvalidated":
+				validator = ""
+			case "prefix gap":
+				byteRange = fmt.Sprintf("bytes=%d-", initial+1)
+				written = 7
+			case "overlap exceeds first allowance":
+				written = len(plain) - initial + 1
+			}
+			if first := interruptDownloadRange(t, e, cookie, byteRange, validator, written); first.Code != http.StatusPartialContent {
+				t.Fatal("first range was refused")
+			}
+			if scenario == "later admitted range" {
+				_, other, fault := u.ResumeStartedFileDownload(&models.File{FileKey: token}, cookie.Value)
+				if fault != nil {
+					t.Fatal(fault)
+				}
+				if err := u.AbandonDownloadPreparation(other); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if rec, err := getResume(e, token, cookie, "", ""); err != nil || rec.Code != http.StatusNotFound || rec.Body.Len() != 0 {
+				t.Fatalf("plain restart was accepted: status=%d bytes=%d err=%v", rec.Code, rec.Body.Len(), err)
+			}
+			offset := len(plain) - 1
+			if rec, err := getResume(e, token, cookie, fmt.Sprintf("bytes=%d-", offset), etag); err != nil ||
+				rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), plain[offset:]) {
+				t.Fatalf("ordinary continuation failed: status=%d err=%v", rec.Code, err)
+			}
+		})
+	}
+}
+
+func TestPlainGETAfterRangeKeepsItsReservationAndDeadlineAfterPreHeaderFailure(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	for _, scenario := range []string{"retry", "attempt limit", "idle expired", "session expired", "intervening range"} {
+		t.Run(scenario, func(t *testing.T) {
+			e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+			id, _, _ := u.ParseToken(token)
+			cookie, _, etag := interruptedSession(t, conn, e, token, 5)
+			_ = interruptDownloadRange(t, e, cookie, "bytes=3-", etag, 7)
+			key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+			idle := time.Now().Add(25 * time.Second).UnixMilli()
+			if _, err := conn.Do("HSET", key, "idle_deadline", idle); err != nil {
+				t.Fatal(err)
+			}
+			absolute, err := redis.Int64(conn.Do("HGET", key, "absolute_deadline"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := &models.File{FileKey: token}
+			failures := 1
+			if scenario == "attempt limit" {
+				failures = 31
+			}
+			for i := 0; i < failures; i++ {
+				_, session, fault := u.StartTrackedFileDownload(f, cookie.Value)
+				if fault != nil || session.IsInitialGET() {
+					t.Fatalf("plain replacement %d could not reserve one full response: %v", i, fault)
+				}
+				for _, byteRange := range []string{"", "bytes=4-5"} {
+					if rec, err := getResume(e, token, cookie, byteRange, etag); err != nil || rec.Code != http.StatusNotFound {
+						t.Fatal("competing request accepted during an exclusive restart")
+					}
+				}
+				// The Redis streaming marker may have succeeded even though the
+				// application has not sent the first response header.
+				if err := session.MarkDownloadStreaming(); err != nil {
+					t.Fatal(err)
+				}
+				if err := u.AbandonDownloadPreparation(session); err != nil {
+					t.Fatal(err)
+				}
+				state, err := redis.Int64s(conn.Do("HMGET", key, "used", "requests", "active", "idle_deadline", "absolute_deadline"))
+				if err != nil || len(state) != 5 || state[0] != 7 || state[1] != int64(2+i) ||
+					state[2] != 0 || state[3] != idle || state[4] != absolute {
+					t.Fatalf("abandonment changed the original charge or deadlines: %v %v", state, err)
+				}
+			}
+			want := http.StatusNotFound
+			switch scenario {
+			case "retry":
+				want = http.StatusOK
+			case "idle expired", "session expired":
+				deadline := "idle_deadline"
+				if scenario == "session expired" {
+					deadline = "absolute_deadline"
+				}
+				if _, err := conn.Do("HSET", key, deadline, time.Now().Add(-time.Second).UnixMilli()); err != nil {
+					t.Fatal(err)
+				}
+			case "intervening range":
+				if rec, err := getResume(e, token, cookie, "bytes=10-10", etag); err != nil || rec.Code != http.StatusPartialContent {
+					t.Fatalf("ordinary intervening range: status=%d err=%v", rec.Code, err)
+				}
+			}
+			rec, err := getResume(e, token, cookie, "", "")
+			if err != nil || rec.Code != want || (want == http.StatusOK && !bytes.Equal(rec.Body.Bytes(), plain)) {
+				t.Fatalf("plain replacement after abandonment: status=%d want=%d err=%v", rec.Code, want, err)
+			}
+		})
+	}
+}
+
 func TestOverlappingRangesCannotExceedTwoZIPs(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	e, token, _, archive := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
@@ -456,28 +839,36 @@ func TestGapReplacementExclusivityAndPreHeaderRollback(t *testing.T) {
 	}
 }
 
-func TestInterruptedGapReplacementRefundsOnlyUnwrittenBytes(t *testing.T) {
+func TestInterruptedReplacementRefundsOnlyUnwrittenBytes(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
-	id, _, _ := u.ParseToken(token)
-	cookie, _, etag := interruptedSession(t, conn, e, token, 5)
-	first := interruptDownloadRange(t, e, cookie, "bytes=5-", etag, 7)
-	replacement := interruptDownloadRange(t, e, cookie, "bytes=24-", etag, 9)
-	if first.Code != http.StatusPartialContent || replacement.Code != http.StatusOK || !bytes.Equal(replacement.Body.Bytes(), plain[:9]) {
-		t.Fatal("replacement did not start at byte zero")
-	}
-	key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
-	state, err := redis.StringMap(conn.Do("HGETALL", key))
-	if err != nil || state["used"] != "9" || state["restart_available"] != "0" || state["active"] != "0" ||
-		state["requests"] != "2" || state["initial_written"] != "5" || state["interrupted_prefix"] != "12" {
-		t.Fatal("incorrect byte accounting after interrupted replacement")
-	}
-	if replay, err := getResume(e, token, cookie, "", ""); err != nil || replay.Code != http.StatusNotFound {
-		t.Fatal("additional full replay admitted")
-	}
-	final, err := getResume(e, token, cookie, "bytes=9-", etag)
-	if err != nil || final.Code != http.StatusPartialContent || !bytes.Equal(final.Body.Bytes(), plain[9:]) {
-		t.Fatal("could not complete within the remaining byte allowance")
+	for _, scenario := range []string{"forward gap", "plain GET"} {
+		t.Run(scenario, func(t *testing.T) {
+			e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+			id, _, _ := u.ParseToken(token)
+			cookie, _, etag := interruptedSession(t, conn, e, token, 5)
+			first := interruptDownloadRange(t, e, cookie, "bytes=5-", etag, 7)
+			byteRange, validator := "bytes=24-", etag
+			if scenario == "plain GET" {
+				byteRange, validator = "", ""
+			}
+			replacement := interruptDownloadRange(t, e, cookie, byteRange, validator, 9)
+			if first.Code != http.StatusPartialContent || replacement.Code != http.StatusOK || !bytes.Equal(replacement.Body.Bytes(), plain[:9]) {
+				t.Fatal("replacement did not start at byte zero")
+			}
+			key := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+			state, err := redis.StringMap(conn.Do("HGETALL", key))
+			if err != nil || state["used"] != "9" || state["restart_available"] != "0" || state["active"] != "0" ||
+				state["requests"] != "2" || state["initial_written"] != "5" || state["interrupted_prefix"] != "12" {
+				t.Fatal("incorrect byte accounting after interrupted replacement")
+			}
+			if replay, err := getResume(e, token, cookie, "", ""); err != nil || replay.Code != http.StatusNotFound {
+				t.Fatal("additional full replay admitted")
+			}
+			final, err := getResume(e, token, cookie, "bytes=9-", etag)
+			if err != nil || final.Code != http.StatusPartialContent || !bytes.Equal(final.Body.Bytes(), plain[9:]) {
+				t.Fatal("could not complete within the remaining byte allowance")
+			}
+		})
 	}
 }
 

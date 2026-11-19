@@ -174,8 +174,8 @@ if not active or active < 1 or not size or not start or not written or
    start > size or written > size - start then return redis.error_reply('invalid progress') end
 -- The full restart owns the whole budget exclusively. If its reservation
 -- cannot be verified, leave the operation and all charged bytes in place.
-local promotedGap = redis.call('HGET', KEYS[2], 'gap_promoted_owner') == ARGV[7]
-local fullRestart = ARGV[11] == '1' or promotedGap
+local promotedReplacement = redis.call('HGET', KEYS[2], 'gap_promoted_owner') == ARGV[7]
+local fullRestart = ARGV[11] == '1' or promotedReplacement
 if fullRestart and (active ~= 1 or start ~= 0 or tonumber(redis.call('HGET', KEYS[2], 'used')) ~= size) then
   return redis.error_reply('invalid full restart reservation')
 end
@@ -250,7 +250,7 @@ if fullRestart then
   -- single restart back; every admission still counts toward the request cap.
   -- An unaccounted writer panic leaves the full reservation charged.
   if ARGV[9] == '1' or ARGV[5] == '1' or written > 0 then
-    local previous = promotedGap and redis.call('HGET', KEYS[2], 'first_range_written') or '0'
+    local previous = promotedReplacement and redis.call('HGET', KEYS[2], 'first_range_written') or '0'
     -- Before headers the earlier range retains its ordinary charge. Once
     -- replacement bytes are sent, the proven contiguous prefix (initial +
     -- first range) occupies at most the initial allowance. Future ranges
@@ -266,7 +266,7 @@ end
 local retryOwner = redis.call('HGET', KEYS[2], 'gap_retry_owner') == ARGV[7] and
   tonumber(redis.call('HGET', KEYS[2], 'gap_retry_after')) == tonumber(redis.call('HGET', KEYS[2], 'requests'))-1
 if ARGV[9] == '1' and written == 0 and active == 1 and ARGV[13] ~= '' and
-   (promotedGap or retryOwner) and
+   (promotedReplacement or retryOwner) and
    redis.call('HGET', KEYS[2], 'used') == redis.call('HGET', KEYS[2], 'first_range_written') then
   redis.call('HSET', KEYS[2], 'gap_retry_request', ARGV[13], 'gap_retry_after', redis.call('HGET', KEYS[2], 'requests'),
     'idle_deadline', redis.call('HGET', KEYS[2], 'gap_idle_before'))
@@ -322,7 +322,7 @@ func finishDownloadResponse(session *DownloadSession, start, written int64, inte
 	defer c.Close()
 	status, err := redis.Int(recordDownloadProgressScript.Do(c, session.fileKey, session.sessionKey,
 		session.token, session.encrypted, strconv.FormatInt(start, 10), strconv.FormatInt(written, 10), valid, success, session.progressField,
-		strconv.FormatInt(session.size, 10), abandoned, session.initial, session.restart, session.validatedOpenRange, session.rangeIdentity))
+		strconv.FormatInt(session.size, 10), abandoned, session.initial, session.restart, session.validatedOpenRange, session.retryIdentity))
 	if err != nil {
 		return err
 	}
