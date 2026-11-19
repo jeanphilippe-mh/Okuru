@@ -9,6 +9,7 @@ const endpoint = 'https://share.example/file';
 
 function browser({ validationFails = false, formDataSupported = true, uploadSupported = true } = {}) {
   const form = new EventTarget();
+  const files = { files: [] };
   form.addEventListener('submit', (event) => { if (validationFails) event.preventDefault(); });
   const receipt = { value: '' };
   const csrf = { value: 'test-csrf' };
@@ -25,7 +26,7 @@ function browser({ validationFails = false, formDataSupported = true, uploadSupp
   const status = { textContent: '' };
   const percent = { textContent: '' };
   const elements = {
-    file_create: form, submit: button, 'upload-progress': panel, 'upload-meter': meter,
+    file_create: form, files, submit: button, 'upload-progress': panel, 'upload-meter': meter,
     'upload-status': status, 'upload-percent': percent, 'upload-confirmation': confirmation,
   };
   const requests = [];
@@ -44,9 +45,12 @@ function browser({ validationFails = false, formDataSupported = true, uploadSupp
     location: { origin: 'https://share.example' }, XMLHttpRequest: Request,
     FormData: formDataSupported ? class { constructor(source) { this.source = source; } } : undefined,
   });
-  vm.runInNewContext(script, { window, document: { getElementById: (id) => elements[id] } });
+  class CustomEvent extends Event {
+    constructor(type, init) { super(type, init); this.detail = init.detail; }
+  }
+  vm.runInNewContext(script, { window, CustomEvent, document: { getElementById: (id) => elements[id] } });
   return {
-    form, button, panel, meter, status, percent, receipt, csrf, confirmation, confirmations, requests,
+    form, files, button, panel, meter, status, percent, receipt, csrf, confirmation, confirmations, requests,
     submit: () => form.dispatchEvent(new Event('submit', { cancelable: true })),
     restore: () => window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true })),
   };
@@ -155,4 +159,30 @@ test('shows failures as text, stops progress and lets the user explicitly resubm
   assert.equal(page.requests.length, 3);
   page.requests[1].respond(200, { receipt: 'stale' });
   assert.deepEqual(page.confirmations, []);
+});
+
+test('only a selection-limit response for the submitted files activates the form warning', () => {
+  for (const [status, code, changed, redirected, handled] of [
+    [400, 'file_selection_limit', false, false, true],
+    [413, 'file_selection_limit', false, false, true],
+    [413, undefined, false, false, false],
+    [400, 'invalid_name', false, false, false],
+    [403, 'file_selection_limit', false, false, false],
+    [413, 'file_selection_limit', true, false, false],
+    [413, 'file_selection_limit', false, true, false]
+  ]) {
+    const page = browser();
+    const warnings = [];
+    page.form.addEventListener('file-selection-limit', event => {
+      warnings.push(event.detail);
+      event.preventDefault();
+    });
+    page.submit();
+    if (changed) page.files.files = [];
+    if (redirected) page.requests[0].responseURL += '/other';
+    page.requests[0].respond(status, { code, error: 'Selection rejected.' });
+    assert.deepEqual(warnings, handled ? ['Selection rejected.'] : []);
+    assert.equal(page.panel.hidden, handled);
+    assert.equal(page.button.disabled, false);
+  }
 });

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -272,6 +271,9 @@ func DownloadFile(context *echo.Context) error {
 		auditUnavailable(context, previewErr, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
 	}
+	if downloadSharePath(f.FileKey) == "" {
+		return context.NoContent(http.StatusNotFound)
+	}
 	var releaseKDF func()
 	needsKDF := preview.ArchiveFormat == ArchiveFormatAgeUserPassword && password != ""
 	if needsKDF {
@@ -357,7 +359,7 @@ func DownloadFile(context *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	location := "/file/" + url.PathEscape(f.FileKey) + "/download/" + downloadSessionDigest(value)
+	location := downloadSessionPath(f.FileKey, downloadSessionDigest(value))
 	context.SetCookie(&http.Cookie{
 		Name: cookieName, Value: value, Path: location,
 		MaxAge: cookieLifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,

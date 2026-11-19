@@ -128,7 +128,7 @@ func requestDownloadWithCSRF(t *testing.T, e *echo.Echo, path string, fields url
 	t.Helper()
 	post := requestWithCSRF(t, e, path, fields)
 	location := post.Header().Get("Location")
-	if post.Code != http.StatusSeeOther || !strings.HasPrefix(location, path+"/download/") {
+	if post.Code != http.StatusSeeOther || !strings.HasPrefix(location, "/file/dl-") {
 		t.Fatalf("download authorization status=%d", post.Code)
 	}
 	req := httptest.NewRequest(http.MethodGet, location, nil)

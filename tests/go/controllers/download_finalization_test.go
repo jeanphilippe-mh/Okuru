@@ -379,7 +379,7 @@ func TestExpiredSessionBlocksNewRangesButAllowsActiveGETToFinish(t *testing.T) {
 				done <- errors.New("Active response panicked")
 			}
 		}()
-		done <- downloadRequest(e, writer, req, token)
+		done <- downloadRequest(e, writer, req)
 	}()
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(writer.release) }) }
@@ -466,7 +466,7 @@ func TestAbsoluteAndIdleWindowsRespectParentTTL(t *testing.T) {
 				}
 			}
 			checkTTL(10 * time.Minute)
-			interruptAuthorizedGET(t, e, token, cookie, 11, 0)
+			interruptAuthorizedGET(t, e, cookie, 11, 0)
 			// The longer configured idle timeout must still respect the absolute deadline.
 			checkTTL(10 * time.Minute)
 		})

@@ -27,7 +27,7 @@ if type(cleanup) == 'table' and cleanup.err then return cleanup end
 local deadline = nowMillis() + duration
 local created = redis.pcall('HSET', KEYS[2], 'secret', ARGV[2], 'requests', 0, 'used', 0,
   'limit', ARGV[4], 'session_version', '3', 'tracking', '1', 'active', 0, 'intervals', '', 'complete', '0',
-  'representation', ARGV[7], 'unsafe', '0', 'initial_started', '0',
+  'representation', ARGV[7], 'unsafe', '0', 'initial_started', '0', 'initial_written', '0',
   'resume_seconds', ARGV[8], 'absolute_deadline', deadline, 'idle_deadline', deadline)
 if type(created) == 'table' and created.err then return created end
 local expiry = redis.pcall('PEXPIRE', KEYS[2], duration)

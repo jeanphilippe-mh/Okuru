@@ -41,7 +41,7 @@ func followDownloadForm(t *testing.T, e *echo.Echo, form *http.Request) *httptes
 	defer response.Body.Close()
 	location, err := url.Parse(response.Header.Get("Location"))
 	if response.StatusCode != http.StatusSeeOther || err != nil || location.IsAbs() || location.Host != "" ||
-		!strings.HasPrefix(location.Path, form.URL.Path+"/download/") {
+		!strings.HasPrefix(location.Path, "/file/dl-") || !strings.Contains(location.Path, "/download/") {
 		t.Fatalf("expected a same-origin download redirect, got status %d", response.StatusCode)
 	}
 	destination := form.URL.ResolveReference(location)

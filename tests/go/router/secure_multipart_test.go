@@ -4,20 +4,118 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/flosch/pongo2"
 	"github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 )
+
+type selectionLimitRenderer struct{}
+
+func (selectionLimitRenderer) Render(_ *echo.Context, w io.Writer, name string, data any) error {
+	template, err := pongo2.FromFile(filepath.Join("..", "views", name))
+	if err != nil {
+		return err
+	}
+	return template.ExecuteWriter(data.(pongo2.Context), w)
+}
+
+func TestFileSelectionLimitResponses(t *testing.T) {
+	oldFolder, oldSize := utils.FILEFOLDER, utils.MaxFileSize
+	utils.FILEFOLDER, utils.MaxFileSize = t.TempDir(), 10
+	t.Cleanup(func() { utils.FILEFOLDER, utils.MaxFileSize = oldFolder, oldSize })
+	e := echo.New()
+	e.Renderer = selectionLimitRenderer{}
+	ConfigureErrorHandler(e, t.TempDir())
+	e.Use(requestLimitsWithUploadLease(time.Minute, time.Minute, time.Minute, func(*http.Request, time.Duration) (func(), error) {
+		return func() {}, nil
+	}))
+	e.Use(secureMultipart)
+	e.POST("/file", func(*echo.Context) error { t.Fatal("rejected upload reached the handler"); return nil })
+	for _, tc := range []struct {
+		name, accept, mode, message string
+		files, fileBytes, status    int
+	}{
+		{"count", "text/html", "navigate", "Select no more than 100 files.", 101, 0, 400},
+		{"size", "text/html,application/xhtml+xml", "", "exceeds the size limit", 2, 6, 413},
+		{"declared body", "text/html", "navigate", "exceeds the size limit", 1, 0, 413},
+		{"progress size", "application/json", "cors", "exceeds the size limit", 1, 11, 413},
+		{"progress count", "application/json", "cors", "Select no more than 100 files.", 101, 0, 400},
+		{"progress declared body", "application/json", "cors", "exceeds the size limit", 1, 0, 413},
+		{"progress oversized field", "application/json", "cors", "", 1, 0, 413},
+		{"fetch", "text/html", "cors", "", 1, 11, 413},
+		{"oversized field", "text/html", "navigate", "", 1, 0, 413},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body bytes.Buffer
+			w := multipart.NewWriter(&body)
+			for i := 0; i < tc.files; i++ {
+				file, err := w.CreateFormFile("files", fmt.Sprintf("test-%d.txt", i))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := io.WriteString(file, strings.Repeat("a", tc.fileBytes)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if strings.HasSuffix(tc.name, "oversized field") {
+				if err := w.WriteField("password", strings.Repeat("s", utils.MaxSecretBytes+1)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := w.Close(); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/file", &body)
+			req.Header.Set("Content-Type", w.FormDataContentType())
+			req.Header.Set("Accept", tc.accept)
+			req.Header.Set("Sec-Fetch-Mode", tc.mode)
+			if strings.HasSuffix(tc.name, "declared body") {
+				req.ContentLength = maxUploadBodyBytes + 1
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			refresh := rec.Header().Get("Refresh")
+			if rec.Code != tc.status || (tc.message == "" && refresh != "") {
+				t.Fatalf("status=%d refresh=%q", rec.Code, refresh)
+			}
+			if tc.accept == "application/json" {
+				if refresh != "" {
+					t.Fatal("JSON response contains a navigation header")
+				}
+				if tc.message == "" {
+					if strings.Contains(rec.Body.String(), "file_selection_limit") {
+						t.Fatal("unrelated error marked as a file selection limit")
+					}
+				} else {
+					var result map[string]string
+					if !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") || json.Unmarshal(rec.Body.Bytes(), &result) != nil ||
+						result["code"] != "file_selection_limit" || !strings.Contains(result["error"], tc.message) {
+						t.Fatal("missing typed JSON selection error")
+					}
+				}
+			} else if tc.message != "" && (refresh != "5; url=/file" || !strings.Contains(rec.Body.String(), tc.message) ||
+				!strings.Contains(rec.Body.String(), `href="/file">Return now</a>`)) {
+				t.Fatal("missing native return or selection message")
+			}
+			if files, err := filepath.Glob(filepath.Join(utils.FILEFOLDER, ".okuru-multipart-*")); err != nil || len(files) != 0 {
+				t.Fatalf("staging left after rejection: %v", files)
+			}
+		})
+	}
+}
 
 type multipartPipeListener struct {
 	conn   net.Conn

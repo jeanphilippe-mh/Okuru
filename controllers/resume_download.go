@@ -15,11 +15,45 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fernet/fernet-go"
 	. "github.com/jeanphilippe-mh/Okuru/models"
 	. "github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
+
+// Use only letters, digits, hyphens and underscores in cookie paths. Some
+// native clients serialize the share token's separator or padding differently.
+func downloadSharePath(token string) string {
+	id, key, err := ParseToken(token)
+	if err != nil || len(key) > hex.EncodedLen(len(fernet.Key{})) {
+		return ""
+	}
+	decoded, err := fernet.DecodeKey(key)
+	if err != nil {
+		return ""
+	}
+	return "/file/dl-" + id + "-" + strings.TrimSuffix(decoded.Encode(), "=")
+}
+
+func downloadShareToken(segment string) string {
+	if !strings.HasPrefix(segment, "dl-") {
+		return segment // Previously issued ZIP URLs contain the original token.
+	}
+	const uuidEnd = len("dl-") + 36
+	if len(segment) != uuidEnd+1+43 || segment[uuidEnd] != '-' {
+		return ""
+	}
+	token := segment[len("dl-"):uuidEnd] + TOKEN_SEPARATOR + segment[uuidEnd+1:] + "="
+	if downloadSharePath(token) != "/file/"+segment {
+		return ""
+	}
+	return token
+}
+
+func downloadSessionPath(token, selector string) string {
+	return downloadSharePath(token) + "/download/" + selector
+}
 
 func downloadSessionCookiePrefix(token string) (string, error) {
 	id, _, err := ParseToken(token)
@@ -165,13 +199,16 @@ func encryptedArchiveETag(file *os.File, size int64) (string, error) {
 	return `"` + hex.EncodeToString(h.Sum(nil)) + `"`, nil
 }
 
+var errUnsatisfiableRange = errors.New("Byte range is outside the archive")
+
 // parseSingleByteRange accepts one bounded or open-ended RFC byte range. It
 // rejects multiple ranges to bound work and amplification per continuation.
 func parseSingleByteRange(value string, size int64) (start, length int64, err error) {
-	if !strings.HasPrefix(value, "bytes=") || strings.Contains(value, ",") || size <= 0 {
+	unit, spec, present := strings.Cut(value, "=")
+	if !present || len(unit) != len("bytes") || !strings.EqualFold(unit, "bytes") || strings.Contains(spec, ",") || size <= 0 {
 		return 0, 0, errors.New("Invalid range")
 	}
-	left, right, ok := strings.Cut(strings.TrimPrefix(value, "bytes="), "-")
+	left, right, ok := strings.Cut(spec, "-")
 	if !ok || (left == "" && right == "") || strings.Contains(right, "-") {
 		return 0, 0, errors.New("Invalid range")
 	}
@@ -184,8 +221,11 @@ func parseSingleByteRange(value string, size int64) (start, length int64, err er
 	}
 	if left == "" {
 		n, e := strconv.ParseInt(right, 10, 64)
-		if e != nil || n <= 0 {
+		if e != nil {
 			return 0, 0, errors.New("Invalid range")
+		}
+		if n == 0 {
+			return 0, 0, errUnsatisfiableRange
 		}
 		if n > size {
 			n = size
@@ -193,7 +233,7 @@ func parseSingleByteRange(value string, size int64) (start, length int64, err er
 		return size - n, n, nil
 	}
 	start, err = strconv.ParseInt(left, 10, 64)
-	if err != nil || start < 0 || start >= size {
+	if err != nil || start < 0 {
 		return 0, 0, errors.New("Invalid range")
 	}
 	end := size - 1
@@ -205,6 +245,9 @@ func parseSingleByteRange(value string, size int64) (start, length int64, err er
 		if end >= size {
 			end = size - 1
 		}
+	}
+	if start >= size {
+		return start, 0, errUnsatisfiableRange
 	}
 	return start, end - start + 1, nil
 }
@@ -270,6 +313,19 @@ func matchesDownloadIfRange(validator, etag string, lastModified time.Time) bool
 	return err == nil && !lastModified.IsZero() && date.Equal(lastModified)
 }
 
+// A transport failure during admission or a byte reservation can hide a
+// committed write. Return no representation and leave any charge in place.
+func downloadAdmissionFailure(c *echo.Context, fault *echo.HTTPError) error {
+	switch fault.Code {
+	case http.StatusServiceUnavailable:
+		return c.NoContent(http.StatusServiceUnavailable)
+	case http.StatusTooManyRequests:
+		return fault
+	default:
+		return c.NoContent(http.StatusNotFound)
+	}
+}
+
 func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budget *downloadBudget, progress *downloadProgress) error {
 	// A dedicated session is pinned to one immutable ZIP representation.
 	// Only such a resource can use its HTTP-second timestamp as a strong validator.
@@ -285,20 +341,39 @@ func writeDownloadArchive(c *echo.Context, a *downloadArchive, name string, budg
 		if a.size != budget.session.Size() {
 			return echo.NewHTTPError(http.StatusPreconditionFailed, "Archive changed")
 		}
-		var err error
-		start, length, err = parseSingleByteRange(c.Request().Header.Get("Range"), a.size)
-		if err != nil {
+		var rangeErr error
+		start, length, rangeErr = parseSingleByteRange(c.Request().Header.Get("Range"), a.size)
+		validator := c.Request().Header.Get("If-Range")
+		if matchesDownloadIfRange(validator, a.etag, lastModified) {
+			status = http.StatusPartialContent
+			if validator != "" && c.Param("session_id") != "" && progress.representationOK &&
+				strings.HasSuffix(c.Request().Header.Get("Range"), "-") && (rangeErr == nil || errors.Is(rangeErr, errUnsatisfiableRange)) {
+				restart, err := budget.session.ValidateOpenRange(start, budget.reserved)
+				if err != nil {
+					return echo.NewHTTPError(http.StatusServiceUnavailable, "Download is unavailable")
+				}
+				if restart {
+					// The session finalizer now owns the entire reservation. Ignoring
+					// Range requires a full 200 response with no Content-Range.
+					budget.reserved = 0
+					budget = nil
+					rangeErr = nil
+					start, length, status = 0, a.size, http.StatusOK
+				}
+			}
+		} else {
+			// A failed If-Range condition ignores the requested position, even
+			// when the requested bytes are past the end of this representation.
+			rangeErr = nil
+			start, length = 0, a.size
+		}
+		if rangeErr != nil {
 			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", a.size))
 			return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
 		}
-		if matchesDownloadIfRange(c.Request().Header.Get("If-Range"), a.etag, lastModified) {
-			status = http.StatusPartialContent
-		} else {
-			start, length = 0, a.size
-		}
-		if length > budget.reserved {
+		if budget != nil && length > budget.reserved {
 			if httpErr := ReserveDownloadBytes(budget.session, length-budget.reserved); httpErr != nil {
-				return httpErr
+				return downloadAdmissionFailure(c, httpErr)
 			}
 			budget.reserved = length
 		}
@@ -350,6 +425,9 @@ func DownloadSessionFile(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	c.Response().Header().Set("Referrer-Policy", "no-referrer")
 	token := c.Param("file_key")
+	if c.Param("session_id") != "" {
+		token = downloadShareToken(token)
+	}
 	name, err := archiveNameFromToken(token)
 	if err != nil {
 		return c.NoContent(http.StatusNotFound)
@@ -372,10 +450,15 @@ func DownloadSessionFile(c *echo.Context) error {
 	// or a rate-limit denial must not consume a continuation attempt or bytes.
 	preview := &File{FileKey: token}
 	if previewErr := PreviewDownloadSession(preview, cookie.Value); previewErr != nil {
-		return c.NoContent(http.StatusNotFound)
+		if previewErr.Code == http.StatusServiceUnavailable {
+			// The cookie matches the selector, but Redis could not verify it.
+			// This read-only check left the session and its budget untouched.
+			c.Response().Header().Set("Retry-After", "1")
+		}
+		return c.NoContent(previewErr.Code)
 	}
 	// The dedicated URL reveals range errors only to the authorized session.
-	if rangeErr != nil {
+	if rangeErr != nil && !errors.Is(rangeErr, errUnsatisfiableRange) {
 		return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
@@ -404,16 +487,19 @@ func DownloadSessionFile(c *echo.Context) error {
 		}
 	}
 	f := &File{FileKey: token}
-	begin := ResumeTrackedFileDownload
+	var secret string
+	var session *DownloadSession
+	var httpErr *echo.HTTPError
 	switch {
 	case full:
-		begin = StartTrackedFileDownload
+		secret, session, httpErr = StartTrackedFileDownload(f, cookie.Value)
 	case dedicated:
-		begin = ResumeStartedFileDownload
+		secret, session, httpErr = ResumeStartedFileRange(f, cookie.Value, value, c.Request().Header.Get("If-Range"))
+	default:
+		secret, session, httpErr = ResumeTrackedFileDownload(f, cookie.Value)
 	}
-	secret, session, httpErr := begin(f, cookie.Value)
 	if httpErr != nil {
-		return c.NoContent(http.StatusNotFound)
+		return downloadAdmissionFailure(c, httpErr)
 	}
 	progress := &downloadProgress{session: session}
 	defer progress.finish()
@@ -427,14 +513,17 @@ func DownloadSessionFile(c *echo.Context) error {
 	var budget *downloadBudget
 	if !full {
 		_, length, err := parseSingleByteRange(value, session.Size())
-		if err != nil {
+		conditional := dedicated && c.Request().Header.Get("If-Range") != ""
+		if err != nil && !(conditional && errors.Is(err, errUnsatisfiableRange)) {
 			c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", session.Size()))
 			return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
 		}
 		// Charge ranges before key derivation. For a full restart, admission
 		// already reserved the entire ZIP and the finalizer refunds unused bytes.
-		if httpErr := ReserveDownloadBytes(session, length); httpErr != nil {
-			return httpErr
+		if length > 0 {
+			if httpErr := ReserveDownloadBytes(session, length); httpErr != nil {
+				return downloadAdmissionFailure(c, httpErr)
+			}
 		}
 		budget = &downloadBudget{session: session, reserved: length}
 		defer budget.finish()

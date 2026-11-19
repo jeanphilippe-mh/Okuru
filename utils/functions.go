@@ -2,6 +2,7 @@ package utils
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"math/big"
 	"net/http"
@@ -103,22 +104,34 @@ func GetMaxFileSizeText() string {
 	return text
 }
 
-/**
- * Return splitted token.
- * @param token
- */
+// ParseToken splits a share token at the end of its canonical UUID.
 func ParseToken(token string) (string, string, error) {
-	tokenFragments := strings.Split(token, TOKEN_SEPARATOR)
-	if len(tokenFragments) != 2 || tokenFragments[1] == "" {
+	const uuidTextLen = 36
+	if len(token) < uuidTextLen || TOKEN_SEPARATOR == "" {
+		return "", "", errors.New("Invalid token")
+	}
+	key, found := strings.CutPrefix(token[uuidTextLen:], TOKEN_SEPARATOR)
+	if !found || key == "" {
 		return "", "", errors.New("Invalid token")
 	}
 	// Identifiers never contain resource prefixes. In particular a password
 	// route must not accept file_<UUID> and read file metadata from Redis.
-	id, err := uuid.Parse(tokenFragments[0])
-	if err != nil || id.String() != tokenFragments[0] {
+	id, err := uuid.Parse(token[:uuidTextLen])
+	if err != nil || id.String() != token[:uuidTextLen] {
 		return "", "", errors.New("Invalid token identifier")
 	}
-	return id.String(), tokenFragments[1], nil
+	// A custom separator can also occur in the UUID or the encoded key.
+	// Only a canonical Fernet key can make a formerly ambiguous token valid.
+	if strings.Index(token, TOKEN_SEPARATOR) != uuidTextLen || strings.Contains(key, TOKEN_SEPARATOR) {
+		if len(key) != base64.URLEncoding.EncodedLen(len(fernet.Key{})) {
+			return "", "", errors.New("Invalid token")
+		}
+		decoded, err := fernet.DecodeKey(key)
+		if err != nil || decoded.Encode() != key {
+			return "", "", errors.New("Invalid token")
+		}
+	}
+	return id.String(), key, nil
 }
 
 // logStorageFailure records only caller-supplied constants. Redis replies and
