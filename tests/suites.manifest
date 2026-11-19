@@ -85,6 +85,7 @@ utils/storage_quota_test.go
 utils/tlsa_test.go
 utils/token_security_test.go
 utils/upload_filename_test.go
+utils/upload_publication_test.go
 utils/upload_session_test.go
 utils/validation_test.go
 utils/windows_path_component_test.go
