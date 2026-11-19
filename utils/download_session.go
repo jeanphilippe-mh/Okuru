@@ -177,7 +177,10 @@ func downloadTimeoutSeconds(name string, fallback int, allowDuration bool) (int,
 		return fallback, nil
 	}
 	if n, err := strconv.ParseUint(value, 10, 64); err == nil && n > 0 {
-		return int(min(n, maxDownloadTimeoutSeconds)), nil
+		if n > maxDownloadTimeoutSeconds {
+			return maxDownloadTimeoutSeconds, nil
+		}
+		return int(n), nil
 	}
 	if allowDuration {
 		if d, err := time.ParseDuration(value); err == nil && d >= time.Second {

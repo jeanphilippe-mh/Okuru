@@ -106,6 +106,7 @@ func TestDownloadSessionTimeoutValidation(t *testing.T) {
 		{"existing operator duration", "2h", "23", 7200, 23},
 		{"separate windows", "2", "29", 2, 29},
 		{"operational bounds", "1", "86401", 1, 86400},
+		{"maximum unsigned integer", "18446744073709551615", "18446744073709551615", 86400, 86400},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", tc.session)
