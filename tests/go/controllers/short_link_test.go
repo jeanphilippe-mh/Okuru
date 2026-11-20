@@ -205,10 +205,16 @@ func TestShortLinkWebSecretRoundTripAndViews(t *testing.T) {
 	if preview.Code != http.StatusOK {
 		t.Fatalf("preview status=%d", preview.Code)
 	}
+	if policy := preview.Header().Values("Referrer-Policy"); len(policy) != 1 || policy[0] != "no-referrer" {
+		t.Fatalf("long secret preview referrer policy %q", policy)
+	}
 	headPreview := httptest.NewRecorder()
 	e.ServeHTTP(headPreview, httptest.NewRequest(http.MethodHead, longURL.Path, nil))
 	if headPreview.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("long-link HEAD changed behavior: status=%d", headPreview.Code)
+	}
+	if policy := headPreview.Header().Values("Referrer-Policy"); len(policy) != 1 || policy[0] != "no-referrer" {
+		t.Fatalf("long secret HEAD referrer policy %q", policy)
 	}
 	p := &models.Password{PasswordKey: token}
 	if err := u.GetPassword(p); err != nil || p.Views != 2 {
@@ -271,6 +277,9 @@ func TestShortLinkWebFileRedirectAndDownload(t *testing.T) {
 	e.ServeHTTP(preview, httptest.NewRequest(http.MethodGet, "/file/"+token, nil))
 	if preview.Code != http.StatusOK {
 		t.Fatalf("file preview status=%d", preview.Code)
+	}
+	if policy := preview.Header().Values("Referrer-Policy"); len(policy) != 1 || policy[0] != "no-referrer" {
+		t.Fatalf("long file preview referrer policy %q", policy)
 	}
 	download := requestDownloadWithCSRF(t, e, "/file/"+token, nil)
 	if download.Code != http.StatusOK || download.Body.String() != "file-content" {

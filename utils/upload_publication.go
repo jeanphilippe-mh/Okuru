@@ -88,10 +88,28 @@ if pid~='' and redis.call('DBSIZE')+2>tonumber(maxkeys) then return -3 end
 local t=redis.call('TIME')
 local now=t[1]*1000+math.floor(t[2]/1000)
 local expires=now+tonumber(ttl)*1000
-redis.call('HSET',file,'token',fileToken,'views',views,'views_count',0,'deletable',deletable,'provided',pid~='' and '1' or '0','provided_key',pid,'archive_format',format,'confirmation_digest',digest)
-redis.call('PEXPIREAT',file,expires)
-if pid~='' then redis.call('HSET',password,'token',passToken,'views',views,'views_count',0,'deletable',0); redis.call('PEXPIREAT',password,expires) end
-applyUploadReady(session,idx,sid,result,now,expires)
+local newKeys={file}
+if pid~='' then newKeys[2]=password end
+-- The keys were checked absent in this script. Probe DEL before writing
+-- so a Redis ACL cannot prevent cleanup of a partial publication.
+redis.call('DEL',unpack(newKeys))
+local function rollback()
+ local removed=redis.pcall('DEL',unpack(newKeys))
+ if type(removed)~='number' then return redis.error_reply('publication rollback failed') end
+ return redis.error_reply('publication commit failed')
+end
+local function createExpiringRecord(key,...)
+ local created=redis.pcall('HSET',key,...)
+ return type(created)=='number' and redis.pcall('PEXPIREAT',key,expires)==1
+end
+if not createExpiringRecord(file,'token',fileToken,'views',views,'views_count',0,'deletable',deletable,'provided',pid~='' and '1' or '0','provided_key',pid,'archive_format',format,'confirmation_digest',digest) then
+ return rollback()
+end
+if pid~='' and not createExpiringRecord(password,'token',passToken,'views',views,'views_count',0,'deletable',0) then
+ return rollback()
+end
+local failure=applyUploadReady(session,idx,sid,result,now,expires)
+if failure then return rollback() end
 return 1`)
 
 func publicationRoot() (string, error) {

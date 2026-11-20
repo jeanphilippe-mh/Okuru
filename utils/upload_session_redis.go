@@ -15,9 +15,31 @@ const UploadReadyLua = `local function checkUploadReady(sessionKey,publicationID
 end
 local function applyUploadReady(sessionKey,indexKey,id,sealedResult,publishedMs,shareExpiryMs)
  local deadline=math.min(shareExpiryMs,publishedMs+86400000)
- redis.call('HSET',sessionKey,'state','ready','result',sealedResult,'share_expiry',shareExpiryMs,'until',deadline)
- redis.call('ZADD',indexKey,deadline,id)
- redis.call('PEXPIREAT',sessionKey,deadline)
+ local previousTTL=redis.pcall('PTTL',sessionKey)
+ if type(previousTTL)~='number' or previousTTL<=0 then return redis.error_reply('session expiration unavailable') end
+ local previousScore=redis.pcall('ZSCORE',indexKey,id)
+ if type(previousScore)=='table' then return previousScore end
+ -- If the index member was missing, check that we can remove it again.
+ if not previousScore then
+  local removed=redis.pcall('ZREM',indexKey,id)
+  if removed~=0 then return redis.error_reply('session index cleanup unavailable') end
+ end
+ if redis.pcall('PEXPIREAT',sessionKey,deadline)~=1 then return redis.error_reply('session expiration update failed') end
+ local indexed=redis.pcall('ZADD',indexKey,deadline,id)
+ if type(indexed)=='number' then
+  -- Publish the ready state last so a failed transition is still retryable.
+  local ready=redis.pcall('HSET',sessionKey,'state','ready','result',sealedResult,'share_expiry',shareExpiryMs,'until',deadline)
+  if type(ready)=='number' then return nil end
+  local restored
+  if previousScore then restored=redis.pcall('ZADD',indexKey,previousScore,id)
+  else restored=redis.pcall('ZREM',indexKey,id) end
+  if type(restored)~='number' then
+   redis.pcall('PEXPIREAT',sessionKey,publishedMs+previousTTL)
+   return redis.error_reply('session index rollback failed')
+  end
+ end
+ if redis.pcall('PEXPIREAT',sessionKey,publishedMs+previousTTL)~=1 then return redis.error_reply('session expiration rollback failed') end
+ return redis.error_reply('session readiness update failed')
 end
 `
 
@@ -124,7 +146,8 @@ if op=='commit_sealed' or op=='interrupt_publication' then
  if op=='interrupt_publication' then finish(key,id,'interrupted',now);return {'ok'} end
  local expiry=tonumber(ARGV[7])
  if not expiry or expiry<=now then return {'expired'} end
- applyUploadReady(key,idx,id,ARGV[6],now,expiry)
+ local failure=applyUploadReady(key,idx,id,ARGV[6],now,expiry)
+ if failure then return failure end
  return {'ok'}
 end
 local creator=same(redis.call('HGET',key,'creator'),proof)

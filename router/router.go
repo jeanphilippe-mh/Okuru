@@ -117,6 +117,9 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Pre(observeRequestAbort)
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
+			// Share capabilities can appear in the path of rendered pages,
+			// redirects and errors. Keep them out of subrequest Referer headers.
+			c.Response().Header().Set("Referrer-Policy", "no-referrer")
 			utils.AuditRequestID(c)
 			return next(c)
 		}
