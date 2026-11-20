@@ -123,6 +123,25 @@ func requestWithCSRF(t *testing.T, e *echo.Echo, path string, fields url.Values)
 	e.ServeHTTP(rec, req)
 	return rec
 }
+
+func requestDownloadWithCSRF(t *testing.T, e *echo.Echo, path string, fields url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	post := requestWithCSRF(t, e, path, fields)
+	location := post.Header().Get("Location")
+	if post.Code != http.StatusSeeOther || !strings.HasPrefix(location, "/file/dl-") {
+		t.Fatalf("download authorization status=%d", post.Code)
+	}
+	req := httptest.NewRequest(http.MethodGet, location, nil)
+	for _, cookie := range post.Result().Cookies() {
+		if cookie.Path == location {
+			req.AddCookie(cookie)
+		}
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
+}
+
 func TestFileTokensCannotBeUsedAsSecretTokens(t *testing.T) {
 	e := resourceTest(t)
 	token, err := u.SetFile("additional-password", 300, 3, true, true, resourcePasswordID(t, "additional-password"), u.ArchiveFormatAgeUserPassword)
@@ -159,7 +178,7 @@ func TestFileTokensCannotBeUsedAsSecretTokens(t *testing.T) {
 	if denied.Code != 401 {
 		t.Fatalf("wrong password status=%d", denied.Code)
 	}
-	dl := requestWithCSRF(t, e, "/file/"+token, url.Values{"password": {"additional-password"}})
+	dl := requestDownloadWithCSRF(t, e, "/file/"+token, url.Values{"password": {"additional-password"}})
 	if dl.Code != 200 || dl.Body.String() != "owned-archive" {
 		t.Fatalf("valid download broken: %d", dl.Code)
 	}

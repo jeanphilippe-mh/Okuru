@@ -7,11 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +17,6 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/jeanphilippe-mh/Okuru/models"
 	u "github.com/jeanphilippe-mh/Okuru/utils"
-	"github.com/labstack/echo/v5"
 )
 
 func finalizationArchive(t *testing.T, token string) (string, string) {
@@ -203,39 +200,12 @@ func TestFailedWriteDoesNotFinalizeEvenIfAllBytesWereAccepted(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, token, password, expected := resumeFixture(t, conn, tc.format, tc.format == u.ArchiveFormatAgeUserPassword)
-			recorder := httptest.NewRecorder()
-			writer := &interruptedResponseWriter{ResponseRecorder: recorder, remaining: len(expected)}
-			req := httptest.NewRequest(http.MethodPost, "/file/"+token, strings.NewReader(url.Values{"password": {password}}.Encode()))
-			req.Header.Set("Content-Type", echo.MIMEApplicationForm)
-			ctx := e.NewContext(req, writer)
-			ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
-			func() {
-				defer func() {
-					if value := recover(); value != nil && value != http.ErrAbortHandler {
-						t.Errorf("Unexpected panic after response write error: %v", value)
-					}
-				}()
-				_ = DownloadFile(ctx)
-			}()
-			if !bytes.Equal(recorder.Body.Bytes(), expected) {
+			cookie, received, etag := interruptedSessionWithPassword(t, conn, e, token, len(expected), password)
+			if !bytes.Equal(received, expected) {
 				t.Fatal("Expected the writer to accept all bytes before returning an error")
 			}
-			var cookie *http.Cookie
-			for _, item := range recorder.Result().Cookies() {
-				name, err := downloadSessionCookie(token, item.Value)
-				if err == nil && name == item.Name {
-					cookie = item
-				}
-			}
-			if cookie == nil {
-				t.Fatal("Failed response did not retain a continuation cookie")
-			}
-			id, _ := finalizationArchive(t, token)
-			digest := sha256.Sum256([]byte(cookie.Value))
-			sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
-			t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
 			requireFinalizationRetained(t, conn, token)
-			rec, err := getResume(e, token, cookie, "bytes=0-0", recorder.Header().Get("ETag"))
+			rec, err := getResume(e, token, cookie, "bytes=0-0", etag)
 			if err != nil || rec.Code != http.StatusPartialContent || !bytes.Equal(rec.Body.Bytes(), expected[:1]) {
 				t.Fatalf("One-byte retry: status=%d error=%v", rec.Code, err)
 			}
@@ -320,7 +290,7 @@ func TestLegacyResumeSessionIsRejectedWithoutDeletingArchive(t *testing.T) {
 	digest := sha256.Sum256([]byte(cookie.Value))
 	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
 	version, err := redis.String(conn.Do("HGET", sessionKey, "session_version"))
-	if err != nil || version != "2" {
+	if err != nil || version != "3" {
 		t.Fatalf("New session version: value=%q error=%v", version, err)
 	}
 	// Historical sessions and parents predate both the session marker and
@@ -380,7 +350,7 @@ func (w *gatedFinalizationWriter) Write(data []byte) (int, error) {
 	return w.ResponseRecorder.Write(data)
 }
 
-func TestExpiredSessionKeyDoesNotDeleteArchiveWhileAnotherResponseIsActive(t *testing.T) {
+func TestExpiredSessionBlocksNewRangesButAllowsActiveGETToFinish(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
 	e, token, _, expected := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
 	id, _ := finalizationArchive(t, token)
@@ -390,9 +360,16 @@ func TestExpiredSessionKeyDoesNotDeleteArchiveWhileAnotherResponseIsActive(t *te
 	}
 	first, prefix, etag := interruptedSession(t, conn, e, token, 11)
 	recorder := httptest.NewRecorder()
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "1")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "30")
 	writer := &gatedFinalizationWriter{ResponseRecorder: recorder, waiting: make(chan struct{}), release: make(chan struct{})}
-	ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/file/"+token, nil), writer)
-	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
+	handoff, err := postDownload(t, e, token, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := authorizedDownload(t, token, handoff)
+	req := httptest.NewRequest(http.MethodGet, second.Path, nil)
+	req.AddCookie(second)
 	done := make(chan error, 1)
 	finished := make(chan struct{})
 	go func() {
@@ -402,7 +379,7 @@ func TestExpiredSessionKeyDoesNotDeleteArchiveWhileAnotherResponseIsActive(t *te
 				done <- errors.New("Active response panicked")
 			}
 		}()
-		done <- DownloadFile(ctx)
+		done <- downloadRequest(e, writer, req)
 	}()
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(writer.release) }) }
@@ -421,34 +398,11 @@ func TestExpiredSessionKeyDoesNotDeleteArchiveWhileAnotherResponseIsActive(t *te
 	case <-time.After(5 * time.Second):
 		t.Fatal("Second download did not begin streaming")
 	}
-	var second *http.Cookie
-	for _, item := range recorder.Result().Cookies() {
-		name, err := downloadSessionCookie(token, item.Value)
-		if err == nil && name == item.Name {
-			second = item
-		}
-	}
-	if second == nil {
-		t.Fatal("Active second response did not create a continuation session")
-	}
-	digest := sha256.Sum256([]byte(second.Value))
-	sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
-	if _, err := conn.Do("PEXPIRE", sessionKey, 20); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		exists, err := redis.Bool(conn.Do("EXISTS", sessionKey))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !exists {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("Second session did not expire")
-		}
-		time.Sleep(10 * time.Millisecond)
+	// The second GET is still open when its absolute window expires.
+	// Neither an idle window nor a live transfer can authorize another GET.
+	time.Sleep(1200 * time.Millisecond)
+	if rec, err := getResume(e, token, second, "bytes=0-0", ""); err != nil || rec.Code != http.StatusNotFound {
+		t.Fatalf("new range after the absolute deadline: status=%d err=%v", rec.Code, err)
 	}
 	firstTail, err := getResume(e, token, first, "bytes=11-", etag)
 	if err != nil || firstTail.Code != http.StatusPartialContent || !bytes.Equal(append(bytes.Clone(prefix), firstTail.Body.Bytes()...), expected) {
@@ -470,39 +424,51 @@ func TestExpiredSessionKeyDoesNotDeleteArchiveWhileAnotherResponseIsActive(t *te
 	requireFinalizationRemoved(t, conn, token)
 }
 
-func TestClaimedDownloadSessionRespectsFiveMinutesAndParentTTL(t *testing.T) {
+func TestAbsoluteAndIdleWindowsRespectParentTTL(t *testing.T) {
 	conn := configureCompatibilityRedis(t)
-	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "12h")
+	t.Setenv("OKURU_DOWNLOAD_SESSION_TIMEOUT", "600")
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "43200")
 	for _, tc := range []struct {
-		name        string
-		parentTTLms int64
+		name      string
+		parentTTL time.Duration
 	}{
-		{"Long parent TTL", 30 * 60 * 1000},
-		{"Short parent TTL", 20 * 1000},
+		{"Long parent TTL", 48 * time.Hour},
+		{"Short parent TTL", 20 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, token, _, _ := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
 			id, _ := finalizationArchive(t, token)
 			fileKey := u.REDIS_PREFIX + "file_" + id
-			if changed, err := redis.Int(conn.Do("PEXPIRE", fileKey, tc.parentTTLms)); err != nil || changed != 1 {
+			if changed, err := redis.Int(conn.Do("PEXPIRE", fileKey, tc.parentTTL.Milliseconds())); err != nil || changed != 1 {
 				t.Fatalf("Set parent TTL: changed=%d error=%v", changed, err)
 			}
-			// The HTTP download path creates a claimed session and aborts after
-			// the first 11 bytes, leaving the session available for inspection.
-			cookie, _, _ := interruptedSession(t, conn, e, token, 11)
-			digest := sha256.Sum256([]byte(cookie.Value))
-			sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + hex.EncodeToString(digest[:])
-			parentTTL, err := redis.Int64(conn.Do("PTTL", fileKey))
-			if err != nil || parentTTL <= 0 {
-				t.Fatalf("Parent TTL: %d ms, error=%v", parentTTL, err)
+			handoff, err := postDownload(t, e, token, "")
+			if err != nil {
+				t.Fatal(err)
 			}
-			sessionTTL, err := redis.Int64(conn.Do("PTTL", sessionKey))
-			if err != nil || sessionTTL <= 0 {
-				t.Fatalf("Session TTL: %d ms, error=%v", sessionTTL, err)
+			cookie := authorizedDownload(t, token, handoff)
+			cookieLimit := int(min(tc.parentTTL, 10*time.Minute).Seconds())
+			if cookie.MaxAge > cookieLimit || cookie.MaxAge < cookieLimit-3 {
+				t.Fatalf("cookie Max-Age %ds, want at most %ds", cookie.MaxAge, cookieLimit)
 			}
-			if sessionTTL > 5*60*1000 || sessionTTL > parentTTL {
-				t.Fatalf("Session TTL %d ms exceeds five minutes or parent TTL %d ms", sessionTTL, parentTTL)
+			sessionKey := u.REDIS_PREFIX + "download_session_" + id + "_" + downloadSessionDigest(cookie.Value)
+			t.Cleanup(func() { _, _ = conn.Do("DEL", sessionKey) })
+			checkTTL := func(window time.Duration) {
+				t.Helper()
+				parentTTL, err := redis.Int64(conn.Do("PTTL", fileKey))
+				if err != nil || parentTTL <= 0 {
+					t.Fatalf("parent TTL: %dms, err=%v", parentTTL, err)
+				}
+				got, err := redis.Int64(conn.Do("PTTL", sessionKey))
+				want := min(parentTTL, window.Milliseconds())
+				if err != nil || got <= 0 || got > want || got < want-3000 {
+					t.Fatalf("session TTL %dms, want near %dms, err=%v", got, want, err)
+				}
 			}
+			checkTTL(10 * time.Minute)
+			interruptAuthorizedGET(t, e, cookie, 11, 0)
+			// The longer configured idle timeout must still respect the absolute deadline.
+			checkTTL(10 * time.Minute)
 		})
 	}
 }

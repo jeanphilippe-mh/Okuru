@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -114,11 +115,8 @@ func TestMultipleFilesCreateOneArchive(t *testing.T) {
 	}
 	key := strings.Split(token, TOKEN_SEPARATOR)[0]
 	t.Cleanup(func() { c := NewPool().Get(); defer c.Close(); _, _ = c.Do("DEL", "test_multi_file_"+key) })
-	downloadReq := httptest.NewRequest("POST", link.Path, nil)
-	downloadRec := httptest.NewRecorder()
-	ctx := e.NewContext(downloadReq, downloadRec)
-	ctx.SetPathValues(echo.PathValues{{Name: "file_key", Value: token}})
-	if err := DownloadFile(ctx); err != nil || downloadRec.Code != 200 {
+	downloadRec, err := downloadCompatibilityFile(t, e, token, "")
+	if err != nil || downloadRec.Code != http.StatusOK {
 		t.Fatalf("download failed: status=%d error=%v", downloadRec.Code, err)
 	}
 	plaintext := downloadRec.Body.Bytes()

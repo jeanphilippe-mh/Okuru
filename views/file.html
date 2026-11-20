@@ -6,7 +6,7 @@
         <h2>Get Your Secret</h2>
     </div>
     <div>
-        <p><span>{% if (errors) %}&#9940{{ errors }}{% endif %}</span> </p>
+        <p><span>{% if (errors) %}&#9940; {{ errors }}{% endif %}</span> </p>
     </div>
     <form role="form" id="file_create" method="POST" class="form-horizontal" enctype="multipart/form-data">
       <!-- Hidden CSRF Token -->
@@ -23,15 +23,15 @@
             {% endif %}
             <br>
             <div class="col">
-                    <div id="revealarea" class="row">
-                    <button id="revealbutton" class="btn btn-primary">Download</button>
-                    </div>
+                <div id="revealarea" class="file-download-action">
+                    <button type="submit" id="revealbutton" class="btn btn-primary m-0">Download</button>
+                </div>
             </div>
         </div>
     </form>
     <br>
     <p>
-        &#9989The file is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a> {% else %} {{ deletableText }} {% endif %} and up for <b>{{ ttl }}</b> / <b>{{ dlViews }} left</b>.
+        &#9989; The file is {% if f.Deletable == true %}<a href="{{ deletableURL }}">{{ deletableText }}</a> {% else %} {{ deletableText }} {% endif %} and up for <b>{{ ttl }}</b> / <b>{{ dlViews }} left</b>.
     </p>
 </section>
 {% endblock %}

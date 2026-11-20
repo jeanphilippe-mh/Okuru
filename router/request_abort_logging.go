@@ -43,6 +43,10 @@ func logRequestAbort(c *echo.Context, intentional bool) {
 	if c != nil {
 		if response, err := echo.UnwrapResponse(c.Response()); err == nil && response != nil {
 			fields["response_committed"] = response.Committed
+			if response.Committed && c.Path() == utils.DownloadSessionRoute {
+				fields["status"] = response.Status
+				fields["bytes_out"] = response.Size
+			}
 		}
 	}
 	if intentional {

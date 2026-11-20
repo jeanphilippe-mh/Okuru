@@ -11,6 +11,19 @@ import (
 	"github.com/jeanphilippe-mh/Okuru/models"
 )
 
+func startClaimForCompletionTest(t *testing.T, file *models.File, claim *FileDownloadClaim, etag string) (string, *DownloadSession) {
+	t.Helper()
+	cookie, _, err := CreateClaimedDownloadSession(file, "test-password", 10, claim, etag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tracker, httpErr := StartTrackedFileDownload(file, cookie)
+	if httpErr != nil {
+		t.Fatal(httpErr)
+	}
+	return cookie, tracker
+}
+
 // An ACL denial for the linked password must not partially delete the file
 // record or its encrypted archive. Normal reconciliation retries after access
 // is restored, without weakening the production Redis user's privileges.
@@ -34,10 +47,7 @@ func TestCompletedCleanupACLFailurePreservesRelatedRecordsAndRetries(t *testing.
 	}
 	defer ReleaseFileDownloadClaim(claim)
 	etag := `"` + strings.Repeat("a", 64) + `"`
-	cookie, _, tracker, err := CreateClaimedDownloadSession(f, "test-password", 10, claim, etag)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cookie, tracker := startClaimForCompletionTest(t, f, claim, etag)
 	fileKey := REDIS_PREFIX + "file_" + fileID
 	secretKey := REDIS_PREFIX + secretID
 	sessionKey := downloadSessionKey(fileID, cookie)
@@ -96,10 +106,7 @@ func TestCompletedCleanupDryRunDoesNotMutateDuringReconciliation(t *testing.T) {
 	}
 	defer ReleaseFileDownloadClaim(claim)
 	etag := `"` + strings.Repeat("a", 64) + `"`
-	_, _, tracker, err := CreateClaimedDownloadSession(f, "test-password", 10, claim, etag)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, tracker := startClaimForCompletionTest(t, f, claim, etag)
 	// Simulate a completed response awaiting a previous interrupted session.
 	other := "pending_" + strings.Repeat("b", 32)
 	if _, err := c.Do("HSET", tracker.fileKey, other, "1"); err != nil {
@@ -146,10 +153,7 @@ func TestSuccessfulDownloadFinalizationRemainsActiveDuringDryRun(t *testing.T) {
 	}
 	defer ReleaseFileDownloadClaim(claim)
 	etag := `"` + strings.Repeat("a", 64) + `"`
-	_, _, tracker, err := CreateClaimedDownloadSession(f, "test-password", 10, claim, etag)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, tracker := startClaimForCompletionTest(t, f, claim, etag)
 	if err := RecordDownloadProgress(tracker, 0, 10, true, true); err != nil {
 		t.Fatal(err)
 	}

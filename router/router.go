@@ -198,26 +198,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Use(secureMultipart)
 
 	// Middleware CSRF
-	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		Skipper: func(c *echo.Context) bool {
-			path := c.Request().URL.Path
-			return c.Path() == "/api/*" || c.Path() == "/api" || path == "/api/v2/secrets" || strings.HasPrefix(path, "/api/v2/secrets/") || isFileAPIPath(path)
-		},
-		TokenLength:    32,
-		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
-		CookieSecure:   true,
-		CookieHTTPOnly: true,
-		CookieSameSite: http.SameSiteStrictMode,
-		// Echo v4 validated tokens for same-site, cross-origin requests.
-		// Keep that behavior without bypassing the token check or allowing
-		// cross-site and unrecognized Fetch Metadata values.
-		AllowSecFetchSiteFunc: func(c *echo.Context) (bool, error) {
-			if c.Request().Header.Get(echo.HeaderSecFetchSite) == "same-site" {
-				return false, nil
-			}
-			return false, echo.NewHTTPError(http.StatusForbidden, "cross-site request blocked by CSRF")
-		},
-	}))
+	e.Use(middleware.CSRFWithConfig(browserCSRFConfig()))
 
 	// Middleware Static
 	publicfolder := filepath.Dir(ex) + "/public"

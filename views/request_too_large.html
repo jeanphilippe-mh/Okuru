@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<meta http-equiv="refresh" content="3; url=/" />
+<section>
+    <div class="pb-2 mt-4 mb-2 border-bottom">
+        <h2>413 Request Entity Too Large</h2>
+    </div>
+    <br>
+    <div class="row">
+        <div class="col-sm-11">
+            <label role="alert">🚫 The request exceeds the server’s size limit.{% if maxFileSizeText %} The total file size limit is <b>{{ maxFileSizeText }}</b>.{% endif %}</label>
+        </div>
+    <br>
+    </div>
+</section>
+{% endblock %}

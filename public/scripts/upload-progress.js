@@ -1,12 +1,13 @@
 (() => {
   const form = document.getElementById('file_create');
+  const files = document.getElementById('files');
   const button = document.getElementById('submit');
   const panel = document.getElementById('upload-progress');
   const meter = document.getElementById('upload-meter');
   const percent = document.getElementById('upload-percent');
   const status = document.getElementById('upload-status');
   const confirmation = document.getElementById('upload-confirmation');
-  if (!form || !button || button.form !== form || !panel || !meter || !percent || !status ||
+  if (!form || !files || !button || button.form !== form || !panel || !meter || !percent || !status ||
       !confirmation || !confirmation.elements || typeof window.FormData !== 'function' ||
       typeof window.XMLHttpRequest !== 'function') return;
 
@@ -42,6 +43,7 @@
     }
     if (!canConfirm()) return;
 
+    const selection = files.files;
     let request;
     let body;
     try {
@@ -93,7 +95,33 @@
       const result = request.response;
       if (request.status < 200 || request.status >= 300) {
         const reason = result && typeof result.error === 'string' && result.error.trim();
+        const code = result && result.code;
+        const inlineError = (request.status === 400 && code === 'file_name_error') ||
+          ((request.status === 400 || request.status === 403) && code === 'form_verification_failed');
+        if (request.responseURL === endpoint && reason && inlineError) {
+          if (code === 'form_verification_failed') {
+            const token = request.getResponseHeader('X-CSRF-Token');
+            if (token && /^[A-Za-z0-9_-]{32}$/.test(token)) {
+              const uploadCSRF = form.elements.namedItem('_csrf');
+              if (uploadCSRF && uploadCSRF.form === form) uploadCSRF.value = token;
+              if (csrf && csrf.form === confirmation) csrf.value = token;
+            }
+          }
+          // An error from an earlier selection must never replace its successor's alert.
+          const current = files.files === selection;
+          const handled = current && !form.dispatchEvent(new CustomEvent('file-upload-error', {
+            detail: { code, message: reason }, cancelable: true
+          }));
+          fail(current && !handled ? reason : '');
+          if (!current || handled) panel.hidden = true;
+          return;
+        }
         fail(reason || 'The server could not accept the upload (HTTP ' + request.status + ').');
+        if (request.responseURL === endpoint && (request.status === 400 || request.status === 413) &&
+            reason && result.code === 'file_selection_limit' && files.files === selection) {
+          const warning = new CustomEvent('file-selection-limit', { detail: reason, cancelable: true });
+          if (!form.dispatchEvent(warning)) panel.hidden = true;
+        }
         return;
       }
       if (request.responseURL !== endpoint || !result || typeof result.receipt !== 'string' ||

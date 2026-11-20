@@ -128,6 +128,71 @@ func TestRequestAbortObservationPreservesPanicAndResponse(t *testing.T) {
 	}
 }
 
+func TestDownloadAbortAuditReportsOnlyCommittedZIPResponse(t *testing.T) {
+	logger := log.StandardLogger()
+	oldOut, oldFormatter, oldLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	var output bytes.Buffer
+	logger.SetOutput(&output)
+	logger.SetFormatter(&log.JSONFormatter{})
+	logger.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		logger.SetOutput(oldOut)
+		logger.SetFormatter(oldFormatter)
+		logger.SetLevel(oldLevel)
+	})
+
+	for _, tc := range []struct {
+		name      string
+		committed bool
+	}{{"before headers", false}, {"after headers", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			output.Reset()
+			const secret = "sensitive-zip-diagnostic-value"
+			request := httptest.NewRequest(http.MethodGet, "/file/"+secret+"/download/"+secret, nil)
+			request.Header.Set("If-Range", `"`+secret+`"`)
+			request.Header.Set("Range", "bytes=83-")
+			request.Header.Set(utils.DownloadRequestIDHeader, secret)
+			c := echo.New().NewContext(request, httptest.NewRecorder())
+			c.SetPath(utils.DownloadSessionRoute)
+			handler := observeRequestAbort(func(c *echo.Context) error {
+				if tc.committed {
+					utils.RecordDownloadDecision(c, utils.DownloadPartial)
+					utils.RecordDownloadIfRange(c, true)
+					utils.RecordDownloadResponseLength(c, 135)
+					c.Response().WriteHeader(http.StatusPartialContent)
+					if _, err := c.Response().Write([]byte("abc")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				panic(http.ErrAbortHandler)
+			})
+			if value, panicked := captureRequestPanic(func() { _ = handler(c) }); !panicked || value != http.ErrAbortHandler {
+				t.Fatalf("abort was swallowed or changed: %v", value)
+			}
+			if strings.Contains(output.String(), secret) {
+				t.Fatal("diagnostic exposed request content")
+			}
+			var record map[string]any
+			if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+				t.Fatal(err)
+			}
+			if !tc.committed {
+				for _, field := range []string{"status", "bytes_out", "download_expected_bytes", "download_if_range_matched"} {
+					if _, exists := record[field]; exists {
+						t.Errorf("recorded %s before it was known", field)
+					}
+				}
+				return
+			}
+			if record["status"] != float64(http.StatusPartialContent) || record["bytes_out"] != float64(3) ||
+				record["download_expected_bytes"] != float64(135) || record["download_if_range_matched"] != true ||
+				record["download_decision"] != "partial" {
+				t.Fatalf("unexpected committed ZIP diagnostic: %#v", record)
+			}
+		})
+	}
+}
+
 func TestRequestAbortObservationNilPanicModes(t *testing.T) {
 	if mode := os.Getenv("OKURU_TEST_NIL_PANIC_MODE"); mode != "" {
 		e := echo.New()

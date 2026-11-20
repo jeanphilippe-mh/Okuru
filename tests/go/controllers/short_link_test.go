@@ -272,7 +272,7 @@ func TestShortLinkWebFileRedirectAndDownload(t *testing.T) {
 	if preview.Code != http.StatusOK {
 		t.Fatalf("file preview status=%d", preview.Code)
 	}
-	download := requestWithCSRF(t, e, "/file/"+token, nil)
+	download := requestDownloadWithCSRF(t, e, "/file/"+token, nil)
 	if download.Code != http.StatusOK || download.Body.String() != "file-content" {
 		t.Fatalf("file download status=%d", download.Code)
 	}

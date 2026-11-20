@@ -1,7 +1,12 @@
-{% extends "base.html" %}
-
-{% block content %}
-<meta http-equiv="refresh" content="3; url=/" />
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>413 Request Entity Too Large</title>
+    <meta http-equiv="refresh" content="3; url=/" />
+</head>
+<body>
 <section>
     <div class="pb-2 mt-4 mb-2 border-bottom">
         <h2>413 Request Entity Too Large</h2>
@@ -9,9 +14,10 @@
     <br>
     <div class="row">
         <div class="col-sm-11">
-            <label><b>Request Too Large:</b> The server cannot process the request because it either exceeds the server's limitation of <b>{{ maxFileSizeText }}</b> or is too large to be handled.</label>
+            <label role="alert">🚫 The request exceeds the server’s size limit.</label>
         </div>
     <br>
     </div>
 </section>
-{% endblock %}
+</body>
+</html>
