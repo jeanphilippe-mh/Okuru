@@ -22,16 +22,22 @@ import (
 )
 
 func IndexFile(context *echo.Context) error {
+	return RenderFileForm(context, http.StatusOK, "")
+}
+
+// RenderFileForm rebuilds the upload form without redisplaying submitted data.
+func RenderFileForm(context *echo.Context, status int, message string) error {
 	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	csrfToken := context.Get("csrf")
 	dataContext["maxFileSize"] = MaxFileSize
 	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
 	_, blocks, _ := UploadAdmission(context.Request().Context())
 	dataContext["upload_blocks_enabled"] = blocks
-	dataContext["csrfToken"] = csrfToken
-
-	return context.Render(http.StatusOK, "index_file.html", dataContext)
+	dataContext["csrfToken"] = context.Get("csrf")
+	if message != "" {
+		dataContext["errors"] = message
+		context.Response().Header().Set(echo.HeaderCacheControl, "private, no-store")
+	}
+	return context.Render(status, "index_file.html", dataContext)
 }
 
 func Error400File(context *echo.Context) error {
@@ -59,9 +65,7 @@ func Error404File(context *echo.Context) error {
 }
 
 func Error413File(context *echo.Context) error {
-	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	return context.Render(http.StatusRequestEntityTooLarge, "413.html", dataContext)
+	return Error413Index(context)
 }
 
 func Error500File(context *echo.Context) error {
@@ -435,8 +439,11 @@ func validateUploadFiles(files []*SecureMultipartFile) ([]string, error) {
 		}
 		name := file.Filename
 		key, valid := UploadFilenameKey(name)
-		if !valid || seen[key] {
-			return nil, errors.New("Invalid or duplicate file name")
+		if !valid {
+			return nil, ErrInvalidUploadFilename
+		}
+		if seen[key] {
+			return nil, ErrDuplicateUploadFilename
 		}
 		seen[key] = true
 		names = append(names, name)
@@ -517,6 +524,12 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 		data["errors"] = displayError(message)
 		return RenderFormError(context, status, "index_file.html", "/file", data)
 	}
+	failFilename := func(message string) error {
+		if mode == progressFileUpload {
+			return context.JSON(http.StatusBadRequest, map[string]string{"error": message, "code": UploadFilenameErrorCode})
+		}
+		return RenderFileForm(context, http.StatusBadRequest, message)
+	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
 		if mode != webFileUpload {
@@ -532,8 +545,10 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 	if form == nil {
 		form, err = ParseSecureMultipart(context.Request(), FILEFOLDER, MaxFileSize, maxUploadFiles)
 		if err != nil {
-			if mode == webFileUpload && errors.Is(err, ErrSecureMultipartFilename) {
-				return fail(http.StatusBadRequest, ErrSecureMultipartFilename.Error())
+			if mode != directFileUpload {
+				if message := UploadFilenameErrorMessage(err); message != "" {
+					return failFilename(message)
+				}
 			}
 			return fail(http.StatusBadRequest, "Invalid multipart upload")
 		}
@@ -585,6 +600,11 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 	files := form.Files
 	names, err := validateUploadFiles(files)
 	if err != nil {
+		if mode != directFileUpload {
+			if filenameMessage := UploadFilenameErrorMessage(err); filenameMessage != "" {
+				return failFilename(filenameMessage)
+			}
+		}
 		return fail(http.StatusBadRequest, err.Error())
 	}
 

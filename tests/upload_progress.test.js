@@ -13,6 +13,8 @@ function browser({ validationFails = false, formDataSupported = true, uploadSupp
   form.addEventListener('submit', (event) => { if (validationFails) event.preventDefault(); });
   const receipt = { value: '' };
   const csrf = { value: 'test-csrf' };
+  const uploadCSRF = { form, value: csrf.value };
+  form.elements = { namedItem: (name) => name === '_csrf' ? uploadCSRF : null };
   const confirmations = [];
   const confirmation = {
     isConnected: true, action: endpoint + '/confirmation', method: 'post',
@@ -33,10 +35,12 @@ function browser({ validationFails = false, formDataSupported = true, uploadSupp
   class Request {
     constructor() {
       this.upload = uploadSupported ? { onprogress: null } : null;
+      this.responseHeaders = {};
       requests.push(this);
     }
     open(method, url) { this.method = method; this.url = url; this.responseURL = url; }
     setRequestHeader(name, value) { this[name] = value; }
+    getResponseHeader(name) { return this.responseHeaders[name] ?? null; }
     send(body) { this.body = body; }
     abort() { this.onabort(); }
     respond(status, response) { this.status = status; this.response = response; this.onload(); }
@@ -50,7 +54,7 @@ function browser({ validationFails = false, formDataSupported = true, uploadSupp
   }
   vm.runInNewContext(script, { window, CustomEvent, document: { getElementById: (id) => elements[id] } });
   return {
-    form, files, button, panel, meter, status, percent, receipt, csrf, confirmation, confirmations, requests,
+    form, files, button, panel, meter, status, percent, receipt, csrf, uploadCSRF, confirmation, confirmations, requests,
     submit: () => form.dispatchEvent(new Event('submit', { cancelable: true })),
     restore: () => window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true })),
   };
@@ -184,5 +188,102 @@ test('only a selection-limit response for the submitted files activates the form
     assert.deepEqual(warnings, handled ? ['Selection rejected.'] : []);
     assert.equal(page.panel.hidden, handled);
     assert.equal(page.button.disabled, false);
+  }
+});
+
+test('hands filename and form verification errors to the current upload form', () => {
+  for (const [status, code, reason] of [
+    [400, 'file_name_error', 'Invalid file name.'],
+    [400, 'file_name_error', 'Duplicate file name.'],
+    [400, 'form_verification_failed', 'The form could not be verified.'],
+    [403, 'form_verification_failed', 'The form could not be verified.'],
+  ]) {
+    const page = browser();
+    const selection = page.files.files;
+    const errors = [];
+    const limits = [];
+    page.form.addEventListener('file-upload-error', (event) => {
+      errors.push([event.detail.code, event.detail.message]);
+      event.preventDefault();
+    });
+    page.form.addEventListener('file-selection-limit', (event) => limits.push(event.detail));
+    page.submit();
+    page.requests[0].respond(status, { code, error: reason });
+    assert.deepEqual(errors, [[code, reason]]);
+    assert.equal(page.status.textContent, '');
+    assert.equal(page.panel.hidden, true);
+    assert.equal(page.button.disabled, false);
+    assert.equal(page.files.files, selection);
+    assert.deepEqual(page.confirmations, []);
+    assert.deepEqual(limits, []);
+    page.submit();
+    assert.equal(page.requests.length, 2);
+  }
+});
+
+test('keeps generic responses in progress and ignores stale inline errors', () => {
+  for (const [status, code, changedSelection, changedURL, restore] of [
+    [413, 'file_name_error', false, false, false],
+    [403, 'file_name_error', false, false, false],
+    [503, 'form_verification_failed', false, false, false],
+    [400, 'file_name_error', false, true, false],
+    [400, 'file_name_error', true, false, false],
+    [403, 'form_verification_failed', true, false, false],
+    [400, 'file_name_error', false, false, true],
+  ]) {
+    const page = browser();
+    let delivered = false;
+    page.form.addEventListener('file-upload-error', () => { delivered = true; });
+    page.submit();
+    if (changedSelection) page.files.files = [];
+    if (changedURL) page.requests[0].responseURL += '/other';
+    if (restore) page.restore();
+    page.requests[0].respond(status, { code, error: 'Server declined the upload.' });
+    assert.equal(delivered, false);
+    assert.equal(page.panel.hidden, changedSelection || restore);
+    assert.equal(page.status.textContent, changedSelection || restore ? '' : 'Server declined the upload.');
+    assert.equal(page.button.disabled, false);
+  }
+});
+
+test('form verification retries use only a valid token from the active same-origin rejection', () => {
+  const refreshed = 'Ab_-'.repeat(8);
+  for (const [status, code, header, differentURL, restore, changedSelection, renew] of [
+    [400, 'form_verification_failed', refreshed, false, false, false, true],
+    [403, 'form_verification_failed', refreshed, false, false, false, true],
+    [403, 'form_verification_failed', refreshed, false, false, true, true],
+    [403, 'form_verification_failed', '', false, false, false, false],
+    [403, 'form_verification_failed', 'invalid-token', false, false, false, false],
+    [400, 'file_name_error', refreshed, false, false, false, false],
+    [403, 'form_verification_failed', refreshed, true, false, false, false],
+    [403, 'form_verification_failed', refreshed, false, true, false, false],
+  ]) {
+    const page = browser();
+    page.submit();
+    if (restore) page.restore();
+    if (changedSelection) page.files.files = [];
+    const request = page.requests[0];
+    if (differentURL) request.responseURL = 'https://other.example/file';
+    request.responseHeaders['X-CSRF-Token'] = header;
+    request.respond(status, { code, error: 'The form could not be verified.' });
+    const expected = renew ? refreshed : 'test-csrf';
+    assert.equal(page.uploadCSRF.value, expected);
+    assert.equal(page.csrf.value, expected);
+    assert.equal(page.requests.length, 1);
+    assert.equal(page.button.disabled, false);
+  }
+});
+
+test('renews only the surviving hidden fields', () => {
+  const renewed = 'a1_-'.repeat(8);
+  for (const removed of ['upload', 'confirmation']) {
+    const page = browser();
+    page.submit();
+    if (removed === 'upload') page.form.elements.namedItem = () => null;
+    else page.csrf.form = null;
+    page.requests[0].responseHeaders['X-CSRF-Token'] = renewed;
+    page.requests[0].respond(403, { code: 'form_verification_failed', error: 'The form could not be verified.' });
+    assert.equal(page.uploadCSRF.value, removed === 'upload' ? 'test-csrf' : renewed);
+    assert.equal(page.csrf.value, removed === 'confirmation' ? 'test-csrf' : renewed);
   }
 });

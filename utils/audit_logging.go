@@ -16,6 +16,24 @@ import (
 const auditRequestIDKey = "okuru.audit.request_id"
 const auditCountryCacheKey = "okuru.audit.country"
 const auditDownloadCookieKey = "okuru.audit.download_cookie"
+const auditDownloadDecisionKey = "okuru.audit.download_decision"
+const auditDownloadIfRangeKey = "okuru.audit.download_if_range"
+const auditDownloadLengthKey = "okuru.audit.download_length"
+
+const DownloadSessionRoute = "/file/:file_key/download/:session_id"
+const DownloadRequestIDHeader = "X-Okuru-Request-ID"
+
+type DownloadDecision string
+
+const (
+	DownloadInitialFull           DownloadDecision = "initial_full"
+	DownloadRestartFull           DownloadDecision = "plain_restart"
+	DownloadPartial               DownloadDecision = "partial"
+	DownloadValidatorMismatchFull DownloadDecision = "validator_mismatch_full"
+	DownloadGapRecoveryFull       DownloadDecision = "gap_recovery_full"
+	DownloadRangeRejected         DownloadDecision = "range_rejected"
+	DownloadRangeUnsatisfiable    DownloadDecision = "range_unsatisfiable"
+)
 
 type auditCountryCache struct {
 	ip, code, name, status string
@@ -158,6 +176,20 @@ func RecordDownloadCookieCheck(c *echo.Context, present, matched bool) {
 	c.Set(auditDownloadCookieKey, state)
 }
 
+func RecordDownloadDecision(c *echo.Context, decision DownloadDecision) {
+	c.Set(auditDownloadDecisionKey, decision)
+}
+
+// RecordDownloadIfRange records the result of an actual validator comparison.
+// The validator itself can contain a session identifier.
+func RecordDownloadIfRange(c *echo.Context, matched bool) {
+	c.Set(auditDownloadIfRangeKey, matched)
+}
+
+func RecordDownloadResponseLength(c *echo.Context, length int64) {
+	c.Set(auditDownloadLengthKey, length)
+}
+
 // AuditRequestFields contains bounded, non-secret request metadata only.
 // Proxy-supplied addresses are used only after the existing trust checks.
 func AuditRequestFields(c *echo.Context) log.Fields {
@@ -197,11 +229,20 @@ func AuditRequestFields(c *echo.Context) log.Fields {
 		route = "unmatched"
 	}
 	fields["route"] = boundedAuditText(route, 256)
-	if route == "/file/:file_key/download/:session_id" {
+	if route == DownloadSessionRoute {
 		fields["download_range_present"] = c.Request().Header.Get("Range") != ""
 		fields["download_if_range_present"] = c.Request().Header.Get("If-Range") != ""
 		if cookie, ok := c.Get(auditDownloadCookieKey).(string); ok {
 			fields["download_cookie"] = cookie
+		}
+		if decision, ok := c.Get(auditDownloadDecisionKey).(DownloadDecision); ok {
+			fields["download_decision"] = string(decision)
+		}
+		if matched, ok := c.Get(auditDownloadIfRangeKey).(bool); ok {
+			fields["download_if_range_matched"] = matched
+		}
+		if length, ok := c.Get(auditDownloadLengthKey).(int64); ok {
+			fields["download_expected_bytes"] = length
 		}
 	}
 	return fields

@@ -136,6 +136,29 @@ var ErrSecureMultipartFilename = errors.New("Invalid or duplicate file name")
 var ErrSecureMultipartFileCount = fmt.Errorf("%w: too many files", ErrSecureMultipart)
 var ErrSecureMultipartFileSize = fmt.Errorf("%w: total file size", ErrSecureMultipartTooLarge)
 
+// Keep the existing multipart error for consumers outside the browser form.
+// Only the form translates these two causes into distinct public messages.
+type uploadFilenameError string
+
+const (
+	ErrInvalidUploadFilename   uploadFilenameError = "Invalid file name."
+	ErrDuplicateUploadFilename uploadFilenameError = "Duplicate file name."
+	UploadFilenameErrorCode                        = "file_name_error"
+)
+
+func (uploadFilenameError) Error() string { return ErrSecureMultipartFilename.Error() }
+func (uploadFilenameError) Unwrap() error { return ErrSecureMultipartFilename }
+
+// UploadFilenameErrorMessage returns fixed display text for a classified
+// filename error, without exposing user input or other wrapped error details.
+func UploadFilenameErrorMessage(err error) string {
+	var failure uploadFilenameError
+	if errors.As(err, &failure) {
+		return string(failure)
+	}
+	return ""
+}
+
 // ParseSecureMultipart never invokes net/http's form parser, which would spill
 // plaintext to os.TempDir. It consumes the body once before CSRF extraction.
 // Independent random public-key encryption bounds memory and permits any
@@ -252,15 +275,24 @@ func parseSecureMultipart(r *http.Request, storageDir string, maxFileBytes int64
 			values[name] = append(values[name], string(value))
 			continue
 		}
-		if name != "files" || len(filename) > 255 {
+		if name != "files" {
 			return nil, ErrSecureMultipart
+		}
+		if len(filename) > 255 {
+			if direct {
+				return nil, ErrSecureMultipart
+			}
+			return nil, errors.Join(ErrSecureMultipart, ErrInvalidUploadFilename)
 		}
 		if len(form.Files) >= maxFiles {
 			return nil, ErrSecureMultipartFileCount
 		}
 		key, valid := UploadFilenameKey(filename)
-		if _, duplicate := seenNames[key]; !valid || duplicate {
-			return nil, errors.Join(ErrSecureMultipart, ErrSecureMultipartFilename)
+		if !valid {
+			return nil, errors.Join(ErrSecureMultipart, ErrInvalidUploadFilename)
+		}
+		if _, duplicate := seenNames[key]; duplicate {
+			return nil, errors.Join(ErrSecureMultipart, ErrDuplicateUploadFilename)
 		}
 		seenNames[key] = struct{}{}
 		if identity == nil {

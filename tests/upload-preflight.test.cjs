@@ -87,7 +87,7 @@ test('blocks invalid and duplicate names before submitting, and permits correcti
   assert.equal(form.elements.files.attributes['aria-describedby'], 'files-help');
 });
 
-test('only count and size limits schedule a single return to the upload page after five seconds', () => {
+test('only count and size limits schedule a single return to the upload page after three seconds', () => {
   const form = makeForm();
   assert.match(runSelection(form, []).message, /Select at least one/);
   assert.equal(form.timers.size, 0);
@@ -103,10 +103,10 @@ test('only count and size limits schedule a single return to the upload page aft
     const result = runSelection(form, files);
     assert.equal(result.prevented, true);
     assert.match(result.message, limit);
-    assert.match(result.message, /5 seconds/);
+    assert.doesNotMatch(result.message, /Returning to the upload form/);
     assert.equal(form.timers.size, 1);
     const [timer] = form.timers.values();
-    assert.equal(timer.ms, 5000);
+    assert.equal(timer.ms, 3000);
     timer.fn();
     assert.deepEqual(form.navigations.splice(0), ['/file']);
   }
@@ -121,10 +121,10 @@ test('correcting the selection, resetting the form or leaving the page cancels t
   runSelection(form, tooLarge);
   form.handlers['file_create:reset']();
   assert.equal(form.error.textContent, '');
-  assert.equal([...form.timers.values()].some(timer => timer.ms === 5000), false);
+  assert.equal([...form.timers.values()].some(timer => timer.ms === 3000), false);
   runSelection(form, tooLarge);
   form.handlers['window:pagehide']();
-  assert.equal([...form.timers.values()].some(timer => timer.ms === 5000), false);
+  assert.equal([...form.timers.values()].some(timer => timer.ms === 3000), false);
   assert.deepEqual(form.navigations, []);
 });
 
@@ -136,7 +136,7 @@ test('a server selection limit uses the same alert and timer until the files cha
     detail: 'The upload exceeds the size limit.', preventDefault() { handled = true; }
   });
   assert.equal(handled, true);
-  assert.match(form.error.textContent, /exceeds the size limit.*5 seconds/);
+  assert.match(form.error.textContent, /^🚫 The upload exceeds the size limit\.$/);
   assert.equal(form.elements.files.attributes['aria-invalid'], 'true');
   let prevented = false;
   form.handlers['file_create:submit']({ preventDefault() { prevented = true; } });
@@ -147,7 +147,7 @@ test('a server selection limit uses the same alert and timer until the files cha
   form.handlers['window:pageshow']({ persisted: true });
   assert.equal(form.timers.size, 1);
   const [timer] = form.timers.values();
-  assert.equal(timer.ms, 5000);
+  assert.equal(timer.ms, 3000);
   timer.fn();
   assert.deepEqual(form.navigations, ['/file']);
   assert.equal(runSelection(form, [['b.txt', 100]]).prevented, false);
@@ -161,4 +161,38 @@ test('displays an unsafe filename as text, never markup', () => {
   assert.equal(result.prevented, true);
   assert.match(form.error.textContent, /<img/);
   assert.equal(form.error.innerHTML, undefined);
+});
+
+test('inline server errors preserve the selected files and allow resubmission or correction', () => {
+  for (const [code, fieldInvalid] of [
+    ['file_name_error', 'true'],
+    ['form_verification_failed', 'false'],
+  ]) {
+    const form = makeForm();
+    assert.equal(runSelection(form, [['a.txt']]).prevented, false);
+    const files = form.elements.files;
+    const selection = files.files;
+    const reject = () => {
+      let handled = false;
+      form.handlers['file_create:file-upload-error']({
+        detail: { code, message: '<server rejected this upload>' }, preventDefault() { handled = true; },
+      });
+      assert.equal(handled, true);
+      assert.equal(form.error.textContent, '🚫 <server rejected this upload>');
+      assert.equal(form.error.innerHTML, undefined);
+      assert.equal(files.attributes['aria-invalid'], fieldInvalid);
+      assert.equal(files.files, selection);
+      assert.equal(form.timers.size, 0);
+      assert.deepEqual(form.navigations, []);
+    };
+    reject();
+    let prevented = false;
+    form.handlers['file_create:submit']({ preventDefault() { prevented = true; } });
+    assert.equal(prevented, false);
+    assert.equal(form.error.textContent, '');
+    reject();
+    runSelection(form, [['corrected.txt']]);
+    assert.equal(form.error.textContent, '');
+    assert.equal(files.attributes['aria-invalid'], 'false');
+  }
 });

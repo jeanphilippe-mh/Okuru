@@ -49,6 +49,28 @@ a.footer:hover {
     margin: auto; 
 }
 
+.file-download-action {
+    container: file-download / inline-size;
+    display: grid;
+    justify-items: center;
+}
+
+.file-download-action > button {
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    min-block-size: 44px;
+    padding-inline: 1.5rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+@container file-download (min-width: 42rem) {
+    .file-download-action > button {
+        inline-size: fit-content;
+    }
+}
+
 .break-word {
     word-wrap: break-word;
 }

@@ -42,6 +42,17 @@ jobs:
       - run: go run ./tests/cmd/okurutest test -race -count=1
       - name: Verify systemd restarts a stalled Echo worker and restores HTTPS readiness
         run: python3 tests/systemd_watchdog.py
+      - name: Install Apache for the ZIP continuation contract
+        run: |
+          if [[ ! -x /usr/sbin/apache2 ]]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends apache2-bin
+          fi
+      - name: Verify ZIP continuation through Apache over HTTP/2
+        env:
+          OKURU_TEST_APACHE_BIN: /usr/sbin/apache2
+          OKURU_TEST_APACHE_MODULE_DIR: /usr/lib/apache2/modules
+        run: go run ./tests/cmd/okurutest test -race -v -count=1 -run='^TestZIPContinuationThroughApache$' -- ./controllers
       - name: Verify resumable uploads through a capped proxy
         env:
           OKURU_TEST_LARGE_UPLOADS: "1"

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1752,6 +1753,60 @@ func TestRejectedRangeDoesNotExtendResumeDeadline(t *testing.T) {
 	after, err := redis.Int64(conn.Do("PEXPIRETIME", key))
 	if err != nil || after != expires {
 		t.Fatalf("rejected range changed idle deadline from %d to %d, err=%v", expires, after, err)
+	}
+}
+
+func TestRejectedByteRangeReportsSizeOnlyToAuthenticatedSession(t *testing.T) {
+	conn := configureCompatibilityRedis(t)
+	t.Setenv("OKURU_DOWNLOAD_RESUME_TIMEOUT", "30")
+	e, token, _, plain := resumeFixture(t, conn, u.ArchiveFormatAgeX25519, false)
+	cookie, _, etag := interruptedSession(t, conn, e, token, 11)
+	id, _ := finalizationArchive(t, token)
+	selector := downloadSessionDigest(cookie.Value)
+	key := u.REDIS_PREFIX + "download_session_" + id + "_" + selector
+	before, err := redis.StringMap(conn.Do("HGETALL", key))
+	if err != nil || len(before) == 0 {
+		t.Fatalf("session fields unavailable: %v", err)
+	}
+	expires, err := redis.Int64(conn.Do("PEXPIRETIME", key))
+	if err != nil || expires <= 0 {
+		t.Fatalf("resume deadline unavailable: %d, err=%v", expires, err)
+	}
+	invalidCookie := *cookie
+	invalidCookie.Value = "invalid"
+	archiveRange := "bytes */" + strconv.Itoa(len(plain))
+	for _, tc := range []struct {
+		name, rangeValue string
+		cookie           *http.Cookie
+		status           int
+		contentRange     string
+	}{
+		{"malformed bytes", "Bytes=1-a", cookie, http.StatusRequestedRangeNotSatisfiable, archiveRange},
+		{"multiple byte ranges", "bytes=1-2,4-5", cookie, http.StatusRequestedRangeNotSatisfiable, archiveRange},
+		{"missing cookie", "bytes=1-2,4-5", nil, http.StatusNotFound, ""},
+		{"invalid cookie", "bytes=1-2,4-5", &invalidCookie, http.StatusNotFound, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, downloadSessionPath(token, selector), nil)
+			req.Header.Set("Range", tc.rangeValue)
+			req.Header.Set("If-Range", etag)
+			if tc.cookie != nil {
+				req.AddCookie(tc.cookie)
+			}
+			rec := httptest.NewRecorder()
+			if err := downloadRequest(e, rec, req); err != nil || rec.Code != tc.status ||
+				rec.Header().Get("Content-Range") != tc.contentRange || rec.Body.Len() != 0 {
+				t.Fatalf("rejected range: status=%d range=%q bytes=%d err=%v", rec.Code, rec.Header().Get("Content-Range"), rec.Body.Len(), err)
+			}
+		})
+	}
+	after, err := redis.StringMap(conn.Do("HGETALL", key))
+	if err != nil || !maps.Equal(before, after) {
+		t.Fatalf("rejected range changed session fields: %v", err)
+	}
+	deadline, err := redis.Int64(conn.Do("PEXPIRETIME", key))
+	if err != nil || deadline != expires {
+		t.Fatalf("rejected range changed idle deadline from %d to %d, err=%v", expires, deadline, err)
 	}
 }
 

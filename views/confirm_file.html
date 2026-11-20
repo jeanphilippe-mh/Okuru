@@ -5,6 +5,7 @@
     <div class="pb-2 mt-4 mb-2 border-bottom">
         <h2>Share Secret Link</h2>
     </div>
+    <span role="status" data-clipboard-feedback></span>
     <br>
     <div class="row">
         <div class="col-12 col-xl-10">
@@ -28,8 +29,8 @@
         </div>
 
         <div class="col-12 col-xl-2">
-            <label for="copy-clipboard-btn">Copy it</label><br />
-            <button title="Copy to clipboard" type="button" class="btn btn-primary copy-clipboard-btn" id="copy-clipboard-btn" data-clipboard-target="#password-link" data-placement="bottom">
+            <label for="copy-password-clipboard-btn">Copy it</label><br />
+            <button title="Copy to clipboard" type="button" class="btn btn-primary copy-clipboard-btn" id="copy-password-clipboard-btn" data-clipboard-target="#password-link" data-placement="bottom">
                 <i class="fa fa-clipboard"></i>
             </button>
         </div>
@@ -40,8 +41,5 @@
 {% endblock %}
 
 {% block js %}
-<script nonce="{{ csp_nonce }}" src="/scripts/clipboard.min.js" integrity="sha512-7O5pXpc0oCRrxk8RUfDYFgn0nO1t+jLuIOQdOMRp4APB7uZ4vSjspzp5y6YDtDs4VzUSTbWzBFZ/LKJhnyFOKw=="></script>
-<script nonce="{{ csp_nonce }}">
-    new ClipboardJS("#copy-clipboard-btn");
-</script>
+{% include "clipboard_feedback.html" %}
 {% endblock %}

@@ -77,7 +77,7 @@ def main():
             "child-src 'none'; frame-src 'none'; frame-ancestors 'none'; "
             "object-src 'none'; upgrade-insecure-requests"
         )
-        config += [snippet, f'Header always set Content-Security-Policy "{fallback}" "expr=-z %{{resp:Content-Security-Policy}}"', '<Location "/api/generated400">\nRedirect 400\n</Location>', '<Location "/browser403">\nRedirect 403\n</Location>', '<Location "/browser502">\nRedirect 502\n</Location>', f'ProxyPass / http://127.0.0.1:{backend.server_port}/', f'ProxyPassReverse / http://127.0.0.1:{backend.server_port}/']
+        config += [snippet, f'Header always set Content-Security-Policy "{fallback}" "expr=-z %{{resp:Content-Security-Policy}}"', '<Location "/api/generated400">\nRedirect 400\n</Location>', '<Location "/browser403">\nRedirect 403\n</Location>', '<Location "/browser413">\nRedirect 413\n</Location>', '<Location "/browser502">\nRedirect 502\n</Location>', f'ProxyPass / http://127.0.0.1:{backend.server_port}/', f'ProxyPassReverse / http://127.0.0.1:{backend.server_port}/']
         conf = folder / "httpd.conf"
         conf.write_text("\n".join(config))
         subprocess.run([args.apache, "-t", "-f", str(conf)], check=True)
@@ -110,6 +110,11 @@ def main():
             assert headers.get_all("Content-Security-Policy") == [fallback], headers.get_all("Content-Security-Policy")
             status, headers, body = request("/browser403")
             assert status == 403 and headers.get_all("Content-Security-Policy") == [fallback], (status, headers.get_all("Content-Security-Policy"))
+            status, headers, body = request("/browser413")
+            page = body.decode("utf-8")
+            assert status == 413 and headers.get_all("Content-Security-Policy") == [fallback], (status, headers.get_all("Content-Security-Policy"))
+            assert "🚫 The request exceeds the server’s size limit." in page, page
+            assert 'http-equiv="refresh" content="3; url=/"' in page and "{{" not in page and "{%" not in page, page
             status, headers, body = request("/browser502")
             assert status == 502 and body == (errors / "502.html").read_bytes(), (status, body[:200])
             assert headers.get_all("Content-Security-Policy") == [fallback], headers.get_all("Content-Security-Policy")
@@ -125,7 +130,7 @@ def main():
             request("/api/sensitive-audit-marker~private-key?secret=query-marker")
             access = (folder / "access.share.jeanphilippe.io.log").read_text()
             assert "sensitive-audit-marker" not in access and "private-key" not in access and "query-marker" not in access
-            print("PASS: backend CSP retained once for 200/403; missing CSP uses fallback; Apache 400/403/502 use fallback; error contracts and URL-safe logging preserved.")
+            print("PASS: backend CSP retained once for 200/403; missing CSP uses fallback; Apache 400/403/413/502 use fallback; error contracts and URL-safe logging preserved.")
         finally:
             server.terminate()
             server.communicate(timeout=5)

@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	. "github.com/jeanphilippe-mh/Okuru/models"
@@ -10,11 +11,18 @@ import (
 )
 
 func Index(context *echo.Context) error {
+	return RenderSecretForm(context, http.StatusOK, "")
+}
+
+// RenderSecretForm rebuilds the secret form without redisplaying the secret.
+func RenderSecretForm(context *echo.Context, status int, message string) error {
 	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	csrfToken := context.Get("csrf")
-	dataContext["csrfToken"] = csrfToken
-	return context.Render(http.StatusOK, "set_password.html", dataContext)
+	dataContext["csrfToken"] = context.Get("csrf")
+	if message != "" {
+		dataContext["errors"] = message
+		context.Response().Header().Set(echo.HeaderCacheControl, "private, no-store")
+	}
+	return context.Render(status, "set_password.html", dataContext)
 }
 
 func SecurityIndex(context *echo.Context) error {
@@ -55,8 +63,12 @@ func Error404Index(context *echo.Context) error {
 
 func Error413Index(context *echo.Context) error {
 	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	return context.Render(http.StatusRequestEntityTooLarge, "413.html", dataContext)
+	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
+	// The form's shorter label rounds non-integral GB values down.
+	if sizeMB := MaxFileSize / (1024 * 1024); sizeMB >= 1024 && sizeMB%1024 != 0 {
+		dataContext["maxFileSizeText"] = strconv.FormatInt(sizeMB, 10) + " MB"
+	}
+	return context.Render(http.StatusRequestEntityTooLarge, "request_too_large.html", dataContext)
 }
 
 func Error500Index(context *echo.Context) error {

@@ -180,7 +180,8 @@ if redis.call('TTL', KEYS[2]) < 0 or (version ~= '2' and version ~= '3') then re
 local secret = redis.call('HGET', KEYS[2], 'secret')
 local count = tonumber(redis.call('HGET', KEYS[2], 'requests'))
 local used = tonumber(redis.call('HGET', KEYS[2], 'used'))
-local limit = tonumber(redis.call('HGET', KEYS[2], 'limit'))
+local storedLimit = redis.call('HGET', KEYS[2], 'limit')
+local limit = tonumber(storedLimit)
 if not secret or not count or not used or not limit then return nil end
 local storedIdle = redis.call('HGET', KEYS[2], 'idle_deadline')
 local idle = tonumber(storedIdle)
@@ -202,7 +203,7 @@ if ARGV[3] == '1' and version == '3' and started == '1' and count <= 1 and
   handoff = absolute and idle and now < absolute and (afterInitial or afterRange)
 end
 if not pending and (count >= tonumber(ARGV[2]) or (used >= limit and not handoff)) then return nil end
-return {redis.call('HGETALL', KEYS[1]), secret, handoff and 1 or 0}
+return {redis.call('HGETALL', KEYS[1]), secret, handoff and 1 or 0, storedLimit}
 `)
 
 var reserveDownloadBytesScript = redis.NewScript(2, `
@@ -428,18 +429,19 @@ func authenticateDownloadLink(ctx context.Context, fileKey, linkKey string) (red
 	return c, token, nil
 }
 
-// PreviewDownloadSession authenticates the bearer and cookie without changing
-// the session. A full GET may briefly wait for another transfer to finish
-// recording progress. Atomic admission remains authoritative after the wait.
-func PreviewDownloadSession(ctx context.Context, f *models.File, cookie string, full bool) *echo.HTTPError {
+// PreviewDownloadSession authenticates the bearer and cookie and returns the
+// authorized ZIP size without changing the session. A full GET may briefly
+// wait for another transfer to finish recording progress. Atomic admission
+// remains authoritative after the wait.
+func PreviewDownloadSession(ctx context.Context, f *models.File, cookie string, full bool) (int64, *echo.HTTPError) {
 	id, linkKey, err := ParseToken(f.FileKey)
 	if err != nil || !validDownloadSessionCookie(cookie) {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		return 0, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	fileKey, sessionKey := REDIS_PREFIX+"file_"+id, downloadSessionKey(id, cookie)
-	waiting, fault := previewDownloadSession(ctx, f, fileKey, sessionKey, linkKey, cookie, full)
+	size, waiting, fault := previewDownloadSession(ctx, f, fileKey, sessionKey, linkKey, cookie, full)
 	if !waiting || fault != nil {
-		return fault
+		return size, fault
 	}
 	ctx, cancel := context.WithTimeout(ctx, downloadHandoffWait)
 	defer cancel()
@@ -449,38 +451,39 @@ func PreviewDownloadSession(ctx context.Context, f *models.File, cookie string, 
 	for waiting && ctx.Err() == nil {
 		select {
 		case <-ticker.C:
-			waiting, fault = previewDownloadSession(ctx, f, fileKey, sessionKey, linkKey, cookie, full)
+			size, waiting, fault = previewDownloadSession(ctx, f, fileKey, sessionKey, linkKey, cookie, full)
 		case <-ctx.Done():
 		}
 	}
 	// The Redis socket deadline can fire before the context reports expiry.
 	if ctx.Err() != nil || !time.Now().Before(deadline) {
-		return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		return 0, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	return fault
+	return size, fault
 }
 
-func previewDownloadSession(ctx context.Context, f *models.File, fileKey, sessionKey, linkKey, cookie string, full bool) (bool, *echo.HTTPError) {
+func previewDownloadSession(ctx context.Context, f *models.File, fileKey, sessionKey, linkKey, cookie string, full bool) (int64, bool, *echo.HTTPError) {
 	c, token, fault := authenticateDownloadLink(ctx, fileKey, linkKey)
 	if fault != nil {
-		return false, fault
+		return 0, false, fault
 	}
 	defer c.Close()
 	reply, err := redis.Values(previewDownloadSessionScript.DoContext(ctx, c, fileKey, sessionKey, token, maxDownloadSessionRequests, full))
 	if err != nil {
-		return false, downloadRedisFailure(c)
+		return 0, false, downloadRedisFailure(c)
 	}
 	var record []interface{}
 	var encrypted []byte
 	var waiting bool
-	if _, err := redis.Scan(reply, &record, &encrypted, &waiting); err != nil || redis.ScanStruct(record, f) != nil {
-		return false, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+	var size int64
+	if _, err := redis.Scan(reply, &record, &encrypted, &waiting, &size); err != nil || size < 0 || size > maxExactSessionBytes || redis.ScanStruct(record, f) != nil {
+		return 0, false, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	keys, err := fernet.DecodeKeys(cookie)
 	if err != nil || fernet.VerifyAndDecrypt(encrypted, 0, keys) == nil {
-		return false, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		return 0, false, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
-	return waiting, nil
+	return size, waiting, nil
 }
 
 // ResumeFileDownload takes one bounded continuation attempt without tracking

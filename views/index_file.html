@@ -7,7 +7,6 @@
     </div>
     <div>
         <p><span id="file-selection-error" role="alert">{% if (errors) %}&#128683; {{ errors }}{% endif %}</span> </p>
-        {% include "form_error_return.html" %}
     </div>
 <form id="file_create" action="/file" aria-labelledby="file-title" method="POST" class="form-horizontal" enctype="multipart/form-data">
     <!-- Hidden CSRF Token -->
@@ -161,19 +160,22 @@
     returnTimer = undefined;
   }
 
+  function showSelectionError(message, invalidFiles) {
+    // A file name may contain markup. Only display it as text.
+    errorSpan.textContent = message ? `🚫 ${message}` : '';
+    myFiles.setAttribute('aria-invalid', invalidFiles ? 'true' : 'false');
+    myFiles.setAttribute('aria-describedby', invalidFiles ? 'files-help file-selection-error' : 'files-help');
+  }
+
   function checkSelection() {
     const files = Array.from(myFiles.files);
     const limitError = serverLimit || fileLimitError(files);
     const message = limitError || validateFileNames(files);
-    const notice = limitError ? ' Returning to the upload form in 5 seconds.' : '';
-    // A file name may contain markup. Only display it as text.
-    errorSpan.textContent = message ? `🚫 ${message}${notice}` : '';
-    myFiles.setAttribute('aria-invalid', message ? 'true' : 'false');
-    myFiles.setAttribute('aria-describedby', message ? 'files-help file-selection-error' : 'files-help');
+    showSelectionError(message, Boolean(message));
     if (!limitError) {
       cancelReturn();
     } else if (returnTimer === undefined) {
-      returnTimer = setTimeout(() => window.location.replace('/file'), 5000);
+      returnTimer = setTimeout(() => window.location.replace('/file'), 3000);
     }
     return !message;
   }
@@ -187,6 +189,10 @@
     checkSelection();
     event.preventDefault(); // The alert above the form now owns this message.
   });
+  fileForm.addEventListener('file-upload-error', event => {
+    showSelectionError(event.detail.message, event.detail.code === 'file_name_error');
+    event.preventDefault();
+  });
   window.addEventListener('pageshow', event => {
     updateFileLabel();
     if (event.persisted && myFiles.getAttribute('aria-invalid') === 'true') {
@@ -198,9 +204,7 @@
   fileForm.addEventListener('reset', () => {
     serverLimit = '';
     cancelReturn();
-    errorSpan.textContent = '';
-    myFiles.setAttribute('aria-invalid', 'false');
-    myFiles.setAttribute('aria-describedby', 'files-help');
+    showSelectionError('', false);
     setTimeout(updateFileLabel, 0);
   });
   window.addEventListener('pagehide', cancelReturn);
@@ -219,7 +223,7 @@
   });
 })();
 </script>
-<script nonce="{{ csp_nonce }}" src="/scripts/upload-progress.js" integrity="sha512-niCxAiTSc2NqdMNIF13G3GbebdHGLKN2zKQLn1iBe+PQofoDjdMkdhU8/HlJJiAg4RVEFlPyqmyufaIbS+wopA=="></script>
+<script nonce="{{ csp_nonce }}" src="/scripts/upload-progress.js" integrity="sha512-uV9QOE3HeJc3clcqLEhpc7qehzww6/ib7qiYIDlq4CYGR4t9TZxGWRmn7m5gBCCOqYy1kVyxRMJg6ykwxm7VWQ=="></script>
 {% if upload_blocks_enabled %}
 <script nonce="{{ csp_nonce }}" src="/scripts/tus.min.js" integrity="sha512-ANMDrIMUl7SJ3/ykWfb5U5ZluVTPwgUEDxxLVcHSE4ATJXqUEsdlfbhtnyoSZbsBNb/aLsFzO/iWZZZTlMWr+w=="></script>
 <script nonce="{{ csp_nonce }}" src="/scripts/upload-blocks-transport.js" integrity="sha512-l1zaxkG5KeHG9zct+YJBHQumv8CQm+rzHTxwnW4/F1xrrSRevkqM9M7FpaIRJFz7Rw8S0hA/c14whFjVX/veTA=="></script>

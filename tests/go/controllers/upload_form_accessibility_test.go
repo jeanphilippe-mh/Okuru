@@ -74,11 +74,14 @@ func TestUploadFormPreservesLimitsAndAccessibilityAfterError(t *testing.T) {
 			}
 			refresh := recorder.Header().Get("Refresh")
 			if test.want == http.StatusBadRequest {
-				if refresh != "3; url=/file" || !strings.Contains(recorder.Body.String(), `href="/file">Return now`) {
+				if refresh != "3; url=/file" || !strings.Contains(recorder.Body.String(), "No files selected") {
 					t.Fatal("missing three-second return after validation")
 				}
 			} else if refresh != "" {
 				t.Fatal("initial form should stay open")
+			}
+			if strings.Contains(recorder.Body.String(), "Returning to") || strings.Contains(recorder.Body.String(), "Return now") {
+				t.Fatal("the form displays an extra return notice")
 			}
 			for _, want := range []string{
 				"total max size <b>1 GB</b>",
