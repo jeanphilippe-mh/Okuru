@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section aria-labelledby="form-error">
+    <h2 id="form-error">Unable to submit the form</h2>
+    <p role="alert">{% if showErrorIcon %}🚫 {% endif %}{{ errors }}</p>
+</section>
+{% endblock %}

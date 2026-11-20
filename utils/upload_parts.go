@@ -193,9 +193,14 @@ func ReleaseUploadParts(id string) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(root, uploadPartPrefix+id)
+	disk, err := openRuntimeArchiveRoot(root)
+	if err != nil {
+		return err
+	}
+	defer disk.Close()
+	dir := uploadPartPrefix + id
 	set := localPartSet(id)
-	info, err := os.Lstat(dir)
+	info, err := disk.Lstat(dir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -204,7 +209,7 @@ func ReleaseUploadParts(id string) error {
 			return ErrStorageCapacity
 		}
 		if set == nil {
-			marker, e := os.OpenFile(filepath.Join(dir, "owner"), os.O_RDWR, 0)
+			marker, e := disk.OpenFile(filepath.Join(dir, "owner"), os.O_RDWR, 0)
 			if e != nil && !os.IsNotExist(e) {
 				return ErrStorageCapacity
 			}
@@ -224,7 +229,7 @@ func ReleaseUploadParts(id string) error {
 			_ = set.guard.Close()
 			set.guard = nil
 		}
-		if err := os.RemoveAll(dir); err != nil {
+		if err := disk.RemoveAll(dir); err != nil {
 			return ErrStorageCapacity
 		}
 	}
@@ -251,7 +256,12 @@ func SweepUploadParts(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d, err := os.Open(root)
+	disk, err := openRuntimeArchiveRoot(root)
+	if err != nil {
+		return err
+	}
+	defer disk.Close()
+	d, err := disk.Open(".")
 	if err != nil {
 		return err
 	}

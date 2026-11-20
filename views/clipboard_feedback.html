@@ -1,0 +1,40 @@
+<script nonce="{{ csp_nonce }}">
+(() => {
+    const feedback = document.querySelector("[data-clipboard-feedback]");
+    const buttons = document.querySelectorAll(".copy-clipboard-btn");
+    const warningClasses = ["text-warning", "d-inline-block", "py-2"];
+    function showFailure() {
+        feedback.classList.add(...warningClasses);
+        feedback.textContent = "⚠️ Could not copy. Select and copy the text manually.";
+    }
+    function clearFailure() {
+        feedback.textContent = "";
+        feedback.classList.remove(...warningClasses);
+    }
+
+    for (const button of buttons) {
+        button.addEventListener("click", () => {
+            const field = document.querySelector(button.dataset.clipboardTarget);
+            if (!field || !field.value) {
+                showFailure();
+                return;
+            }
+            try {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+                    return navigator.clipboard.writeText(field.value).then(clearFailure, showFailure);
+                }
+                field.focus();
+                field.select();
+                // Run the legacy copy inside the click and leave the field selected.
+                if (!document.execCommand("copy")) {
+                    showFailure();
+                    return;
+                }
+                clearFailure();
+            } catch {
+                showFailure();
+            }
+        });
+    }
+})();
+</script>

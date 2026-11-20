@@ -22,16 +22,22 @@ import (
 )
 
 func IndexFile(context *echo.Context) error {
+	return RenderFileForm(context, http.StatusOK, "")
+}
+
+// RenderFileForm rebuilds the upload form without redisplaying submitted data.
+func RenderFileForm(context *echo.Context, status int, message string) error {
 	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	csrfToken := context.Get("csrf")
 	dataContext["maxFileSize"] = MaxFileSize
 	dataContext["maxFileSizeText"] = GetMaxFileSizeText()
 	_, blocks, _ := UploadAdmission(context.Request().Context())
 	dataContext["upload_blocks_enabled"] = blocks
-	dataContext["csrfToken"] = csrfToken
-
-	return context.Render(http.StatusOK, "index_file.html", dataContext)
+	dataContext["csrfToken"] = context.Get("csrf")
+	if message != "" {
+		dataContext["errors"] = message
+		context.Response().Header().Set(echo.HeaderCacheControl, "private, no-store")
+	}
+	return context.Render(status, "index_file.html", dataContext)
 }
 
 func Error400File(context *echo.Context) error {
@@ -59,9 +65,7 @@ func Error404File(context *echo.Context) error {
 }
 
 func Error413File(context *echo.Context) error {
-	dataContext := NewDataContext()
-	delete(dataContext, "errors")
-	return context.Render(http.StatusRequestEntityTooLarge, "413.html", dataContext)
+	return Error413Index(context)
 }
 
 func Error500File(context *echo.Context) error {
@@ -120,7 +124,7 @@ func Error508File(context *echo.Context) error {
 
 func ReadFile(context *echo.Context) error {
 	if context.Request().Header.Get("Range") != "" {
-		return resumeDownload(context)
+		return DownloadSessionFile(context)
 	}
 	dataContext := NewDataContext()
 	delete(dataContext, "errors")
@@ -259,7 +263,7 @@ func DownloadFile(context *echo.Context) error {
 	if err := ValidateSecretLength(password); err != nil {
 		return context.NoContent(http.StatusRequestEntityTooLarge)
 	}
-	if err := ValidateDownloadSessionTimeout(); err != nil {
+	if err := ValidateDownloadTimeouts(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 
@@ -270,6 +274,9 @@ func DownloadFile(context *echo.Context) error {
 	if previewErr := GetFile(preview); previewErr != nil {
 		auditUnavailable(context, previewErr, "file.download_unavailable", "File download unavailable")
 		return context.Render(http.StatusNotFound, "404.html", dataContext)
+	}
+	if downloadSharePath(f.FileKey) == "" {
+		return context.NoContent(http.StatusNotFound)
 	}
 	var releaseKDF func()
 	needsKDF := preview.ArchiveFormat == ArchiveFormatAgeUserPassword && password != ""
@@ -347,27 +354,23 @@ func DownloadFile(context *echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	value, lifetime, session, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
+	defer archive.file.Close()
+	value, cookieLifetime, err := CreateClaimedDownloadSession(f, secret, archive.size, claim, archive.etag)
 	if err != nil {
-		_ = archive.file.Close()
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
-	progress := &downloadProgress{session: session, representationOK: true}
-	defer func() {
-		_ = archive.file.Close()
-		progress.finish()
-	}()
 	cookieName, err := downloadSessionCookie(f.FileKey, value)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
+	location := downloadSessionPath(f.FileKey, downloadSessionDigest(value))
 	context.SetCookie(&http.Cookie{
-		Name: cookieName, Value: value, Path: "/file/" + f.FileKey,
-		MaxAge: lifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
+		Name: cookieName, Value: value, Path: location,
+		MaxAge: cookieLifetime, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
-	archive.etag = sessionETag(archive.etag, value)
-	AuditStarted(context, "file.download_started", "File download started")
-	return writeDownloadArchive(context, archive, archiveName, nil, progress)
+	context.Response().Header().Set("Cache-Control", "private, no-store")
+	context.Response().Header().Set("Referrer-Policy", "no-referrer")
+	return context.Redirect(http.StatusSeeOther, location)
 }
 
 // getZipMethod decides which ZIP compression method to use based on environment variables.
@@ -436,8 +439,11 @@ func validateUploadFiles(files []*SecureMultipartFile) ([]string, error) {
 		}
 		name := file.Filename
 		key, valid := UploadFilenameKey(name)
-		if !valid || seen[key] {
-			return nil, errors.New("Invalid or duplicate file name")
+		if !valid {
+			return nil, ErrInvalidUploadFilename
+		}
+		if seen[key] {
+			return nil, ErrDuplicateUploadFilename
 		}
 		seen[key] = true
 		names = append(names, name)
@@ -516,7 +522,13 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 		data["maxFileSize"] = MaxFileSize
 		data["maxFileSizeText"] = GetMaxFileSizeText()
 		data["errors"] = displayError(message)
-		return context.Render(status, "index_file.html", data)
+		return RenderFormError(context, status, "index_file.html", "/file", data)
+	}
+	failFilename := func(message string) error {
+		if mode == progressFileUpload {
+			return context.JSON(http.StatusBadRequest, map[string]string{"error": message, "code": UploadFilenameErrorCode})
+		}
+		return RenderFileForm(context, http.StatusBadRequest, message)
 	}
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
@@ -533,10 +545,12 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 	if form == nil {
 		form, err = ParseSecureMultipart(context.Request(), FILEFOLDER, MaxFileSize, maxUploadFiles)
 		if err != nil {
-			if mode == progressFileUpload {
-				return fail(http.StatusBadRequest, "Invalid multipart upload")
+			if mode != directFileUpload {
+				if message := UploadFilenameErrorMessage(err); message != "" {
+					return failFilename(message)
+				}
 			}
-			return context.NoContent(http.StatusBadRequest)
+			return fail(http.StatusBadRequest, "Invalid multipart upload")
 		}
 		defer func() {
 			if err := form.Close(); err != nil {
@@ -586,6 +600,11 @@ func addFile(context *echo.Context, mode fileUploadMode) error {
 	files := form.Files
 	names, err := validateUploadFiles(files)
 	if err != nil {
+		if mode != directFileUpload {
+			if filenameMessage := UploadFilenameErrorMessage(err); filenameMessage != "" {
+				return failFilename(filenameMessage)
+			}
+		}
 		return fail(http.StatusBadRequest, err.Error())
 	}
 

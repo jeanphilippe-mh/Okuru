@@ -4,13 +4,97 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/gomodule/redigo/redis"
-	"github.com/google/uuid"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
 )
+
+func TestPreparedPublicationRollsBackOnRedisWriteFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, command string
+		key           int
+	}{
+		{"file expiration", "pexpireat", 2},
+		{"password expiration", "pexpireat", 3},
+		{"session expiration", "pexpireat", 0},
+		{"session index", "zadd", 1},
+		{"session ready state", "hset", 0},
+		{"rollback permission", "del", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			admin := admissionTestRedis(t)
+			id, fileID, passwordID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+			session, index := UploadSessionRedisKeys(id)
+			keys := []string{session, index, REDIS_PREFIX + "file_" + fileID, REDIS_PREFIX + passwordID}
+			t.Cleanup(func() { _, _ = admin.Do("DEL", redis.Args{}.AddFlat(keys)...) })
+			previousDeadline := time.Now().Add(2 * time.Hour).UnixMilli()
+			const previousScore = 1234
+			if _, err := admin.Do("HSET", session, "state", "finalizing", "publication_id", fileID, "until", previousScore); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := admin.Do("PEXPIREAT", session, previousDeadline); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := admin.Do("ZADD", index, previousScore, id); err != nil {
+				t.Fatal(err)
+			}
+
+			// Limit only the selected command on one of the four test keys.
+			user := "publication_" + id
+			password := newUploadSecret()
+			selector := []string{"+" + tc.command}
+			for i, key := range keys {
+				if i != tc.key {
+					selector = append(selector, "~"+key)
+				}
+			}
+			if _, err := admin.Do("ACL", "SETUSER", user, "on", ">"+password, "~*", "+@all", "-"+tc.command, "("+strings.Join(selector, " ")+")"); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _, _ = admin.Do("ACL", "DELUSER", user) })
+			restricted, err := redis.Dial("tcp", os.Getenv("OKURU_TEST_REDIS_ADDR"), redis.DialUsername(user), redis.DialPassword(password))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer restricted.Close()
+			args := redis.Args{}.AddFlat(keys).Add(id, fileID, 60, 1, "0", ArchiveFormatAgeUserPassword, "sealed-file", passwordID, "sealed-password", "sealed-result", "digest", 100000)
+			if _, err := commitUploadPublication.Do(restricted, args...); err == nil {
+				t.Fatal("publication accepted a denied Redis command")
+			}
+			if n, err := redis.Int(admin.Do("EXISTS", keys[2], keys[3])); err != nil || n != 0 {
+				t.Fatalf("failed publication left new metadata: %d, %v", n, err)
+			}
+			if state, err := redis.String(admin.Do("HGET", session, "state")); err != nil || state != "finalizing" {
+				t.Fatalf("failed publication changed session state: %q, %v", state, err)
+			}
+			if expiry, err := redis.Int64(admin.Do("PEXPIRETIME", session)); err != nil || expiry != previousDeadline {
+				t.Fatalf("failed publication changed session deadline: %d, %v", expiry, err)
+			}
+			if score, err := redis.Int(admin.Do("ZSCORE", index, id)); err != nil || score != previousScore {
+				t.Fatalf("failed publication changed session index: %d, %v", score, err)
+			}
+
+			if status, err := redis.Int(commitUploadPublication.Do(admin, args...)); err != nil || status != 1 {
+				t.Fatalf("publication could not retry: %d, %v", status, err)
+			}
+			archiveExpiry, err := redis.Int64(admin.Do("PEXPIRETIME", keys[2]))
+			if err != nil || archiveExpiry <= time.Now().UnixMilli() {
+				t.Fatalf("missing archive expiration: %d, %v", archiveExpiry, err)
+			}
+			if expiry, err := redis.Int64(admin.Do("PEXPIRETIME", keys[3])); err != nil || expiry != archiveExpiry {
+				t.Fatalf("password expiration differs from archive: %d, %v", expiry, err)
+			}
+			if status, err := redis.Int(commitUploadPublication.Do(admin, args...)); err != nil || status != 2 {
+				t.Fatalf("committed publication could not replay: %d, %v", status, err)
+			}
+		})
+	}
+}
 
 func TestPreparedPublicationRecoversWithoutCreatorKey(t *testing.T) {
 	for _, collision := range []bool{false, true} {

@@ -117,6 +117,9 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Pre(observeRequestAbort)
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
+			// Share capabilities can appear in the path of rendered pages,
+			// redirects and errors. Keep them out of subrequest Referer headers.
+			c.Response().Header().Set("Referrer-Policy", "no-referrer")
 			utils.AuditRequestID(c)
 			return next(c)
 		}
@@ -198,26 +201,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	e.Use(secureMultipart)
 
 	// Middleware CSRF
-	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
-		Skipper: func(c *echo.Context) bool {
-			path := c.Request().URL.Path
-			return c.Path() == "/api/*" || c.Path() == "/api" || path == "/api/v2/secrets" || strings.HasPrefix(path, "/api/v2/secrets/") || isFileAPIPath(path)
-		},
-		TokenLength:    32,
-		TokenLookup:    "form:_csrf,header:X-CSRF-Token",
-		CookieSecure:   true,
-		CookieHTTPOnly: true,
-		CookieSameSite: http.SameSiteStrictMode,
-		// Echo v4 validated tokens for same-site, cross-origin requests.
-		// Keep that behavior without bypassing the token check or allowing
-		// cross-site and unrecognized Fetch Metadata values.
-		AllowSecFetchSiteFunc: func(c *echo.Context) (bool, error) {
-			if c.Request().Header.Get(echo.HeaderSecFetchSite) == "same-site" {
-				return false, nil
-			}
-			return false, echo.NewHTTPError(http.StatusForbidden, "cross-site request blocked by CSRF")
-		},
-	}))
+	e.Use(middleware.CSRFWithConfig(browserCSRFConfig()))
 
 	// Middleware Static
 	publicfolder := filepath.Dir(ex) + "/public"

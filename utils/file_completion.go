@@ -113,49 +113,6 @@ func ReleaseFileDownloadClaim(claim *FileDownloadClaim) error {
 	return finalizeCompletedDownload(c, id, claim.token)
 }
 
-var beginTrackedRangeScript = redis.NewScript(2, `
-if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return -1 end
-if redis.call('TTL', KEYS[2]) < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return -1 end
-if redis.call('HGET', KEYS[2], 'tracking') ~= '1' then return 0 end
-local active = tonumber(redis.call('HGET', KEYS[2], 'active'))
-if not active or active < 0 then return -1 end
-if redis.call('HEXISTS', KEYS[2], ARGV[3]) ~= 0 then return -1 end
-if redis.call('HEXISTS', KEYS[1], ARGV[3]) ~= 0 then return -1 end
--- A parent marker survives the continuation-session timeout while this
--- response is still active. A failed later HSET safely retains the marker.
-redis.call('HSET', KEYS[1], ARGV[3], '1')
-redis.call('HSET', KEYS[2], 'active', active + 1, ARGV[3], '1')
-return 1
-`)
-
-// ResumeTrackedFileDownload starts a tracked in-flight range after the normal
-// link and cookie authentication. Older sessions are handled conservatively.
-func ResumeTrackedFileDownload(f *models.File, cookie string) (string, *DownloadSession, *echo.HTTPError) {
-	secret, session, httpErr := ResumeFileDownload(f, cookie)
-	if httpErr != nil {
-		return "", nil, httpErr
-	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return "", nil, echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
-	}
-	progressField := "operation_" + hex.EncodeToString(random[:])
-	c := NewPool().Get()
-	defer c.Close()
-	status, err := redis.Int(beginTrackedRangeScript.Do(c, session.fileKey, session.sessionKey, session.token, session.encrypted, progressField))
-	if err != nil || status < 0 {
-		return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-	}
-	if status == 1 {
-		id, _, err := ParseToken(f.FileKey)
-		if err != nil {
-			return "", nil, echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
-		}
-		session.archiveID, session.tracked, session.progressField = id, true, progressField
-	}
-	return secret, session, nil
-}
-
 var verifyDownloadRepresentationScript = redis.NewScript(2, `
 if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return -1 end
 if redis.call('TTL', KEYS[2]) < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return -1 end
@@ -186,7 +143,7 @@ func VerifyDownloadRepresentation(session *DownloadSession, rawETag string) (boo
 
 // Ranges are represented as sorted disjoint half-open intervals. The bounded
 // continuation count limits the representation to at most 33 intervals.
-var recordDownloadProgressScript = redis.NewScript(2, `
+var recordDownloadProgressScript = redis.NewScript(2, sessionClockLua+`
 if redis.call('TTL', KEYS[1]) < 0 or redis.call('HGET', KEYS[1], 'token') ~= ARGV[1] then return 0 end
 if redis.call('HGET', KEYS[1], ARGV[7]) ~= '1' then return 2 end
 local parentSize, parentStart, parentWritten = tonumber(ARGV[8]), tonumber(ARGV[3]), tonumber(ARGV[4])
@@ -194,7 +151,7 @@ if not parentSize or not parentStart or not parentWritten or parentStart < 0 or 
    parentStart > parentSize or parentWritten > parentSize-parentStart then return redis.error_reply('invalid progress') end
 local sessionTTL = redis.call('TTL', KEYS[2])
 if sessionTTL == -2 then
-  -- Authorization may expire after five minutes while an already-started response
+  -- Authorization may expire while an already-started response
   -- is still running. A complete successful response can still be recognized;
   -- partial coverage cannot be reconstructed and remains conservative.
   if ARGV[5] == '1' and ARGV[6] == '1' and parentStart == 0 and parentWritten == parentSize then
@@ -207,13 +164,21 @@ if sessionTTL == -2 then
 end
 if sessionTTL < 0 or redis.call('HGET', KEYS[2], 'secret') ~= ARGV[2] then return 0 end
 if redis.call('HGET', KEYS[2], 'tracking') ~= '1' then return 0 end
-if redis.call('HGET', KEYS[2], ARGV[7]) ~= '1' then return redis.error_reply('operation marker missing') end
+local phase = redis.call('HGET', KEYS[2], ARGV[7])
+if phase ~= '1' and phase ~= 'streaming' then return redis.error_reply('operation marker missing') end
 local active = tonumber(redis.call('HGET', KEYS[2], 'active'))
 local size = tonumber(redis.call('HGET', KEYS[2], 'limit'))
 local start, written = tonumber(ARGV[3]), tonumber(ARGV[4])
 if not active or active < 1 or not size or not start or not written or
    start < 0 or written < 0 or start ~= math.floor(start) or written ~= math.floor(written) or
    start > size or written > size - start then return redis.error_reply('invalid progress') end
+-- The full restart owns the whole budget exclusively. If its reservation
+-- cannot be verified, leave the operation and all charged bytes in place.
+local promotedReplacement = redis.call('HGET', KEYS[2], 'gap_promoted_owner') == ARGV[7]
+local fullRestart = ARGV[11] == '1' or promotedReplacement
+if fullRestart and (active ~= 1 or start ~= 0 or tonumber(redis.call('HGET', KEYS[2], 'used')) ~= size) then
+  return redis.error_reply('invalid full restart reservation')
+end
 local encoded = redis.call('HGET', KEYS[2], 'intervals') or ''
 if string.len(encoded) > 2500 then return redis.error_reply('invalid interval index') end
 local intervals, rebuilt = {}, ''
@@ -254,6 +219,73 @@ end
 -- fails, the active counter remains positive and eager cleanup fails closed.
 redis.call('HDEL', KEYS[2], ARGV[7])
 redis.call('HSET', KEYS[2], 'active', active - 1, 'intervals', result, 'complete', complete, 'unsafe', unsafe)
+-- A preparation failure before headers leaves the full GET available for a
+-- retry, unless a Range already joined this attempt.
+if ARGV[9] == '1' and ARGV[10] == '1' and active == 1 and redis.call('HGET', KEYS[2], 'requests') == '0' then
+  redis.call('HSET', KEYS[2], 'initial_started', '0')
+end
+-- A new full GET is safe only after a verified transport interruption of
+-- the initial response. A complete or corrupt transfer never grants it.
+if ARGV[10] == '1' and phase == 'streaming' and ARGV[9] ~= '1' and ARGV[5] == '1' and
+   ARGV[6] ~= '1' and written < size then
+  redis.call('HSET', KEYS[2], 'restart_available', '1')
+  if active == 1 and redis.call('HGET', KEYS[2], 'requests') == '0' and
+     redis.call('HGET', KEYS[2], 'initial_written') == '0' then
+    redis.call('HSET', KEYS[2], 'initial_written', ARGV[4])
+  end
+end
+-- Only the first validated, open-ended continuation can establish a second
+-- interrupted prefix. The range reservation has already refunded unwritten bytes.
+local initialWritten = tonumber(redis.call('HGET', KEYS[2], 'initial_written'))
+if ARGV[12] == '1' and phase == 'streaming' and active == 1 and unsafe == '0' and complete == '0' and
+   ARGV[5] == '1' and ARGV[6] ~= '1' and written > 0 and written < size-start and
+   redis.call('HGET', KEYS[2], 'requests') == '1' and redis.call('HGET', KEYS[2], 'restart_available') == '1' and
+   initialWritten and initialWritten > 0 and start <= initialWritten and start+written > initialWritten and written <= size-initialWritten and
+   tonumber(redis.call('HGET', KEYS[2], 'used')) == written then
+  redis.call('HSET', KEYS[2], 'interrupted_prefix', string.format('%.0f', start+written), 'first_range_written', ARGV[4])
+end
+if fullRestart then
+  -- Full restart admission was exclusive and reserved exactly size bytes.
+  -- Restore only its unwritten bytes. Only a pre-header failure can put the
+  -- single restart back; every admission still counts toward the request cap.
+  -- An unaccounted writer panic leaves the full reservation charged.
+  if ARGV[9] == '1' or ARGV[5] == '1' or written > 0 then
+    local previous = promotedReplacement and redis.call('HGET', KEYS[2], 'first_range_written') or '0'
+    -- Before headers the earlier range retains its ordinary charge. Once
+    -- replacement bytes are sent, the proven contiguous prefix (initial +
+    -- first range) occupies at most the initial allowance. Future ranges
+    -- share only the unwritten part of the replacement allowance.
+    local charged = ARGV[9] == '1' and previous or ARGV[4]
+    redis.call('HSET', KEYS[2], 'used', charged,
+      'restart_available', previous == '0' and ARGV[9] or '0')
+  end
+end
+-- A confirmed failure before archive headers can replay precisely this GET.
+-- Save the current ordinal, never decrement it. A different admission spends
+-- the opportunity. The previous idle deadline covers a lost streaming-mark reply.
+local retryOwner = redis.call('HGET', KEYS[2], 'gap_retry_owner') == ARGV[7] and
+  tonumber(redis.call('HGET', KEYS[2], 'gap_retry_after')) == tonumber(redis.call('HGET', KEYS[2], 'requests'))-1
+if ARGV[9] == '1' and written == 0 and active == 1 and ARGV[13] ~= '' and
+   (promotedReplacement or retryOwner) and
+   redis.call('HGET', KEYS[2], 'used') == redis.call('HGET', KEYS[2], 'first_range_written') then
+  redis.call('HSET', KEYS[2], 'gap_retry_request', ARGV[13], 'gap_retry_after', redis.call('HGET', KEYS[2], 'requests'),
+    'idle_deadline', redis.call('HGET', KEYS[2], 'gap_idle_before'))
+end
+-- An abandoned preparation restores the original eligibility deadline. Only
+-- a response that actually started earns a new resume window on disconnect.
+local resume = tonumber(redis.call('HGET', KEYS[2], 'resume_seconds'))
+if resume then
+  local now = nowMillis()
+  local absolute = tonumber(redis.call('HGET', KEYS[2], 'absolute_deadline'))
+  local idle = tonumber(redis.call('HGET', KEYS[2], 'idle_deadline'))
+  if ARGV[9] ~= '1' then
+    idle = math.min(absolute, now + resume * 1000)
+    redis.call('HSET', KEYS[2], 'idle_deadline', idle)
+  end
+  if active == 1 or ARGV[9] ~= '1' then
+    redis.call('PEXPIRE', KEYS[2], math.min(redis.call('PTTL', KEYS[1]), idle - now))
+  end
+end
 if complete == '1' and unsafe ~= '1' then redis.call('HSET', KEYS[1], 'completed_download', '1') end
 redis.call('HDEL', KEYS[1], ARGV[7])
 return 1
@@ -263,6 +295,16 @@ return 1
 // bytes already written can be retained after a transport interruption, but
 // completion additionally requires a successful response and full coverage.
 func RecordDownloadProgress(session *DownloadSession, start, written int64, integrityOK, responseOK bool) error {
+	return finishDownloadResponse(session, start, written, integrityOK, responseOK, false)
+}
+
+// AbandonDownloadPreparation releases a failed GET or Range attempt before
+// it has sent any archive headers, without renewing the idle timeout.
+func AbandonDownloadPreparation(session *DownloadSession) error {
+	return finishDownloadResponse(session, 0, 0, false, false, true)
+}
+
+func finishDownloadResponse(session *DownloadSession, start, written int64, integrityOK, responseOK, abandoned bool) error {
 	if session == nil || !session.tracked {
 		return nil
 	}
@@ -280,7 +322,7 @@ func RecordDownloadProgress(session *DownloadSession, start, written int64, inte
 	defer c.Close()
 	status, err := redis.Int(recordDownloadProgressScript.Do(c, session.fileKey, session.sessionKey,
 		session.token, session.encrypted, strconv.FormatInt(start, 10), strconv.FormatInt(written, 10), valid, success, session.progressField,
-		strconv.FormatInt(session.size, 10)))
+		strconv.FormatInt(session.size, 10), abandoned, session.initial, session.restart, session.validatedOpenRange, session.retryIdentity))
 	if err != nil {
 		return err
 	}

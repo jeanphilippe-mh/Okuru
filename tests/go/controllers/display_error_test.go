@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"bytes"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jeanphilippe-mh/Okuru/utils"
 	"github.com/labstack/echo/v5"
 )
 
@@ -32,7 +34,7 @@ func TestValidationMessagesBeginWithCapitalLetter(t *testing.T) {
 			if err := AddIndex(e.NewContext(req, rec)); err != nil {
 				t.Fatal(err)
 			}
-			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) || rec.Header().Get("Refresh") != "3; url=/" {
 				t.Fatalf("status %d, response %q; want %q", rec.Code, rec.Body.String(), tc.want)
 			}
 		})
@@ -60,8 +62,65 @@ func TestUploadErrorBeginsWithCapitalLetter(t *testing.T) {
 	if err := AddFile(e.NewContext(req, rec)); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "No files selected") {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "No files selected") ||
+		rec.Header().Get("Refresh") != "3; url=/file" {
 		t.Fatalf("status %d, response %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFilenameErrorsStayOnTheFileForm(t *testing.T) {
+	oldFolder := utils.FILEFOLDER
+	utils.FILEFOLDER = t.TempDir()
+	t.Cleanup(func() { utils.FILEFOLDER = oldFolder })
+	e := echo.New()
+	e.Renderer = errorMessageRenderer{}
+	e.Validator = uploadValidator{}
+	for _, tc := range []struct {
+		name      string
+		filenames []string
+		message   string
+	}{
+		{"invalid", []string{"bad?.txt"}, "Invalid file name."},
+		{"too long", []string{strings.Repeat("a", 256)}, "Invalid file name."},
+		{"duplicate", []string{"Straße.txt", "STRASSE.txt"}, "Duplicate file name."},
+	} {
+		for _, accept := range []string{echo.MIMETextHTML, echo.MIMEApplicationJSON} {
+			t.Run(tc.name+"/"+accept, func(t *testing.T) {
+				var body bytes.Buffer
+				w := multipart.NewWriter(&body)
+				for _, filename := range tc.filenames {
+					if _, err := w.CreateFormFile("files", filename); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := w.Close(); err != nil {
+					t.Fatal(err)
+				}
+				req := httptest.NewRequest(http.MethodPost, "/file", &body)
+				req.Header.Set(echo.HeaderContentType, w.FormDataContentType())
+				req.Header.Set(echo.HeaderAccept, accept)
+				rec := httptest.NewRecorder()
+				if err := AddFile(e.NewContext(req, rec)); err != nil {
+					t.Fatal(err)
+				}
+				if accept == echo.MIMEApplicationJSON {
+					var response map[string]string
+					if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil ||
+						response["error"] != tc.message || response["code"] != utils.UploadFilenameErrorCode {
+						t.Fatalf("unexpected JSON filename error: %q", rec.Body.String())
+					}
+				}
+				if rec.Code != http.StatusBadRequest || rec.Header().Get("Refresh") != "" ||
+					!strings.Contains(rec.Body.String(), tc.message) {
+					t.Fatalf("status=%d refresh=%q body=%q", rec.Code, rec.Header().Get("Refresh"), rec.Body.String())
+				}
+				for _, filename := range tc.filenames {
+					if strings.Contains(rec.Body.String(), filename) {
+						t.Fatal("response exposed the supplied filename")
+					}
+				}
+			})
+		}
 	}
 }
 
