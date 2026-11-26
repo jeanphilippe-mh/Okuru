@@ -254,11 +254,6 @@ func DownloadFile(context *echo.Context) error {
 	if err != nil {
 		return context.NoContent(http.StatusNotFound)
 	}
-	guard, err := AcquireStoragePathGuard(FILEFOLDER)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
-	}
-	defer guard.Close()
 	password := context.FormValue("password")
 	if err := ValidateSecretLength(password); err != nil {
 		return context.NoContent(http.StatusRequestEntityTooLarge)
@@ -278,6 +273,17 @@ func DownloadFile(context *echo.Context) error {
 	if downloadSharePath(f.FileKey) == "" {
 		return context.NoContent(http.StatusNotFound)
 	}
+	releaseDownload, err := admitArchiveDownload(context, archiveName)
+	if err != nil {
+		return err
+	}
+	defer releaseDownload()
+	guard, err := AcquireStoragePathGuard(FILEFOLDER)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
+	}
+	defer guard.Close()
+
 	var releaseKDF func()
 	needsKDF := preview.ArchiveFormat == ArchiveFormatAgeUserPassword && password != ""
 	if needsKDF {

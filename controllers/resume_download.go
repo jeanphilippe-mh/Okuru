@@ -490,6 +490,12 @@ func DownloadSessionFile(c *echo.Context) error {
 		RecordDownloadDecision(c, DownloadRangeRejected)
 		return c.NoContent(http.StatusRequestedRangeNotSatisfiable)
 	}
+	releaseDownload, err := admitArchiveDownload(c, name)
+	if err != nil {
+		return err
+	}
+	defer releaseDownload()
+
 	guard, err := AcquireStoragePathGuard(FILEFOLDER)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
