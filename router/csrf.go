@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
+const browserCSRFCookie = "__Host-okuru-csrf"
 const csrfVerificationFailedKey = "okuru.csrf.verification_failed"
 const csrfVerificationErrorText = "The form could not be verified. Please submit it again."
 const csrfVerificationErrorCode = "form_verification_failed"
@@ -22,6 +23,11 @@ func browserCSRFConfig() middleware.CSRFConfig {
 		return c.Path() == "/api/*" || c.Path() == "/api" || path == "/api/v2/secrets" || strings.HasPrefix(path, "/api/v2/secrets/") || isFileAPIPath(path)
 	}
 	config.TokenLookup = "form:_csrf,header:X-CSRF-Token"
+	// The __Host- prefix requires Secure, Path=/ and no Domain attribute.
+	// Ignore cookies issued under the old name instead of migrating their values.
+	config.CookieName = browserCSRFCookie
+	config.CookiePath = "/"
+	config.CookieDomain = ""
 	config.CookieSecure = true
 	config.CookieHTTPOnly = true
 	config.CookieSameSite = http.SameSiteStrictMode
