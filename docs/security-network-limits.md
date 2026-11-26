@@ -21,6 +21,20 @@ does not prove which configuration is active.
   four multipart file uploads are processed concurrently per process. At
   capacity, requests receive HTTP 503. HTTP/2 is limited to 32 concurrent
   streams per connection.
+- Up to 16 small request bodies may be read concurrently, with up to four
+  reads per verified public client. A separate limit of 16 ZIP download
+  operations applies after share or session validation, to view reservation,
+  initial responses and continuations,
+  with up to four operations per verified public client and per archive.
+  These limits leave request capacity available for short work under transfer
+  load. A request denied by either limit receives HTTP 503 and
+  `Retry-After: 1`. Download admission runs before claiming a view or consuming
+  a continuation attempt. Clients can retry an authorized download at the
+  same session URL while the session is still valid.
+- Private and loopback peers can represent a shared proxy. They remain
+  subject to process-wide and per-archive limits. Per-client limits use the
+  existing validated address and proxy configuration. IPv6 clients share
+  a budget within their /64.
 - Bodies other than multipart `POST /file` are limited to 64 KiB before CSRF
   form extraction, including when the request has an unknown content length.
   Multipart `POST /file` retains the existing global HTTP body limit of 1024M;
