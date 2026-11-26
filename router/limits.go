@@ -15,20 +15,23 @@ import (
 )
 
 const (
-	defaultIOIdleTimeout  = 2 * time.Minute
-	maxSmallRequestBytes  = 64 << 10
-	maxConcurrentRequests = 64
-	maxConcurrentUploads  = 4
-	maxSmallBodyTime      = 30 * time.Second
-	maxUploadBodyBytes    = int64(1024 * 1000 * 1000) // Echo BodyLimit("1024M") uses decimal MB.
-	uploadRateGrace       = 30 * time.Second
-	minUploadBytesPerSec  = int64(32 << 10)
+	defaultIOIdleTimeout    = 2 * time.Minute
+	maxSmallRequestBytes    = 64 << 10
+	maxConcurrentRequests   = 64
+	maxConcurrentUploads    = 4
+	maxConcurrentSmallReads = 16
+	maxSmallReadsPerClient  = 4
+	maxSmallBodyTime        = 30 * time.Second
+	maxUploadBodyBytes      = int64(1024 * 1000 * 1000) // Echo BodyLimit("1024M") uses decimal MB.
+	uploadRateGrace         = 30 * time.Second
+	minUploadBytesPerSec    = int64(32 << 10)
 )
 
 // Shared across router instances, so constructing another router does not
 // accidentally multiply the process-wide request budget.
 var requestSlots = make(chan struct{}, maxConcurrentRequests)
 var uploadSlots = make(chan struct{}, maxConcurrentUploads)
+var smallBodyReads = utils.NewRequestCapacity(maxConcurrentSmallReads, maxSmallReadsPerClient, 0)
 
 // On HTTP/1, avoid net/http draining a slow unfinished request body before it
 // can send an error response. HTTP/2 manages cancellation per stream instead.
@@ -160,31 +163,43 @@ func requestLimitsWithUploadLease(idleTimeout, readTimeout, writeTimeout time.Du
 				r.Body = limitedBody
 			}
 
-			if !upload && r.Body != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				bodyLimit := int64(maxSmallRequestBytes)
-				if r.Method == http.MethodPost && r.URL.Path == browserSecurityPath {
-					bodyLimit = maxBrowserReportBytes
-				}
-				if r.ContentLength > bodyLimit {
+			if !upload && r.Body != nil && r.Body != http.NoBody && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				if err := bufferSmallRequestBody(c); err != nil {
 					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
+					return err
 				}
-				body, err := io.ReadAll(io.LimitReader(r.Body, bodyLimit+1))
-				if err != nil {
-					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
-				}
-				if int64(len(body)) > bodyLimit {
-					closeUnreadHTTP1(c)
-					return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
-				}
-				_ = r.Body.Close()
-				r.Body = io.NopCloser(bytes.NewReader(body))
-				r.ContentLength = int64(len(body))
 			}
 			return next(c)
 		}
 	}
+}
+
+func bufferSmallRequestBody(c *echo.Context) error {
+	r := c.Request()
+	bodyLimit := int64(maxSmallRequestBytes)
+	if r.Method == http.MethodPost && r.URL.Path == browserSecurityPath {
+		bodyLimit = maxBrowserReportBytes
+	}
+	if r.ContentLength > bodyLimit {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
+	}
+	release := smallBodyReads.TryAcquire(r, "")
+	if release == nil {
+		c.Response().Header().Set(echo.HeaderRetryAfter, "1")
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Request body capacity is busy")
+	}
+	defer release()
+	body, err := io.ReadAll(io.LimitReader(r.Body, bodyLimit+1))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+	}
+	if int64(len(body)) > bodyLimit {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "Request body too large")
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return nil
 }
 
 type idleDeadlineBody struct {

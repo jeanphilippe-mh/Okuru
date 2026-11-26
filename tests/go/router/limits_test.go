@@ -77,6 +77,33 @@ func TestSmallBodyIsPreservedForHandler(t *testing.T) {
 	}
 }
 
+func TestSmallBodyCapacityLeavesShortRoutesAvailable(t *testing.T) {
+	e := echo.New()
+	e.Use(testRequestLimits(time.Minute, time.Hour, time.Hour))
+	e.GET("/preview", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
+	e.POST("/submit", func(c *echo.Context) error { return c.NoContent(http.StatusCreated) })
+	capacityRequest := httptest.NewRequest(http.MethodPost, "/submit", nil)
+	capacityRequest.RemoteAddr = "127.0.0.1:1234"
+	for range maxConcurrentSmallReads {
+		release := smallBodyReads.TryAcquire(capacityRequest, "")
+		if release == nil {
+			t.Fatal("could not reserve small-body capacity")
+		}
+		defer release()
+	}
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/preview", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview unavailable at capacity: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("message=example")))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "1" || rec.Header().Get("Connection") != "close" {
+		t.Fatalf("unexpected small-body admission result: %d %v", rec.Code, rec.Header())
+	}
+}
+
 func TestMultipartUploadKeepsLargerBodyAllowance(t *testing.T) {
 	oldFolder := utils.FILEFOLDER
 	utils.FILEFOLDER = t.TempDir()
