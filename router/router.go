@@ -189,6 +189,7 @@ func NewWithTimeouts(idleTimeout, readTimeout, writeTimeout time.Duration) *echo
 	// Limit reporting requests before the general small-body buffer and CSRF.
 	e.Use(browserSecurityGuard(&processBrowserReportLimiter))
 	e.Use(directUploadGuard)
+	e.Use(rejectCrossSiteMultipartUpload)
 
 	// Protect parsing, including CSRF form extraction, before entering middleware.
 	e.Use(requestLimits(idleTimeout, readTimeout, writeTimeout))

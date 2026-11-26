@@ -275,6 +275,52 @@ func TestUploadProgressCSRFErrorCanRefreshTheSameOriginForm(t *testing.T) {
 	}
 }
 
+func TestBrowserMultipartFetchMetadataRejectsBeforeAdmission(t *testing.T) {
+	e := New()
+	e.Renderer = selectionLimitRenderer{}
+	ConfigureErrorHandler(e, t.TempDir())
+	for _, tc := range []struct {
+		name, path, site, accept string
+		protocol                 int
+	}{
+		{"JSON over HTTP/1", "/file", "cross-site", echo.MIMEApplicationJSON, 1},
+		{"HTML with trailing slash", "/file/", "cross-site", echo.MIMETextHTML, 1},
+		{"unrecognized metadata over HTTP/2", "/file", "unrecognized", echo.MIMEApplicationJSON, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.path, unexpectedUploadRead{t})
+			req.ProtoMajor = tc.protocol
+			// The request admission middleware would otherwise reject this
+			// length before acquiring a lease. Expect the earlier CSRF error.
+			req.ContentLength = maxUploadBodyBytes + 1
+			req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=fixture")
+			req.Header.Set(echo.HeaderSecFetchSite, tc.site)
+			req.Header.Set(echo.HeaderAccept, tc.accept)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden || rec.Header().Get(echo.HeaderXCSRFToken) != "" ||
+				rec.Header().Get(echo.HeaderCacheControl) != "private, no-store" || len(rec.Result().Cookies()) != 0 {
+				t.Fatalf("unexpected CSRF rejection: status=%d, headers=%v", rec.Code, rec.Header())
+			}
+			if got := rec.Header().Get(echo.HeaderConnection); (tc.protocol == 1 && got != "close") || (tc.protocol == 2 && got != "") {
+				t.Fatalf("unexpected Connection header for HTTP/%d: %q", tc.protocol, got)
+			}
+			if tc.accept == echo.MIMETextHTML {
+				body := html.UnescapeString(rec.Body.String())
+				if !strings.Contains(body, `id="file_create"`) || !strings.Contains(body, "🚫 "+csrfVerificationErrorText) {
+					t.Fatal("HTML rejection did not preserve inline form feedback")
+				}
+				return
+			}
+			var body map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body) != 2 ||
+				body["code"] != csrfVerificationErrorCode || body["error"] != csrfVerificationErrorText {
+				t.Fatalf("unexpected JSON CSRF error: %q", rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestHTTP413PagesDisplayOnlyTheirKnownSizeLimit(t *testing.T) {
 	oldMax := utils.MaxFileSize
 	utils.MaxFileSize = 1536 * 1024 * 1024

@@ -35,12 +35,7 @@ func browserCSRFConfig() middleware.CSRFConfig {
 	// Echo v4 validated tokens for same-site, cross-origin requests.
 	// Keep that behavior without bypassing the token check or allowing
 	// cross-site and unrecognized Fetch Metadata values.
-	config.AllowSecFetchSiteFunc = func(c *echo.Context) (bool, error) {
-		if c.Request().Header.Get(echo.HeaderSecFetchSite) == "same-site" {
-			return false, nil
-		}
-		return false, markCSRFVerificationFailure(c, echo.NewHTTPError(http.StatusForbidden, "cross-site request blocked by CSRF"))
-	}
+	config.AllowSecFetchSiteFunc = checkBrowserCSRFNonSameOrigin
 	return config
 }
 
