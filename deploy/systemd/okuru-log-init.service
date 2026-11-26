@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare the Okuru application log
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log
+ExecStart=/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/okuru-log.conf

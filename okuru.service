@@ -1,5 +1,7 @@
 [Unit]
 Description=Okuru
+Requires=okuru-log-init.service
+After=okuru-log-init.service
 StartLimitIntervalSec=15min
 StartLimitBurst=4
 
@@ -12,7 +14,6 @@ AmbientCapabilities=
 Type=simple
 WorkingDirectory=/home/freebox/Okuru
 EnvironmentFile=/home/freebox/Okuru/.env
-ExecStartPre=+/bin/sh -c 'echo f /var/log/okuru.log :0640 :freebox :freebox - - | /usr/bin/systemd-tmpfiles --create -'
 ExecStartPre=/bin/sh -c 'test -f /var/log/okuru.log && test ! -L /var/log/okuru.log && test -w /var/log/okuru.log'
 ExecStart=/home/freebox/Okuru/Okuru --internal-log-supervisor
 User=freebox
