@@ -2,9 +2,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -15,21 +12,14 @@ import (
 // callers using Get rather than GetContext must never wait without a deadline.
 const redisMaxActive = 64
 
-type redisPoolConfig struct {
-	host, port, password, database string
-}
-
 var redisPoolState struct {
 	sync.Mutex
 	config redisPoolConfig
 	pool   *redis.Pool
 }
 
-// redisDialContext is a seam for deterministic tests; production uses Redigo.
-var redisDialContext = redis.DialContext
-
 func NewPool() *redis.Pool {
-	config := redisPoolConfig{REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB}
+	config := currentRedisPoolConfig(REDIS_DB)
 	redisPoolState.Lock()
 	defer redisPoolState.Unlock()
 	if redisPoolState.pool != nil && redisPoolState.config == config {
@@ -47,21 +37,7 @@ func NewPool() *redis.Pool {
 		IdleTimeout:     time.Minute,
 		MaxConnLifetime: time.Hour,
 		DialContext: func(ctx context.Context) (redis.Conn, error) {
-			db, err := strconv.Atoi(config.database)
-			if err != nil || db < 0 {
-				return nil, fmt.Errorf("Invalid Redis database")
-			}
-			opts := []redis.DialOption{
-				redis.DialConnectTimeout(3 * time.Second),
-				redis.DialReadTimeout(5 * time.Second),
-				redis.DialWriteTimeout(5 * time.Second),
-				redis.DialDatabase(db),
-			}
-			if config.password != "" {
-				opts = append(opts, redis.DialPassword(config.password))
-			}
-			// Redigo closes the underlying connection on AUTH or SELECT failure.
-			return redisDialContext(ctx, "tcp", net.JoinHostPort(config.host, config.port), opts...)
+			return config.dial(ctx, 5*time.Second, 5*time.Second)
 		},
 	}
 	redisPoolState.config = config

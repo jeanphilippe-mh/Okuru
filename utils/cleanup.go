@@ -42,15 +42,7 @@ func runFileCleanup(ctx context.Context, interval time.Duration) {
 }
 
 func cleanupConnection(ctx context.Context, timeout time.Duration) (redis.Conn, error) {
-	db, err := strconv.Atoi(REDIS_DB)
-	if err != nil {
-		return nil, fmt.Errorf("Invalid cleanup Redis database: %w", err)
-	}
-	opts := []redis.DialOption{redis.DialConnectTimeout(3 * time.Second), redis.DialReadTimeout(timeout), redis.DialWriteTimeout(3 * time.Second), redis.DialDatabase(db)}
-	if REDIS_PASSWORD != "" {
-		opts = append(opts, redis.DialPassword(REDIS_PASSWORD))
-	}
-	return redis.DialContext(ctx, "tcp", net.JoinHostPort(REDIS_HOST, REDIS_PORT), opts...)
+	return currentRedisPoolConfig(REDIS_DB).dial(ctx, timeout, 3*time.Second)
 }
 func canonicalArchiveID(value string) bool {
 	id, err := uuid.Parse(value)
