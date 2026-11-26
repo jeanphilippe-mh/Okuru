@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
-	log "github.com/sirupsen/logrus"
 )
 
 // Each process shares a bounded pool. Pool.Get fails immediately at capacity:
@@ -97,99 +96,4 @@ func Ping(c redis.Conn) bool {
 	} else {
 		return false
 	}
-}
-
-/** listenPubSubChannels listens for messages on Redis pubsub channels.
-* onStart function is called after the channels are subscribed.
-* onMessage function is called for each message.
-**/
-func listenPubSubChannels(ctx context.Context, redisServerAddr string,
-	onStart func() error,
-	onMessage func(channel string, data []byte) error,
-	channels ...string) error {
-
-	// A ping is set to the server with this period to test for the health of
-	// the connection and server.
-	const healthCheckPeriod = time.Minute
-	c, err := redis.Dial("tcp", redisServerAddr,
-		// Read timeout on server should be greater than ping period.
-		redis.DialReadTimeout(healthCheckPeriod+10*time.Second),
-		redis.DialWriteTimeout(10*time.Second))
-
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-
-	psc := redis.PubSubConn{Conn: c}
-
-	if err := psc.Subscribe(redis.Args{}.AddFlat(channels)...); err != nil {
-		log.Warn("Redis subscription failed")
-		return err
-	}
-
-	done := make(chan error, 1)
-	/**
-	 * Start a goroutine : to receive notifications from the server.
-	**/
-	go func() {
-		for {
-			switch v := psc.Receive().(type) {
-
-			case error:
-				done <- v
-				return
-
-			case redis.Message:
-				log.Debug("Redis notification received")
-				if err := onMessage(v.Channel, v.Data); err != nil {
-					done <- err
-					return
-				}
-
-			case redis.Subscription:
-				log.Debugf("Redis subscription: channel=%s kind=%s count=%d\n", v.Channel, v.Kind, v.Count)
-				switch v.Count {
-				case len(channels):
-					// Notify application when all channels are subscribed.
-					if err := onStart(); err != nil {
-						done <- err
-						return
-					}
-				case 0:
-					// Return from the goroutine when all channels are unsubscribed.
-					done <- nil
-					return
-				}
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(healthCheckPeriod)
-	defer ticker.Stop()
-loop:
-	for {
-		select {
-		case <-ticker.C:
-			// Send ping to test health of connection and server. If
-			// corresponding pong is not received, then receive on the
-			// connection will timeout and the receive goroutine will exit.
-			if err = psc.Ping(""); err != nil {
-				break loop
-			}
-		case <-ctx.Done():
-			break loop
-		case err := <-done:
-			// Return error from the receive goroutine.
-			return err
-		}
-	}
-
-	// Signal the receiving goroutine to exit by unsubscribing from all channels.
-	if err := psc.Unsubscribe(); err != nil {
-		return err
-	}
-
-	// Wait for goroutine to complete.
-	return <-done
 }
