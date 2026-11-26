@@ -79,6 +79,8 @@ utils/cleanup_test.go
 utils/context_test.go
 utils/download_session_test.go
 utils/redis_pool_test.go
+utils/redis_transport_integration_test.go
+utils/redis_transport_test.go
 utils/runtime_health_test.go
 utils/runtime_storage_test.go
 utils/secure_multipart_test.go
