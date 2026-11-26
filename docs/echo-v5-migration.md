@@ -8,6 +8,10 @@ Two Echo v5 behavior changes need particular attention when validating clients. 
 
 Echo v5 normally rejects state-changing `Sec-Fetch-Site: same-site` requests before checking a CSRF token. Okuru explicitly retains the v4 behavior: same-site requests must pass the existing token check, and cross-site or unrecognized values are rejected. This does not treat sibling origins as trusted and does not bypass token validation.
 
+The browser CSRF fallback uses the host-only cookie `__Host-okuru-csrf` with `Secure`, `HttpOnly`, `SameSite=Strict` and `Path=/`. The form field remains `_csrf` and clients can also send the token in the `X-CSRF-Token` header. After deployment, a client relying on a token from a previously opened form may need to reload the form before resubmitting. The secret and file APIs continue to use the cookies issued by their own bootstrap endpoints.
+
+For multipart `POST /file` requests, Okuru checks Fetch Metadata before acquiring upload capacity or reading the body. A cross-site or unrecognized value returns HTTP 403 with the usual form verification error. Requests without Fetch Metadata and same-site requests still require validation with the browser CSRF token.
+
 ## Verification
 
 The Go tests are maintained under `tests/go` and projected into packages by the test runner. Use an isolated Redis instance and the commands in [tests/README.md](../tests/README.md), in particular:
