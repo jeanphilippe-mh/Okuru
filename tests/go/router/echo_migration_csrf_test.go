@@ -80,25 +80,32 @@ func TestProductionRouterCSRFContract(t *testing.T) {
 		c.Response().Header().Set("X-CSRF-Token", c.Get("csrf").(string))
 		return c.NoContent(http.StatusOK)
 	})
+	legacy := &http.Cookie{Name: "_csrf", Value: strings.Repeat("A", 32)}
 	get := httptest.NewRecorder()
-	e.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/csrf-contract-probe", nil))
+	request := httptest.NewRequest(http.MethodGet, "/csrf-contract-probe", nil)
+	request.AddCookie(legacy)
+	e.ServeHTTP(get, request)
 	if get.Code != http.StatusOK {
 		t.Fatalf("Web CSRF probe returned %d, want %d", get.Code, http.StatusOK)
 	}
 	var cookie *http.Cookie
 	for _, candidate := range get.Result().Cookies() {
-		if candidate.Name == "_csrf" {
+		if candidate.Name == legacy.Name {
+			t.Fatal("response refreshed the legacy CSRF cookie")
+		}
+		if candidate.Name == "__Host-okuru-csrf" {
 			if cookie != nil {
 				t.Fatal("more than one CSRF cookie")
 			}
 			cookie = candidate
 		}
 	}
-	if cookie == nil || len(cookie.Value) != 32 {
-		t.Fatal("expected a 32-character CSRF cookie")
+	if cookie == nil || len(cookie.Value) != 32 || cookie.Value == legacy.Value {
+		t.Fatal("expected a freshly generated CSRF cookie")
 	}
-	if !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
-		t.Fatalf("insecure CSRF cookie attributes: Secure=%t HttpOnly=%t SameSite=%v", cookie.Secure, cookie.HttpOnly, cookie.SameSite)
+	if cookie.Path != "/" || cookie.Domain != "" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("insecure CSRF cookie attributes: Path=%q Domain=%q Secure=%t HttpOnly=%t SameSite=%v",
+			cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly, cookie.SameSite)
 	}
 	if token := get.Header().Get("X-CSRF-Token"); token != cookie.Value {
 		t.Fatal("Web CSRF response header does not match the cookie")
@@ -109,11 +116,15 @@ func TestProductionRouterCSRFContract(t *testing.T) {
 		token     string
 		form      bool
 		cookie    bool
+		legacy    bool
 		fetchSite string
 		status    int
 	}{
 		{name: "valid header", token: cookie.Value, cookie: true, status: http.StatusNoContent},
 		{name: "valid form", token: cookie.Value, form: true, cookie: true, status: http.StatusNoContent},
+		{name: "valid form during migration", token: cookie.Value, form: true, cookie: true, legacy: true, status: http.StatusNoContent},
+		{name: "legacy form", token: legacy.Value, form: true, legacy: true, status: http.StatusForbidden},
+		{name: "legacy header", token: legacy.Value, cookie: true, legacy: true, status: http.StatusForbidden},
 		{name: "missing token", cookie: true, status: http.StatusBadRequest},
 		{name: "mismatched token", token: "incorrect-csrf-token", cookie: true, status: http.StatusForbidden},
 		{name: "missing cookie", token: cookie.Value, status: http.StatusForbidden},
@@ -135,6 +146,9 @@ func TestProductionRouterCSRFContract(t *testing.T) {
 			}
 			if tc.cookie {
 				req.AddCookie(cookie)
+			}
+			if tc.legacy {
+				req.AddCookie(legacy)
 			}
 			if tc.fetchSite != "" {
 				req.Header.Set("Sec-Fetch-Site", tc.fetchSite)

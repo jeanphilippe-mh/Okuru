@@ -489,7 +489,7 @@ func TestShortLinkHostHeaderCannotChangeShareOrDeleteLink(t *testing.T) {
 	e.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "https://attacker.invalid/", nil))
 	var cookie *http.Cookie
 	for _, c := range page.Result().Cookies() {
-		if c.Name == "_csrf" {
+		if c.Name == "__Host-okuru-csrf" {
 			cookie = c
 		}
 	}
@@ -560,7 +560,7 @@ func testShortLinkProtectedUpload(t *testing.T, progress bool) {
 	e.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "https://attacker.invalid/", nil))
 	var cookie *http.Cookie
 	for _, c := range page.Result().Cookies() {
-		if c.Name == "_csrf" {
+		if c.Name == "__Host-okuru-csrf" {
 			cookie = c
 		}
 	}

@@ -173,7 +173,7 @@ func TestUploadEndToEndEncryptedMultipartAndCSRF(t *testing.T) {
 	}
 	var cookie *http.Cookie
 	for _, c := range getRec.Result().Cookies() {
-		if c.Name == "_csrf" {
+		if c.Name == "__Host-okuru-csrf" {
 			cookie = c
 		}
 	}

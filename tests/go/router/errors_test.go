@@ -145,7 +145,7 @@ func TestCSRFVerificationErrorsStayOnTheirForm(t *testing.T) {
 			}
 			r.Header.Set("Sec-Fetch-Mode", tc.mode)
 			r.Header.Set("X-Requested-With", tc.xhr)
-			r.AddCookie(&http.Cookie{Name: "_csrf", Value: "correct"})
+			r.AddCookie(&http.Cookie{Name: "__Host-okuru-csrf", Value: "correct"})
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, r)
 			if rec.Code != tc.status || rec.Header().Get("Refresh") != tc.refresh {
@@ -172,7 +172,8 @@ func TestCSRFVerificationErrorsStayOnTheirForm(t *testing.T) {
 					}
 				} else {
 					cookies := rec.Result().Cookies()
-					if len(cookies) != 1 || cookies[0].Name != "_csrf" || len(cookies[0].Value) != 32 ||
+					if len(cookies) != 1 || cookies[0].Name != "__Host-okuru-csrf" || len(cookies[0].Value) != 32 ||
+						cookies[0].Path != "/" || cookies[0].Domain != "" ||
 						!cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteStrictMode ||
 						!strings.Contains(body, `name="_csrf" value="`+cookies[0].Value+`"`) {
 						t.Fatal("rendered form did not receive a matching secure CSRF cookie")
@@ -216,7 +217,7 @@ func TestUploadProgressCSRFErrorCanRefreshTheSameOriginForm(t *testing.T) {
 		req.Header.Set(echo.HeaderOrigin, origin)
 		req.Header.Set(echo.HeaderSecFetchSite, site)
 		if cookie != "" {
-			req.AddCookie(&http.Cookie{Name: "_csrf", Value: cookie})
+			req.AddCookie(&http.Cookie{Name: "__Host-okuru-csrf", Value: cookie})
 		}
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
@@ -239,7 +240,8 @@ func TestUploadProgressCSRFErrorCanRefreshTheSameOriginForm(t *testing.T) {
 	assertCSRFError(rec, http.StatusBadRequest)
 	token := rec.Header().Get(echo.HeaderXCSRFToken)
 	cookies := rec.Result().Cookies()
-	if len(token) != 32 || len(cookies) != 1 || cookies[0].Name != "_csrf" ||
+	if len(token) != 32 || len(cookies) != 1 || cookies[0].Name != "__Host-okuru-csrf" ||
+		cookies[0].Path != "/" || cookies[0].Domain != "" ||
 		cookies[0].Value != token || !cookies[0].Secure || !cookies[0].HttpOnly ||
 		cookies[0].SameSite != http.SameSiteStrictMode {
 		t.Fatal("same-origin rejection did not issue a matching secure CSRF token")

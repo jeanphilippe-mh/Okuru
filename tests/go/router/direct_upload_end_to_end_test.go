@@ -113,7 +113,7 @@ func directE2EDownload(t *testing.T, client *http.Client, rawURL, password strin
 	}
 	var formToken string
 	for _, cookie := range preview.Cookies() {
-		if cookie.Name == "_csrf" {
+		if cookie.Name == "__Host-okuru-csrf" {
 			formToken = cookie.Value
 		}
 	}

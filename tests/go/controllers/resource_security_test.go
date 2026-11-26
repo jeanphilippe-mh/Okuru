@@ -105,7 +105,7 @@ func requestWithCSRF(t *testing.T, e *echo.Echo, path string, fields url.Values)
 	e.ServeHTTP(page, httptest.NewRequest("GET", "/", nil))
 	var cookie *http.Cookie
 	for _, c := range page.Result().Cookies() {
-		if c.Name == "_csrf" {
+		if c.Name == "__Host-okuru-csrf" {
 			cookie = c
 		}
 	}

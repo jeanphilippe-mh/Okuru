@@ -386,7 +386,7 @@ func TestDownloadResumesOverHTTPSWithETagAlone(t *testing.T) {
 	preview.Body.Close()
 	form := url.Values{}
 	for _, cookie := range preview.Cookies() {
-		if cookie.Name == "_csrf" {
+		if cookie.Name == "__Host-okuru-csrf" {
 			form.Set("_csrf", cookie.Value)
 		}
 	}
