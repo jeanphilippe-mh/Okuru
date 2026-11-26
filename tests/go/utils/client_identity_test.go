@@ -15,6 +15,56 @@ import (
 
 type clientIdentityRoundTripper func(*http.Request) (*http.Response, error)
 
+func TestRequestCapacityCombinesSharedAndScopedLimits(t *testing.T) {
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "")
+	direct := httptest.NewRequest(http.MethodGet, "/", nil)
+	direct.RemoteAddr = "203.0.113.8:1234"
+	proxy := direct.Clone(direct.Context())
+	proxy.RemoteAddr = "127.0.0.1:4443"
+
+	capacity := NewRequestCapacity(3, 1, 1)
+	first := capacity.TryAcquire(direct, "archive-1")
+	second := capacity.TryAcquire(proxy, "archive-2")
+	third := capacity.TryAcquire(proxy, "archive-3")
+	if first == nil || second == nil || third == nil {
+		t.Fatal("separate archives and shared proxy requests must have capacity")
+	}
+	defer first()
+	defer third()
+	if capacity.TryAcquire(proxy, "archive-4") != nil {
+		t.Fatal("global limit not enforced")
+	}
+	second()
+	if capacity.TryAcquire(direct, "archive-4") != nil {
+		t.Fatal("public client limit not enforced")
+	}
+	if capacity.TryAcquire(proxy, "archive-1") != nil {
+		t.Fatal("archive limit not enforced")
+	}
+	reacquired := capacity.TryAcquire(proxy, "archive-2")
+	if reacquired == nil {
+		t.Fatal("released capacity was not restored")
+	}
+	reacquired()
+	if _, retained := capacity.perResource["archive-2"]; retained {
+		t.Fatal("inactive archive retained in the capacity map")
+	}
+}
+
+func TestRequestCapacityLeavesUnattributedTrustedProxyUnscoped(t *testing.T) {
+	t.Setenv("OKURU_TRUSTED_PROXY_CIDRS", "203.0.113.8/32")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "203.0.113.8:1234"
+	capacity := NewRequestCapacity(2, 1, 0)
+	for range 2 {
+		release := capacity.TryAcquire(r, "")
+		if release == nil {
+			t.Fatal("proxy without attributed client incorrectly used a per-client limit")
+		}
+		defer release()
+	}
+}
+
 func (f clientIdentityRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
