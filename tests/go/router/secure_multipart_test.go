@@ -202,11 +202,21 @@ func TestSecureMultipartPrecedesCSRFAndPreservesTokenVariants(t *testing.T) {
 	old := utils.FILEFOLDER
 	utils.FILEFOLDER = t.TempDir()
 	t.Cleanup(func() { utils.FILEFOLDER = old })
-	for _, kind := range []string{"form", "header", "missing"} {
-		t.Run(kind, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, site, form, header string
+		status                   int
+	}{
+		{name: "form", form: "csrf-value", status: http.StatusNoContent},
+		{name: "header", header: "csrf-value", status: http.StatusNoContent},
+		{name: "missing", status: http.StatusBadRequest},
+		{name: "same-site valid", site: "same-site", form: "csrf-value", status: http.StatusNoContent},
+		{name: "same-site missing", site: "same-site", status: http.StatusBadRequest},
+		{name: "same-origin", site: "same-origin", status: http.StatusNoContent},
+		{name: "direct navigation", site: "none", status: http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
-			e.Use(secureMultipart)
-			e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{TokenLookup: "form:_csrf,header:X-CSRF-Token"}))
+			e.Use(rejectCrossSiteMultipartUpload, secureMultipart, middleware.CSRFWithConfig(browserCSRFConfig()))
 			called := false
 			e.POST("/file", func(c *echo.Context) error {
 				called = true
@@ -215,25 +225,20 @@ func TestSecureMultipartPrecedesCSRFAndPreservesTokenVariants(t *testing.T) {
 				}
 				return c.NoContent(http.StatusNoContent)
 			})
-			csrf := ""
-			if kind == "form" {
-				csrf = "csrf-value"
-			}
-			body, contentType := makeMultipartBody(t, csrf, 1024)
+			body, contentType := makeMultipartBody(t, tc.form, 1024)
 			req := httptest.NewRequest(http.MethodPost, "/file", body)
 			req.Header.Set("Content-Type", contentType)
-			req.AddCookie(&http.Cookie{Name: "_csrf", Value: "csrf-value"})
-			if kind == "header" {
-				req.Header.Set("X-CSRF-Token", "csrf-value")
+			req.AddCookie(&http.Cookie{Name: "__Host-okuru-csrf", Value: "csrf-value"})
+			if tc.header != "" {
+				req.Header.Set(echo.HeaderXCSRFToken, tc.header)
+			}
+			if tc.site != "" {
+				req.Header.Set(echo.HeaderSecFetchSite, tc.site)
 			}
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
-			if kind == "missing" {
-				if called || rec.Code < 400 {
-					t.Fatalf("missing CSRF accepted: %d", rec.Code)
-				}
-			} else if !called || rec.Code != http.StatusNoContent {
-				t.Fatalf("%s token rejected: %d", kind, rec.Code)
+			if rec.Code != tc.status || called != (tc.status == http.StatusNoContent) {
+				t.Fatalf("status = %d, want %d (handler called = %t)", rec.Code, tc.status, called)
 			}
 		})
 	}
