@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -73,7 +72,7 @@ func shortPool() (*redis.Pool, error) {
 	if err != nil || mainErr != nil || db < 0 || mainDB < 0 || db == mainDB {
 		return nil, errors.New("short link storage is not configured")
 	}
-	config := redisPoolConfig{REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, strconv.Itoa(db)}
+	config := currentRedisPoolConfig(strconv.Itoa(db))
 	shortPoolState.Lock()
 	defer shortPoolState.Unlock()
 	if shortPoolState.pool != nil && shortPoolState.config == config {
@@ -86,16 +85,7 @@ func shortPool() (*redis.Pool, error) {
 		MaxIdle: 4, MaxActive: 16, Wait: false,
 		IdleTimeout: time.Minute, MaxConnLifetime: time.Hour,
 		DialContext: func(ctx context.Context) (redis.Conn, error) {
-			opts := []redis.DialOption{
-				redis.DialConnectTimeout(3 * time.Second),
-				redis.DialReadTimeout(5 * time.Second),
-				redis.DialWriteTimeout(5 * time.Second),
-				redis.DialDatabase(db),
-			}
-			if config.password != "" {
-				opts = append(opts, redis.DialPassword(config.password))
-			}
-			return redisDialContext(ctx, "tcp", net.JoinHostPort(config.host, config.port), opts...)
+			return config.dial(ctx, 5*time.Second, 5*time.Second)
 		},
 	}
 	shortPoolState.config, shortPoolState.pool = config, pool

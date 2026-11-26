@@ -22,8 +22,10 @@ func poolTestConfig(t *testing.T) {
 	t.Helper()
 	oldHost, oldPort, oldPassword, oldDB := REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB
 	oldDial := redisDialContext
+	t.Setenv("REDIS_TLS", "false")
+	t.Setenv("REDIS_TLS_CA_FILE", "")
 	_ = CloseRedisPool()
-	REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB = "redis-test", "6379", "", "0"
+	REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB = "127.0.0.1", "6379", "", "0"
 	t.Cleanup(func() {
 		_ = CloseRedisPool()
 		REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB = oldHost, oldPort, oldPassword, oldDB
